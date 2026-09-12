@@ -3,14 +3,10 @@
 function KpiCard({
   label,
   value,
+  secondaryValue = null,
   trend = null,
   icon = null,
-  accent: _accent = "primary",
   onClick,
-  // LEGACY — ignored; kept for backward compatibility during migration
-  layout: _layout,
-  accentPosition: _accentPosition,
-  size: _size,
 }) {
   const isInteractive = typeof onClick === "function";
 
@@ -33,6 +29,9 @@ function KpiCard({
       )}
       <span className="kpi-card-v3__value">{value}</span>
       <span className="kpi-card-v3__label">{label}</span>
+      {secondaryValue !== null && secondaryValue !== undefined && (
+        <span className="kpi-card-v3__secondary-value">{secondaryValue}</span>
+      )}
       {trend && <span className="kpi-card-v3__trend">{trend}</span>}
     </div>
   );

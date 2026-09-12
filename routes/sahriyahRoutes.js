@@ -131,11 +131,29 @@ router.get("/", async (req, res) => {
     const total = countResult.rows[0]?.total || 0;
 
     const summaryResult = await pool.query(
-      `SELECT
+       `SELECT
          COUNT(*)::int AS total,
          COUNT(*) FILTER (WHERE LOWER(TRIM(t.status)) = 'lunas')::int AS lunas,
-         COUNT(*) FILTER (WHERE LOWER(TRIM(t.status)) != 'lunas')::int AS belum_lunas,
-         COALESCE(SUM(t.nominal), 0)::numeric AS total_nominal
+         COUNT(*) FILTER (
+           WHERE LOWER(TRIM(COALESCE(t.status, ''))) <> 'lunas'
+         )::int AS belum_lunas,
+         COALESCE(SUM(t.nominal), 0)::numeric AS total_nominal,
+         COALESCE(SUM(t.nominal) FILTER (
+           WHERE LOWER(TRIM(t.status)) = 'lunas'
+         ), 0)::numeric AS lunas_nominal,
+         COALESCE(SUM(t.nominal) FILTER (
+           WHERE LOWER(TRIM(COALESCE(t.status, ''))) <> 'lunas'
+         ), 0)::numeric AS belum_lunas_nominal,
+         COUNT(*) FILTER (WHERE LOWER(TRIM(t.status)) = 'cicilan')::int AS partial_count,
+         COALESCE(SUM(t.nominal) FILTER (
+           WHERE LOWER(TRIM(t.status)) = 'cicilan'
+         ), 0)::numeric AS partial_nominal_tagihan,
+         COALESCE(SUM(t.total_bayar) FILTER (
+           WHERE LOWER(TRIM(t.status)) = 'cicilan'
+         ), 0)::numeric AS partial_sudah_dibayar,
+         COALESCE(SUM(t.sisa_tagihan) FILTER (
+           WHERE LOWER(TRIM(t.status)) = 'cicilan'
+         ), 0)::numeric AS partial_sisa
        ${joinSql}
        WHERE ${whereSql}`,
       params,
@@ -178,10 +196,16 @@ router.get("/", async (req, res) => {
       }),
       summary: summaryResult.rows[0] || {
         total: 0,
-        lunas: 0,
-        belum_lunas: 0,
-        total_nominal: 0,
-      },
+         lunas: 0,
+         belum_lunas: 0,
+         total_nominal: 0,
+         lunas_nominal: 0,
+         belum_lunas_nominal: 0,
+         partial_count: 0,
+         partial_nominal_tagihan: 0,
+         partial_sudah_dibayar: 0,
+         partial_sisa: 0,
+       },
     });
   } catch (err) {
     console.log(err);

@@ -241,6 +241,14 @@ body {
   white-space: nowrap;
 }
 
+.kpi-card-v3__secondary-value {
+  font-size: clamp(0.875rem, 1.6vw, 1rem);
+  font-weight: 750;
+  color: var(--text-primary);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
 .kpi-card-v3__trend {
   font-size: 10px;
   font-weight: 500;

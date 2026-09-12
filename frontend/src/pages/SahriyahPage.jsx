@@ -78,6 +78,12 @@ function SahriyahPage() {
     lunas: 0,
     belum_lunas: 0,
     total_nominal: 0,
+    lunas_nominal: 0,
+    belum_lunas_nominal: 0,
+    partial_count: 0,
+    partial_nominal_tagihan: 0,
+    partial_sudah_dibayar: 0,
+    partial_sisa: 0,
   });
   const [pagination, setPagination] = useState({
     limit: DEFAULT_PAGE_SIZE,
@@ -136,9 +142,15 @@ function SahriyahPage() {
         setSummary(
           response.data.summary || {
             total: 0,
-            lunas: 0,
-            belum_lunas: 0,
-            total_nominal: 0,
+             lunas: 0,
+             belum_lunas: 0,
+             total_nominal: 0,
+             lunas_nominal: 0,
+             belum_lunas_nominal: 0,
+             partial_count: 0,
+             partial_nominal_tagihan: 0,
+             partial_sudah_dibayar: 0,
+             partial_sisa: 0,
           },
         );
         setPage(pageNum);
@@ -414,6 +426,7 @@ function SahriyahPage() {
             <option value="">Semua Status</option>
             <option value="Lunas">Lunas</option>
             <option value="Belum Lunas">Belum Lunas</option>
+            <option value="Cicilan">Cicilan</option>
           </Select>
           <Select value={filterKelas} onChange={(e) => setFilterKelas(e.target.value)} aria-label="Kelas">
             <option value="">Semua Kelas</option>
@@ -426,10 +439,40 @@ function SahriyahPage() {
 
       <div style={{ marginTop: "var(--space-6)" }}>
         <KpiGrid>
-          <KpiCard label="Total Tagihan" value={formatNumber(summary.total || 0)} accent="primary" />
-          <KpiCard label="Lunas" value={formatNumber(summary.lunas || 0)} accent="success" />
-          <KpiCard label="Belum Lunas" value={formatNumber(summary.belum_lunas || 0)} accent="danger" />
-          <KpiCard label="Total Nominal" value={formatCurrency(summary.total_nominal || 0)} accent="primary" />
+          <KpiCard
+            label="Total Tagihan"
+            value={formatNumber(summary.total || 0)}
+            secondaryValue={formatCurrency(summary.total_nominal || 0)}
+            accent="primary"
+          />
+          <KpiCard
+            label="Lunas"
+            value={formatNumber(summary.lunas || 0)}
+            secondaryValue={formatCurrency(summary.lunas_nominal || 0)}
+            accent="success"
+          />
+          <KpiCard
+            label="Belum Lunas"
+            value={formatNumber(summary.belum_lunas || 0)}
+            secondaryValue={formatCurrency(summary.belum_lunas_nominal || 0)}
+            trend={Number(summary.partial_count || 0) > 0
+              ? `Termasuk ${formatNumber(summary.partial_count)} cicilan`
+              : null}
+            accent="danger"
+          />
+          {Number(summary.partial_count || 0) > 0 && (
+            <KpiCard
+              label="Cicilan (Bagian Belum Lunas)"
+              value={formatNumber(summary.partial_count)}
+              secondaryValue={`Tagihan ${formatCurrency(summary.partial_nominal_tagihan || 0)}`}
+              trend={(
+                <>
+                  Dibayar {formatCurrency(summary.partial_sudah_dibayar || 0)} · Sisa {formatCurrency(summary.partial_sisa || 0)}
+                </>
+              )}
+              accent="warning"
+            />
+          )}
         </KpiGrid>
       </div>
 

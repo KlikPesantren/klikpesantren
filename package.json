@@ -46,6 +46,8 @@
     "migration:090:production": "node scripts/run-migration-090-production.js --confirm-production",
     "migration:090:rehearse": "node scripts/run-migration-090-production.js --rollback-rehearsal",
     "test:sahriyah-alumni-090": "node scripts/test-sahriyah-alumni-hardening-090.js --local-isolated",
+    "test:sahriyah-kpi": "node scripts/test-sahriyah-kpi-summary.js",
+    "smoke:sahriyah-kpi:production": "node scripts/smoke-sahriyah-kpi-production.js",
     "test:absensi-batch": "node scripts/test-absensi-batch-save.js"
   },
   "keywords": [],

@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { santriApi } from '../api/santri.api';
 import { getApiErrorMessage } from '../utils/apiError';
+import { useActiveChild } from '../context/ActiveChildContext';
 
 export function useProfil(activeSantriId) {
+  const { activeUnitId } = useActiveChild();
   const [data, setData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -11,7 +13,7 @@ export function useProfil(activeSantriId) {
 
   const fetchProfil = useCallback(
     async ({ silent = false } = {}) => {
-      if (!activeSantriId) return;
+      if (!activeSantriId || !activeUnitId) return;
       const requestId = ++requestRef.current;
 
       if (!silent) setIsLoading(true);
@@ -33,10 +35,11 @@ export function useProfil(activeSantriId) {
         }
       }
     },
-    [activeSantriId]
+    [activeSantriId, activeUnitId]
   );
 
   useEffect(() => {
+    requestRef.current += 1;
     setData(null);
     setError(null);
     fetchProfil({ silent: false });

@@ -72,7 +72,7 @@ function MainTabsInner() {
 
   return (
     <Tab.Navigator screenOptions={tabOptions}>
-      {features.pengumuman === true ? <Tab.Screen
+      <Tab.Screen
         name="Beranda"
         component={DashboardScreen}
         options={{
@@ -80,8 +80,8 @@ function MainTabsInner() {
           tabBarIcon: tabIcon('Beranda'),
           headerShown: false,
         }}
-      /> : null}
-      {showMonitoring ? <Tab.Screen
+      />
+      {features.pengumuman === true ? <Tab.Screen
         name="Pengumuman"
         component={PengumumanStack}
         options={{
@@ -90,7 +90,7 @@ function MainTabsInner() {
           headerShown: false,
         }}
       /> : null}
-      {showKeuangan ? <Tab.Screen
+      {showMonitoring ? <Tab.Screen
         name="Monitoring"
         component={MonitoringStack}
         options={{
@@ -99,7 +99,7 @@ function MainTabsInner() {
           headerShown: false,
         }}
       /> : null}
-      <Tab.Screen
+      {showKeuangan ? <Tab.Screen
         name="Keuangan"
         component={KeuanganStack}
         options={{
@@ -107,7 +107,7 @@ function MainTabsInner() {
           tabBarIcon: tabIcon('Keuangan'),
           headerShown: false,
         }}
-      />
+      /> : null}
       <Tab.Screen
         name="Profil"
         component={ProfilStack}

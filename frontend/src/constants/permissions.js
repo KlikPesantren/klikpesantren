@@ -48,9 +48,26 @@ export const ROUTE_PERMISSIONS = {
 
 // Map: path frontend → tenant feature key
 export const ROUTE_UNIT_FEATURES = {
+  "/absensi": "absensi",
+  "/pembayaran": "pembayaran",
+  "/perizinan": "perizinan",
+  "/pelanggaran": "pelanggaran",
+  "/kesehatan": "kesehatan",
+  "/pengumuman": "pengumuman",
   "/hafalan": "hafalan",
   "/nilai": "nilai",
   "/mata-pelajaran": "mata_pelajaran",
+  "/sahriyah": "sahriyah",
+  "/sahriyah-setting": "sahriyah",
+  "/rfid-dashboard": "wallet",
+  "/rfid-transactions": "wallet",
+  "/rfid-topup": "wallet",
+  "/wallet-withdrawal": "wallet",
+  "/rfid-mutasi": "wallet",
+  "/rfid-monitor": "rfid",
+  "/rfid-merchant": "rfid",
+  "/rfid-devices": "rfid",
+  "/rfid-refund": "rfid",
 };
 
 export const ROUTE_FEATURES = {

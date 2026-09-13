@@ -91,6 +91,13 @@ test('mobile navigation is capability-driven and fail closed', () => {
   assert.match(tabs, /features\.pengumuman === true/);
   assert.match(tabs, /hasAnyFeature\(features, MONITORING_FEATURE_KEYS\)/);
   assert.match(tabs, /hasAnyFeature\(features, FINANCE_FEATURE_KEYS\)/);
+  assert.match(tabs, /<Tab\.Screen\s+name="Beranda"\s+component=\{DashboardScreen\}/);
+  assert.match(tabs, /features\.pengumuman === true \? <Tab\.Screen\s+name="Pengumuman"\s+component=\{PengumumanStack\}/);
+  assert.match(tabs, /showMonitoring \? <Tab\.Screen\s+name="Monitoring"\s+component=\{MonitoringStack\}/);
+  assert.match(tabs, /showKeuangan \? <Tab\.Screen\s+name="Keuangan"\s+component=\{KeuanganStack\}/);
+  assert.doesNotMatch(tabs, /features\.pengumuman === true \? <Tab\.Screen\s+name="Beranda"/);
+  assert.doesNotMatch(tabs, /showMonitoring \? <Tab\.Screen\s+name="Pengumuman"/);
+  assert.doesNotMatch(tabs, /showKeuangan \? <Tab\.Screen\s+name="Monitoring"/);
   assert.doesNotMatch(quick, /!== false/);
   assert.match(quick, /featureKey: 'wallet'/);
   assert.match(monitoring, /features\.absensi === true/);
@@ -103,7 +110,7 @@ test('selected unit participates in stale-response guards and notification routi
   const hookNames = [
     'useDashboard.js', 'usePengumuman.js', 'useAbsensi.js', 'useNilai.js',
     'useHafalan.js', 'usePerizinan.js', 'usePelanggaran.js', 'useKesehatan.js',
-    'useSahriyah.js', 'useRFID.js',
+    'useSahriyah.js', 'useRFID.js', 'useProfil.js',
   ];
   for (const hookName of hookNames) {
     const source = fs.readFileSync(path.join(appRoot, 'src', 'hooks', hookName), 'utf8');

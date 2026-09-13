@@ -27,15 +27,21 @@ assert.match(permissionHelper, /getUser\(\)\?\.role === "superadmin"/);
 
 assert.match(appShell, /import UnitWorkspaceSelector/);
 assert.match(appShell, /showUnitFoundation \? <UnitWorkspaceSelector \/> : null/);
-assert.match(appShell, /isDashboard \|\| location\.pathname === "\/units"/);
+assert.match(appShell, /const showUnitFoundation = isUnitAwareRoute\(location\.pathname\)/);
+assert.match(permissions, /const TENANT_GLOBAL_ROUTES = new Set/);
+assert.match(permissions, /"\/rfid-dashboard": "wallet"/);
+assert.match(permissions, /"\/rfid-monitor": "rfid"/);
+assert.match(sidebar, /path: "\/rfid-dashboard"[^\n]*unitFeature: "wallet"/);
+assert.match(sidebar, /path: "\/rfid-monitor"[^\n]*unitFeature: "rfid"/);
 
 assert.match(activeUnitContext, /response\.data\?\.access\?\.all_units === true/);
-assert.match(activeUnitContext, /if \(allowAll && \(!stored \|\| stored === "all"\)\)/);
-assert.match(activeUnitContext, /else if \(nextUnits\.length === 1\)/);
+assert.match(activeUnitContext, /if \(allowAll\) \{[\s\S]*setActiveUnitIdState\(storedUnit \? Number\(storedUnit\.id\) : null\)/);
+assert.match(activeUnitContext, /const scopedUnit = storedUnit \|\| nextActiveUnits\[0\]/);
 
-assert.match(selector, /if \(!allUnitsAllowed && units\.length <= 1\) return null/);
+
 assert.match(selector, /allUnitsAllowed \? <option value="all">Semua Unit<\/option> : null/);
+assert.match(selector, /disabled=\{!allUnitsAllowed && activeUnits\.length <= 1\}/);
 assert.match(selector, /if \(error\) return <div/);
 assert.match(unitPage, /<AppShell title="Unit Pendidikan"/);
 
-console.log("PASS frontend multi-unit wiring: 16 assertions");
+console.log("PASS frontend multi-unit wiring: route, selector, feature, and scope assertions");

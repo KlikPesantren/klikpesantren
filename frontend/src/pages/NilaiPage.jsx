@@ -9,7 +9,7 @@ import { OperationalPageStyles } from "../components/shared/OperationalPageStyle
 import { exportExcel } from "../utils/exportExcel";
 import { FaFilter } from "react-icons/fa";
 import { useActiveUnit } from "../context/ActiveUnitContext";
-import { buildUnitScopeParams, requireActiveUnitForWrite } from "../utils/unitScopeParams";
+import { requireActiveUnitForWrite } from "../utils/unitScopeParams";
 import { MONTH_OPTIONS_ID } from "../constants/monthOptions";
 
 const filterPanelStyle = {
@@ -52,8 +52,8 @@ function AkademikResponsiveStyles() {
 }
 
 function NilaiPage() {
-  const { activeUnitId, allUnitsAllowed } = useActiveUnit();
-  const scopeParams = buildUnitScopeParams({ activeUnitId, allUnitsAllowed });
+  const { activeUnitId } = useActiveUnit();
+  const scopeParams = activeUnitId ? { unit_id: activeUnitId } : null;
   const [kelas, setKelas] = useState([]);
   const [kelasId, setKelasId] = useState("");
   const [bulan, setBulan] = useState(new Date().getMonth() + 1);
@@ -62,44 +62,53 @@ function NilaiPage() {
   const [santriLoading, setSantriLoading] = useState(false);
   const [santriError, setSantriError] = useState("");
   const studentRequestId = useRef(0);
+  const nilaiRequestId = useRef(0);
+  const kelasRequestId = useRef(0);
+  const mapelRequestId = useRef(0);
   const [nilai, setNilai] = useState({});
+  const [dirtyKeys, setDirtyKeys] = useState(() => new Set());
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [mapelList, setMapelList] = useState([]);
 
   const getNilai = async (b, t) => {
+    const requestId = ++nilaiRequestId.current;
+    if (!scopeParams) { setNilai({}); return; }
     try {
       const response = await api.get("/nilai", { params: { ...scopeParams, bulan: b, tahun: t } });
       const data = {};
-
       response.data.data.forEach((n) => {
         const key = `${n.santri_id}-${n.mapel}-${n.bulan}-${n.tahun}`;
         data[key] = n.nilai;
       });
-
-      setNilai(data);
+      if (nilaiRequestId.current === requestId) setNilai(data);
     } catch (err) {
       console.error(err);
     }
   };
 
   const getMapel = async (id) => {
-    if (!id) {
+    const requestId = ++mapelRequestId.current;
+    if (!id || !scopeParams) {
       setMapelList([]);
       return;
     }
     try {
       const response = await api.get("/mata-pelajaran", { params: { ...scopeParams, kelas_id: id } });
       const assigned = (response.data.data || []).filter((item) => item.ditugaskan).map((item) => item.nama);
-      setMapelList(assigned);
+      if (mapelRequestId.current === requestId) setMapelList(assigned);
     } catch (err) {
       console.error(err);
-      setMapelList([]);
+      if (mapelRequestId.current === requestId) setMapelList([]);
     }
   };
 
   const getKelas = async () => {
+    const requestId = ++kelasRequestId.current;
+    if (!scopeParams) { setKelas([]); return; }
     try {
       const response = await api.get("/kelas", { params: scopeParams });
-      setKelas(response.data.data || []);
+      if (kelasRequestId.current === requestId) setKelas(response.data.data || []);
     } catch (err) {
       console.error(err);
     }
@@ -109,7 +118,7 @@ function NilaiPage() {
     const requestId = ++studentRequestId.current;
     setSantri([]);
     setSantriError("");
-    if (!id) {
+    if (!id || !scopeParams) {
       setSantriLoading(false);
       return;
     }
@@ -142,33 +151,43 @@ function NilaiPage() {
     setSantriError("");
     setMapelList([]);
     getKelas();
-  }, [activeUnitId, allUnitsAllowed]);
+  }, [activeUnitId]);
 
   useEffect(() => {
+    setDirtyKeys(new Set());
     getNilai(bulan, tahun);
-  }, [bulan, tahun, activeUnitId, allUnitsAllowed]);
+  }, [bulan, tahun, activeUnitId]);
 
   const handleNilai = (santriId, mapel, value) => {
     const key = `${santriId}-${mapel}-${bulan}-${tahun}`;
-    setNilai({
-      ...nilai,
+    setNilai((current) => ({
+      ...current,
       [key]: value,
+    }));
+    setDirtyKeys((current) => {
+      const next = new Set(current);
+      next.add(key);
+      return next;
     });
   };
 
   const simpanNilai = async () => {
-    const entries = Object.entries(nilai).filter(
-      ([, val]) => val !== "" && val !== null && val !== undefined
-    );
+    if (savingRef.current) return;
+    const entries = Array.from(dirtyKeys)
+      .map((key) => [key, nilai[key]])
+      .filter(([, val]) => val !== "" && val !== null && val !== undefined);
 
     if (entries.length === 0) {
-      alert("Tidak ada nilai yang diisi.");
+      alert("Tidak ada perubahan nilai yang perlu disimpan.");
       return;
     }
 
+    savingRef.current = true;
+    const submittedRequestId = nilaiRequestId.current;
     try {
+      setSaving(true);
       const unitPayload = requireActiveUnitForWrite({ activeUnitId });
-      for (const [key, nilaiVal] of entries) {
+      const payloads = entries.map(([key, nilaiVal]) => {
         const segments = key.split("-");
         const tahunKey = parseInt(segments[segments.length - 1], 10);
         const bulanKey = parseInt(segments[segments.length - 2], 10);
@@ -176,26 +195,38 @@ function NilaiPage() {
         const santriId = segments.slice(0, segments.length - 3).join("-");
 
         if (isNaN(tahunKey) || isNaN(bulanKey) || !mapel || !santriId) {
-          console.warn("Skip key invalid:", key);
-          continue;
+          throw new Error(`Key nilai tidak valid: ${key}`);
         }
+        return {
+          key,
+          body: {
+            ...unitPayload,
+            santri_id: santriId,
+            tanggal: new Date().toISOString().split("T")[0],
+            mapel,
+            nilai: nilaiVal,
+            bulan: bulanKey,
+            tahun: tahunKey,
+          },
+        };
+      });
 
-        await api.post("/nilai", {
-          ...unitPayload,
-          santri_id: santriId,
-          tanggal: new Date().toISOString().split("T")[0],
-          mapel,
-          nilai: nilaiVal,
-          bulan: bulanKey,
-          tahun: tahunKey,
-        });
+      for (let offset = 0; offset < payloads.length; offset += 8) {
+        await Promise.all(payloads.slice(offset, offset + 8).map(({ body }) => api.post("/nilai", body)));
       }
-
-      alert(`Nilai berhasil disimpan (${entries.length} entri).`);
-      getNilai(bulan, tahun);
+      setDirtyKeys((current) => {
+        const next = new Set(current);
+        payloads.forEach(({ key }) => next.delete(key));
+        return next;
+      });
+      alert(`Nilai berhasil disimpan (${payloads.length} entri).`);
+      if (nilaiRequestId.current === submittedRequestId) void getNilai(bulan, tahun);
     } catch (err) {
       console.error(err);
       alert("Gagal simpan: " + (err.response?.data?.error || err.message));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -313,6 +344,7 @@ function NilaiPage() {
                         min="0"
                         max="100"
                         className="ops-nilai-input"
+                        disabled={saving}
                         value={nilai[`${s.id}-${m}-${bulan}-${tahun}`] || ""}
                         onChange={(e) => handleNilai(s.id, m, e.target.value)}
                       />
@@ -328,8 +360,8 @@ function NilaiPage() {
             <Button variant="success" onClick={handleExport}>
               Export Excel
             </Button>
-            <Button variant="primary" onClick={simpanNilai}>
-              Simpan Nilai
+            <Button variant="primary" onClick={simpanNilai} disabled={saving || dirtyKeys.size === 0 || !activeUnitId}>
+              {saving ? "Menyimpan..." : dirtyKeys.size ? `Simpan Nilai (${dirtyKeys.size})` : "Simpan Nilai"}
             </Button>
           </div>
         </Card>

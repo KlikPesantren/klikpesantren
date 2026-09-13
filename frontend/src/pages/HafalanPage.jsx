@@ -10,7 +10,7 @@ import { OperationalPageStyles } from "../components/shared/OperationalPageStyle
 import { exportExcel } from "../utils/exportExcel";
 import { FaFilter } from "react-icons/fa";
 import { useActiveUnit } from "../context/ActiveUnitContext";
-import { buildUnitScopeParams, requireActiveUnitForWrite } from "../utils/unitScopeParams";
+import { requireActiveUnitForWrite } from "../utils/unitScopeParams";
 import { MONTH_OPTIONS_ID } from "../constants/monthOptions";
 
 const filterPanelStyle = {
@@ -53,8 +53,8 @@ function AkademikResponsiveStyles() {
 }
 
 function HafalanPage() {
-  const { activeUnitId, allUnitsAllowed } = useActiveUnit();
-  const scopeParams = buildUnitScopeParams({ activeUnitId, allUnitsAllowed });
+  const { activeUnitId } = useActiveUnit();
+  const scopeParams = activeUnitId ? { unit_id: activeUnitId } : null;
   const [kelas, setKelas] = useState([]);
   const [kelasId, setKelasId] = useState("");
   const [bulan, setBulan] = useState(new Date().getMonth() + 1);
@@ -63,23 +63,25 @@ function HafalanPage() {
   const [santriLoading, setSantriLoading] = useState(false);
   const [santriError, setSantriError] = useState("");
   const studentRequestId = useRef(0);
+  const hafalanRequestId = useRef(0);
+  const kelasRequestId = useRef(0);
   const [hafalan, setHafalan] = useState({});
+  const [dirtyKeys, setDirtyKeys] = useState(() => new Set());
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const getHafalan = async (b, t) => {
+    const requestId = ++hafalanRequestId.current;
+    if (!scopeParams) { setHafalan({}); return; }
     try {
       const response = await api.get("/hafalan", { params: { ...scopeParams, bulan: b, tahun: t } });
       const data = {};
-
       response.data.data.forEach((h) => {
         if (!h.pekan || !h.santri_id) return;
-
         const recBulan = parseInt(String(h.bulan), 10);
         const recTahun = parseInt(String(h.tahun), 10);
-
         if (isNaN(recBulan) || isNaN(recTahun)) return;
-
         const key = `${h.pekan}-${h.santri_id}-${recBulan}-${recTahun}`;
-
         data[key] = {
           kitab: h.kitab || "",
           awal: h.awal || "",
@@ -87,8 +89,7 @@ function HafalanPage() {
           catatan: h.catatan || "",
         };
       });
-
-      setHafalan(data);
+      if (hafalanRequestId.current === requestId) setHafalan(data);
     } catch (err) {
       console.error(err);
     }
@@ -97,9 +98,11 @@ function HafalanPage() {
   const pekanList = [1, 2, 3, 4, 5];
 
   const getKelas = async () => {
+    const requestId = ++kelasRequestId.current;
+    if (!scopeParams) { setKelas([]); return; }
     try {
       const response = await api.get("/kelas", { params: scopeParams });
-      setKelas(response.data.data || []);
+      if (kelasRequestId.current === requestId) setKelas(response.data.data || []);
     } catch (err) {
       console.error(err);
     }
@@ -109,7 +112,7 @@ function HafalanPage() {
     const requestId = ++studentRequestId.current;
     setSantri([]);
     setSantriError("");
-    if (!id) {
+    if (!id || !scopeParams) {
       setSantriLoading(false);
       return;
     }
@@ -141,37 +144,46 @@ function HafalanPage() {
     setSantriLoading(false);
     setSantriError("");
     getKelas();
-  }, [activeUnitId, allUnitsAllowed]);
+  }, [activeUnitId]);
 
   useEffect(() => {
+    setDirtyKeys(new Set());
     getHafalan(bulan, tahun);
-  }, [bulan, tahun, activeUnitId, allUnitsAllowed]);
+  }, [bulan, tahun, activeUnitId]);
 
   const handleHafalan = (pekan, santriId, field, value) => {
     const key = `${pekan}-${santriId}-${bulan}-${tahun}`;
-
-    setHafalan({
-      ...hafalan,
+    setHafalan((current) => ({
+      ...current,
       [key]: {
-        ...hafalan[key],
+        ...current[key],
         [field]: value,
       },
+    }));
+    setDirtyKeys((current) => {
+      const next = new Set(current);
+      next.add(key);
+      return next;
     });
   };
 
   const simpanHafalan = async () => {
-    const entries = Object.entries(hafalan).filter(
-      ([, val]) => val && (val.kitab || val.awal || val.akhir || val.catatan)
-    );
+    if (savingRef.current) return;
+    const entries = Array.from(dirtyKeys)
+      .map((key) => [key, hafalan[key]])
+      .filter(([, val]) => val && (val.kitab || val.awal || val.akhir || val.catatan));
 
     if (entries.length === 0) {
-      alert("Tidak ada hafalan yang diisi.");
+      alert("Tidak ada perubahan hafalan yang perlu disimpan.");
       return;
     }
 
+    savingRef.current = true;
+    const submittedRequestId = hafalanRequestId.current;
     try {
+      setSaving(true);
       const unitPayload = requireActiveUnitForWrite({ activeUnitId });
-      for (const [key, data] of entries) {
+      const payloads = entries.map(([key, data]) => {
         const segments = key.split("-");
         const tahunKey = parseInt(segments[segments.length - 1], 10);
         const bulanKey = parseInt(segments[segments.length - 2], 10);
@@ -179,29 +191,41 @@ function HafalanPage() {
         const pekan = segments[segments.length - 4];
 
         if (isNaN(tahunKey) || isNaN(bulanKey) || !santriId || !pekan) {
-          console.warn("Skip key hafalan invalid:", key);
-          continue;
+          throw new Error(`Key hafalan tidak valid: ${key}`);
         }
+        return {
+          key,
+          body: {
+            ...unitPayload,
+            santri_id: santriId,
+            tanggal: new Date().toISOString().split("T")[0],
+            kitab: data.kitab || "",
+            awal: data.awal || "",
+            akhir: data.akhir || "",
+            catatan: data.catatan || "",
+            bulan: bulanKey,
+            tahun: tahunKey,
+            pekan,
+          },
+        };
+      });
 
-        await api.post("/hafalan", {
-          ...unitPayload,
-          santri_id: santriId,
-          tanggal: new Date().toISOString().split("T")[0],
-          kitab: data.kitab || "",
-          awal: data.awal || "",
-          akhir: data.akhir || "",
-          catatan: data.catatan || "",
-          bulan: bulanKey,
-          tahun: tahunKey,
-          pekan,
-        });
+      for (let offset = 0; offset < payloads.length; offset += 8) {
+        await Promise.all(payloads.slice(offset, offset + 8).map(({ body }) => api.post("/hafalan", body)));
       }
-
-      alert(`Hafalan berhasil disimpan (${entries.length} entri).`);
-      getHafalan(bulan, tahun);
+      setDirtyKeys((current) => {
+        const next = new Set(current);
+        payloads.forEach(({ key }) => next.delete(key));
+        return next;
+      });
+      alert(`Hafalan berhasil disimpan (${payloads.length} entri).`);
+      if (hafalanRequestId.current === submittedRequestId) void getHafalan(bulan, tahun);
     } catch (err) {
       console.error(err);
       alert("Gagal simpan: " + (err.response?.data?.error || err.message));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -329,6 +353,7 @@ function HafalanPage() {
                         <input
                           className="ops-hafalan-input"
                           type="text"
+                          disabled={saving}
                           value={hafalan[`${pekan}-${s.id}-${bulan}-${tahun}`]?.kitab || ""}
                           onChange={(e) =>
                             handleHafalan(pekan, s.id, "kitab", e.target.value)
@@ -339,6 +364,7 @@ function HafalanPage() {
                         <input
                           className="ops-hafalan-input"
                           type="text"
+                          disabled={saving}
                           value={hafalan[`${pekan}-${s.id}-${bulan}-${tahun}`]?.awal || ""}
                           onChange={(e) =>
                             handleHafalan(pekan, s.id, "awal", e.target.value)
@@ -349,6 +375,7 @@ function HafalanPage() {
                         <input
                           className="ops-hafalan-input"
                           type="text"
+                          disabled={saving}
                           value={hafalan[`${pekan}-${s.id}-${bulan}-${tahun}`]?.akhir || ""}
                           onChange={(e) =>
                             handleHafalan(pekan, s.id, "akhir", e.target.value)
@@ -359,6 +386,7 @@ function HafalanPage() {
                         <input
                           className="ops-hafalan-input"
                           type="text"
+                          disabled={saving}
                           value={hafalan[`${pekan}-${s.id}-${bulan}-${tahun}`]?.catatan || ""}
                           onChange={(e) =>
                             handleHafalan(pekan, s.id, "catatan", e.target.value)
@@ -380,8 +408,8 @@ function HafalanPage() {
         <Button variant="success" onClick={handleExport}>
           Export Excel
         </Button>
-        <Button variant="primary" onClick={simpanHafalan}>
-          Simpan Hafalan
+        <Button variant="primary" onClick={simpanHafalan} disabled={saving || dirtyKeys.size === 0 || !activeUnitId}>
+          {saving ? "Menyimpan..." : dirtyKeys.size ? `Simpan Hafalan (${dirtyKeys.size})` : "Simpan Hafalan"}
         </Button>
       </div>
       </>

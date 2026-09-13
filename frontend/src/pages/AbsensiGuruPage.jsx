@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import api from "../services/api";
 
 import AppShell from "../layouts/AppShell";
+import { useActiveUnit } from "../context/ActiveUnitContext";
 
 import Card from "../components/ui/Card";
 
@@ -98,152 +99,115 @@ function AbsensiGuruPage() {
   const [bulan, setBulan] = useState(new Date().getMonth() + 1);
 
   const [tahun, setTahun] = useState(new Date().getFullYear());
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const requestIdRef = useRef(0);
+  const savingRef = useRef(false);
+  const { activeUnit, activeUnitId, allUnitsAllowed } = useActiveUnit();
+  const canWrite = Boolean(activeUnitId);
 
-
-
-  const getGuru = async () => {
-
-    try {
-
-      const response = await api.get("/guru");
-
-      setGuru(response.data.data || []);
-
-    } catch (err) {
-
-      console.error(err);
-
+  const loadScopedAttendance = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setGuru([]);
+    setData({});
+    setError("");
+    if (!activeUnitId) {
+      setLoading(false);
+      return;
     }
 
-  };
+    setLoading(true);
+    try {
+      const params = { unit_id: activeUnitId };
+      const [guruResponse, attendanceResponse] = await Promise.all([
+        api.get("/guru", { params }),
+        api.get("/absensi-guru", { params }),
+      ]);
+      if (requestIdRef.current !== requestId) return;
+      setGuru(guruResponse.data.data || []);
 
-
+      const nextData = {};
+      (attendanceResponse.data.data || []).forEach((row) => {
+        if (Number(row.bulan) === Number(bulan) && Number(row.tahun) === Number(tahun)) {
+          nextData[row.guru_id] = {
+            total_hadir: row.total_hadir,
+            total_izin: row.total_izin,
+            total_sakit: row.total_sakit,
+            total_alfa: row.total_alfa,
+          };
+        }
+      });
+      setData(nextData);
+    } catch (err) {
+      console.error(err);
+      if (requestIdRef.current === requestId) {
+        setError(err.response?.data?.error || "Gagal memuat absensi guru");
+      }
+    } finally {
+      if (requestIdRef.current === requestId) setLoading(false);
+    }
+  }, [activeUnitId, bulan, tahun]);
 
   useEffect(() => {
-
-    getGuru();
-
-    getAbsensiGuru();
-
-  }, [bulan, tahun]);
+    loadScopedAttendance();
+    return () => { requestIdRef.current += 1; };
+  }, [loadScopedAttendance]);
 
 
 
   const handleInput = (guruId, field, value) => {
-
-    setData({
-
-      ...data,
-
+    setData((current) => ({
+      ...current,
       [guruId]: {
-
-        ...data[guruId],
-
+        ...current[guruId],
         [field]: value,
-
       },
-
-    });
-
+    }));
   };
 
 
 
   const simpan = async () => {
+    if (savingRef.current) return;
+    if (!canWrite) {
+      alert("Pilih satu unit aktif untuk menyimpan absensi guru.");
+      return;
+    }
 
+    savingRef.current = true;
+    const submittedRequestId = requestIdRef.current;
+    setSaving(true);
     try {
-
       for (const guruId in data) {
-
         const d = data[guruId];
-
-
-
         await api.post("/absensi-guru", {
-
           guru_id: guruId,
-
           bulan,
-
           tahun,
-
+          unit_id: activeUnitId,
           total_hadir: d.total_hadir || 0,
-
           total_izin: d.total_izin || 0,
-
           total_sakit: d.total_sakit || 0,
-
           total_alfa: d.total_alfa || 0,
-
         });
-
       }
-
-
-
       alert("Absensi guru berhasil disimpan");
-
+      if (requestIdRef.current === submittedRequestId) {
+        await loadScopedAttendance();
+      }
     } catch (err) {
-
       console.error(err);
-
-      alert("Gagal simpan");
-
+      alert(err.response?.data?.error || "Gagal menyimpan absensi guru");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-
   };
 
 
 
-  const getAbsensiGuru = async () => {
 
-    try {
-
-      const response = await api.get("/absensi-guru");
-
-
-
-      const obj = {};
-
-
-
-      response.data.data.forEach((row) => {
-
-        if (
-
-          Number(row.bulan) === Number(bulan) &&
-
-          Number(row.tahun) === Number(tahun)
-
-        ) {
-
-          obj[row.guru_id] = {
-
-            total_hadir: row.total_hadir,
-
-            total_izin: row.total_izin,
-
-            total_sakit: row.total_sakit,
-
-            total_alfa: row.total_alfa,
-
-          };
-
-        }
-
-      });
-
-
-
-      setData(obj);
-
-    } catch (err) {
-
-      console.error(err);
-
-    }
-
-  };
 
 
 
@@ -265,9 +229,9 @@ function AbsensiGuruPage() {
               value={bulan}
               onChange={(e) => setBulan(e.target.value)}
             >
-              {MONTH_OPTIONS_ID.map(({ value, label }) => (
-                <option key={value} value={value}>
-                  {label}
+              {MONTH_OPTIONS_ID.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
                 </option>
               ))}
             </select>
@@ -283,6 +247,20 @@ function AbsensiGuruPage() {
         </div>
 
       </Card>
+
+      <div style={{ marginTop: "var(--space-4)" }}>
+        {activeUnitId ? (
+          <StatusBadge status={`Workspace: ${activeUnit?.nama || activeUnit?.kode || "Unit aktif"}`} variant="info" />
+        ) : (
+          <StatusBadge status={`Workspace: ${allUnitsAllowed ? "Semua Unit" : "Unit belum dipilih"} - pilih satu unit untuk absensi guru.`} variant="warning" />
+        )}
+      </div>
+
+      {error ? (
+        <div className="form-error-v3" style={{ marginTop: "var(--space-4)" }}>
+          {error}
+        </div>
+      ) : null}
 
 
 
@@ -322,6 +300,7 @@ function AbsensiGuruPage() {
                       <input
                         className="absensi-guru-input"
                         type="number"
+                        disabled={!canWrite || saving}
                         value={data[g.id]?.[col.key] || ""}
                         onChange={(e) =>
                           handleInput(g.id, col.key, e.target.value)
@@ -331,6 +310,13 @@ function AbsensiGuruPage() {
                   ))}
                 </tr>
               ))}
+              {!guru.length ? (
+                <tr>
+                  <td colSpan={STATUS_COLUMNS.length + 2} className="table-v3__empty">
+                    {loading ? "Memuat data guru..." : !activeUnitId ? "Pilih satu unit aktif terlebih dahulu." : "Tidak ada guru pada workspace ini."}
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </Table>
           </TableScroll>
@@ -340,7 +326,9 @@ function AbsensiGuruPage() {
 
           <div style={{ ...actionBarStyle, marginTop: "var(--space-4)" }}>
 
-            <Button variant="primary" onClick={simpan}>Simpan Absensi Guru</Button>
+            <Button variant="primary" onClick={simpan} disabled={!canWrite || saving || loading}>
+              {saving ? "Menyimpan..." : "Simpan Absensi Guru"}
+            </Button>
 
           </div>
 

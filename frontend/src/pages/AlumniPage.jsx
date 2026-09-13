@@ -184,7 +184,7 @@ export default function AlumniPage() {
           : loading ? <p>Memuat data alumni...</p>
             : list.length === 0 ? <EmptyState title="Belum ada alumni" description="Tambahkan manual atau import Alumni lama untuk unit aktif." />
               : (
-                <TableScroll stickyScrollbar>
+                <TableScroll>
                   <Table><thead><tr><th>Nama</th><th>NIS</th><th>Jenis Kelamin</th><th>Tahun Masuk</th><th>Tahun Lulus</th><th>Angkatan</th><th>Status</th><th>Kelas Terakhir</th><th>Kontak</th><th>Alamat</th><th>Pekerjaan</th><th>Catatan</th><th>Aksi</th></tr></thead>
                     <tbody>{list.map((item) => <tr key={item.alumni_unit_id}><td>{item.nama}</td><td>{item.nis || "—"}</td><td>{item.jenis_kelamin || "—"}</td><td>{item.tahun_masuk || "—"}</td><td>{item.tahun_lulus || "—"}</td><td>{item.angkatan || "—"}</td><td>{item.status_kelulusan}</td><td>{item.kelas_terakhir || "—"}</td><td>{item.kontak || "—"}</td><td>{item.alamat || "—"}</td><td>{item.pekerjaan || "—"}</td><td>{item.catatan || "—"}</td><td><Button variant="secondary" size="sm" onClick={() => editAlumni(item)}>Edit</Button></td></tr>)}</tbody>
                   </Table>

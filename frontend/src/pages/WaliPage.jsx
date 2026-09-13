@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FaInfoCircle, FaKey } from "react-icons/fa";
 import api from "../services/api";
@@ -26,6 +26,7 @@ import {
   FormSection,
 } from "../components/ui/form";
 import { exportExcel } from "../utils/exportExcel";
+import { useActiveUnit } from "../context/ActiveUnitContext";
 
 const DEFAULT_PIN_DISPLAY = "456789";
 
@@ -43,6 +44,7 @@ function aggregateWaliAccounts(rows) {
         nama: row.nama || "—",
         waliRowId: row.id,
         anak: [],
+        anakIds: new Set(),
       });
     }
 
@@ -50,7 +52,8 @@ function aggregateWaliAccounts(rows) {
     if (row.nama && (!account.nama || account.nama === "—")) {
       account.nama = row.nama;
     }
-    if (row.nama_santri) {
+    if (row.nama_santri && !account.anakIds.has(String(row.santri_id))) {
+      account.anakIds.add(String(row.santri_id));
       account.anak.push({
         santri_id: row.santri_id,
         nama: row.nama_santri,
@@ -62,20 +65,27 @@ function aggregateWaliAccounts(rows) {
     }
   }
 
-  return Array.from(map.values()).map((account) => ({
-    ...account,
-    jumlah_anak: account.anak.length,
-    anak_label: account.anak.map((a) => a.nama).join(", ") || "—",
-  }));
+  return Array.from(map.values()).map((account) => {
+    account.jumlah_anak = account.anak.length;
+    account.anak_label = account.anak.map((a) => a.nama).join(", ") || "—";
+    delete account.anakIds;
+    return account;
+  });
 }
 
 function WaliPage() {
   const navigate = useNavigate();
+  const { activeUnitId, activeUnit, allUnitsAllowed } = useActiveUnit();
+  const requestIdRef = useRef(0);
+  const savingRef = useRef(false);
   const [wali, setWali] = useState([]);
   const [santri, setSantri] = useState([]);
   const [editId, setEditId] = useState(null);
   const [showManualForm, setShowManualForm] = useState(false);
   const [tableSearch, setTableSearch] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     nama: "",
     nomor_hp: "",
@@ -83,20 +93,47 @@ function WaliPage() {
     santri_id: "",
   });
 
-  const getWali = async () => {
+  const loadScopedData = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setWali([]);
+    setSantri([]);
+    setLoadError("");
+    if (!activeUnitId) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     try {
-      const response = await api.get("/wali");
-      setWali(response.data.data || []);
+      const params = { unit_id: activeUnitId };
+      const [waliResponse, santriResponse] = await Promise.all([
+        api.get("/wali", { params }),
+        api.get("/santri", { params }),
+      ]);
+      if (requestIdRef.current !== requestId) return;
+      setWali(waliResponse.data.data || []);
+      setSantri(santriResponse.data.data || []);
     } catch (err) {
       console.error(err);
+      if (requestIdRef.current === requestId) {
+        setLoadError(err.response?.data?.error || "Gagal memuat data wali unit");
+      }
+    } finally {
+      if (requestIdRef.current === requestId) setLoading(false);
     }
-  };
+  }, [activeUnitId]);
+
+  useEffect(() => {
+    loadScopedData();
+    return () => { requestIdRef.current += 1; };
+  }, [loadScopedData]);
 
   const resetPin = async (waliRowId, nama) => {
+    if (!activeUnitId) return alert("Pilih satu unit aktif terlebih dahulu");
     if (!window.confirm(`Reset PIN ${nama} ke ${DEFAULT_PIN_DISPLAY}?`)) return;
 
     try {
-      await api.put(`/wali/${waliRowId}/reset-pin`);
+      await api.put(`/wali/${waliRowId}/reset-pin`, { unit_id: activeUnitId });
       alert(
         `PIN ${nama} berhasil direset ke ${DEFAULT_PIN_DISPLAY}.\nWali wajib ganti PIN saat login berikutnya.`,
       );
@@ -105,20 +142,9 @@ function WaliPage() {
       alert(err.response?.data?.error || "Gagal reset PIN");
     }
   };
-
-  const getSantri = async () => {
-    try {
-      const response = await api.get("/santri");
-      setSantri(response.data.data || []);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  useEffect(() => {
-    getWali();
-    getSantri();
-  }, []);
+  const workspaceLabel = activeUnitId
+    ? activeUnit?.nama || activeUnit?.kode || "Unit aktif"
+    : allUnitsAllowed ? "Semua Unit - pilih satu unit" : "Unit belum dipilih";
 
   const accounts = useMemo(() => aggregateWaliAccounts(wali), [wali]);
 
@@ -156,15 +182,25 @@ function WaliPage() {
   };
 
   const createWali = async () => {
+    if (!activeUnitId) return alert("Pilih satu unit aktif terlebih dahulu");
+    if (savingRef.current) return;
+    savingRef.current = true;
+    const submittedRequestId = requestIdRef.current;
+    setSaving(true);
     try {
-      await api.post("/wali", form);
+      await api.post("/wali", { ...form, unit_id: activeUnitId });
       alert("Akun wali manual berhasil dibuat");
       resetForm();
       setShowManualForm(false);
-      getWali();
+      if (requestIdRef.current === submittedRequestId) {
+        await loadScopedData();
+      }
     } catch (err) {
       console.error(err);
       alert(err.response?.data?.error || "Gagal membuat akun wali");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -185,15 +221,25 @@ function WaliPage() {
   };
 
   const updateWali = async () => {
+    if (!activeUnitId) return alert("Pilih satu unit aktif terlebih dahulu");
+    if (savingRef.current) return;
+    savingRef.current = true;
+    const submittedRequestId = requestIdRef.current;
+    setSaving(true);
     try {
-      await api.put(`/wali/${editId}`, form);
+      await api.put(`/wali/${editId}`, { ...form, unit_id: activeUnitId });
       alert("Akun wali berhasil diperbarui");
       resetForm();
       setShowManualForm(false);
-      getWali();
+      if (requestIdRef.current === submittedRequestId) {
+        await loadScopedData();
+      }
     } catch (err) {
       console.error(err);
       alert(err.response?.data?.error || "Gagal memperbarui akun wali");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -228,13 +274,18 @@ function WaliPage() {
         </div>
       </div>
 
+      <div style={{ marginTop: "var(--space-4)", fontSize: 13, color: activeUnitId ? "var(--text-secondary)" : "var(--danger)" }}>
+        Workspace: <strong>{workspaceLabel}</strong>
+      </div>
+      {loadError ? <div className="form-error-v3" style={{ marginTop: "var(--space-3)" }}>{loadError}</div> : null}
+
       <div style={{ marginTop: "var(--space-6)" }}>
         <DataTableCard
           title="Daftar Akun Wali"
           subtitle="Akun wali otomatis dibuat dari data santri dan import Excel."
           actions={
             <span style={{ fontSize: "13px", color: "var(--text-secondary)", fontWeight: 600 }}>
-              {filteredAccounts.length} akun
+              {loading ? "Memuat..." : `${filteredAccounts.length} akun`}
             </span>
           }
         >
@@ -250,6 +301,7 @@ function WaliPage() {
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <Button
                   variant="secondary"
+                  disabled={!activeUnitId || loading || saving}
                   onClick={() => {
                     resetForm();
                     setShowManualForm((v) => !v);
@@ -257,7 +309,7 @@ function WaliPage() {
                 >
                   {showManualForm ? "Tutup Form Manual" : "Tambah Akun Wali Manual"}
                 </Button>
-                <Button variant="success" onClick={handleExport}>
+                <Button variant="success" onClick={handleExport} disabled={!activeUnitId || loading}>
                   Export Excel
                 </Button>
               </div>
@@ -315,12 +367,13 @@ function WaliPage() {
                   </FormField>
                 </FormGrid>
                 <FormActionBar className="form-action-bar-v3--compact">
-                  <Button variant="primary" onClick={editId ? updateWali : createWali}>
+                  <Button variant="primary" onClick={editId ? updateWali : createWali} disabled={!activeUnitId || saving}>
                     {editId ? "Simpan Perubahan" : "Tambah Akun Wali Manual"}
                   </Button>
                   <Button
                     variant="secondary"
-                    onClick={() => {
+                    disabled={!activeUnitId || loading || saving}
+                  onClick={() => {
                       resetForm();
                       setShowManualForm(false);
                     }}
@@ -335,17 +388,25 @@ function WaliPage() {
           {filteredAccounts.length === 0 ? (
             <EmptyState
               title={
-                accounts.length === 0
-                  ? "Belum ada akun wali"
-                  : "Tidak ada hasil pencarian"
+                !activeUnitId
+                  ? "Pilih satu unit aktif"
+                  : loading
+                    ? "Memuat akun wali..."
+                    : accounts.length === 0
+                      ? "Belum ada akun wali"
+                      : "Tidak ada hasil pencarian"
               }
               description={
-                accounts.length === 0
-                  ? "Tambahkan data santri beserta Nama Wali dan Nomor HP Wali, maka akun wali akan dibuat otomatis."
-                  : "Coba kata kunci lain atau hapus filter pencarian."
+                !activeUnitId
+                  ? "Daftar wali tidak dimuat tanpa scope unit yang valid."
+                  : loading
+                    ? "Data wali dan santri sedang dimuat untuk unit aktif."
+                    : accounts.length === 0
+                      ? "Tambahkan data santri beserta Nama Wali dan Nomor HP Wali, maka akun wali akan dibuat otomatis."
+                      : "Coba kata kunci lain atau hapus filter pencarian."
               }
               action={
-                accounts.length === 0 ? (
+                activeUnitId && !loading && accounts.length === 0 ? (
                   <Button variant="primary" onClick={() => navigate("/santri")}>
                     Tambah Santri
                   </Button>

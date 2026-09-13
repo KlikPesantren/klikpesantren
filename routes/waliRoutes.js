@@ -8,13 +8,32 @@ const tenantMiddleware = require("../middleware/tenantMiddleware");
 const waliAppService = require("../services/waliAppService");
 const { assertSantriInTenant } = require("../services/tenantScope");
 const { getScopedUnitIds, assertSantriInScopedUnit } = require("../middleware/dataUnitScope");
+const { accessError } = require("../services/unitAccessService");
 
 const DEFAULT_PIN = "456789";
 const withTenant = [tenantMiddleware];
 
+async function getRequiredScopedUnitIds(req, client = pool) {
+  const scopedUnitIds = await getScopedUnitIds(req, client);
+  if (!scopedUnitIds || scopedUnitIds.length !== 1) {
+    throw accessError("Pilih unit aktif untuk mengelola wali", 400, "UNIT_REQUIRED");
+  }
+  return scopedUnitIds;
+}
+
+function sendWaliError(res, error, fallback = "Gagal memproses data wali") {
+  const status = Number(error?.status || 500);
+  if (status >= 500) console.error(error);
+  return res.status(status).json({
+    success: false,
+    error: error?.status ? error.message : fallback,
+    code: error?.code || (status >= 500 ? "WALI_INTERNAL_ERROR" : undefined),
+  });
+}
+
 router.get("/", ...withTenant, async (req, res) => {
   try {
-    const scopedUnitIds = await getScopedUnitIds(req);
+    const scopedUnitIds = await getRequiredScopedUnitIds(req);
     const scopeSql = scopedUnitIds ? ` AND EXISTS (
       SELECT 1 FROM santri_units su
       WHERE su.tenant_id = wali_santri.tenant_id
@@ -32,14 +51,14 @@ router.get("/", ...withTenant, async (req, res) => {
          ON wali_santri.santri_id = santri.id
         AND santri.tenant_id = wali_santri.tenant_id
        WHERE wali_santri.tenant_id = $1${scopeSql}
+         AND LOWER(TRIM(COALESCE(santri.status, 'aktif'))) IN ('aktif', 'active', '')
        ORDER BY wali_santri.id DESC`,
       scopedUnitIds ? [req.tenantId, scopedUnitIds] : [req.tenantId]
     );
 
     res.json({ success: true, data: result.rows });
   } catch (err) {
-    console.log(err);
-    res.status(500).json({ success: false, error: err.message });
+    sendWaliError(res, err);
   }
 });
 
@@ -48,6 +67,7 @@ router.post("/", ...withTenant, async (req, res) => {
 
   try {
     const { nama, nomor_hp, alamat, santri_id } = req.body;
+    await getRequiredScopedUnitIds(req, client);
 
     const normalizedHp = waliAppService.normalizePhone(nomor_hp);
     if (!normalizedHp) {
@@ -85,8 +105,7 @@ router.post("/", ...withTenant, async (req, res) => {
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
     await client.query("ROLLBACK");
-    console.log(err);
-    res.status(500).json({ success: false, error: err.message });
+    sendWaliError(res, err);
   } finally {
     client.release();
   }
@@ -98,6 +117,7 @@ router.put("/:id", ...withTenant, async (req, res) => {
   try {
     const { id } = req.params;
     const { nama, nomor_hp, alamat, santri_id } = req.body;
+    await getRequiredScopedUnitIds(req, client);
 
     const normalizedHp = waliAppService.normalizePhone(nomor_hp);
     if (!normalizedHp) {
@@ -110,7 +130,7 @@ router.put("/:id", ...withTenant, async (req, res) => {
     }
     const scopeCheck = await assertSantriInScopedUnit(req, santri_id, client);
     if (!scopeCheck.ok) return res.status(403).json({ success: false, error: scopeCheck.error });
-    const scopedUnitIds = await getScopedUnitIds(req, client);
+    const scopedUnitIds = await getRequiredScopedUnitIds(req, client);
 
     await client.query("BEGIN");
 
@@ -167,8 +187,7 @@ router.put("/:id", ...withTenant, async (req, res) => {
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
     await client.query("ROLLBACK");
-    console.log(err);
-    res.status(500).json({ success: false, error: err.message });
+    sendWaliError(res, err);
   } finally {
     client.release();
   }
@@ -176,7 +195,7 @@ router.put("/:id", ...withTenant, async (req, res) => {
 
 router.post("/sync-akun", ...withTenant, async (req, res) => {
   try {
-    const scopedUnitIds = await getScopedUnitIds(req);
+    const scopedUnitIds = await getRequiredScopedUnitIds(req);
     const waliList = await pool.query(
       `SELECT id, nomor_hp, nama
        FROM wali_santri
@@ -223,14 +242,13 @@ router.post("/sync-akun", ...withTenant, async (req, res) => {
       updated,
     });
   } catch (err) {
-    console.log(err);
-    res.status(500).json({ success: false, error: err.message });
+    sendWaliError(res, err);
   }
 });
 
 router.delete("/:id", ...withTenant, async (req, res) => {
   try {
-    const scopedUnitIds = await getScopedUnitIds(req);
+    const scopedUnitIds = await getRequiredScopedUnitIds(req);
     const result = await pool.query(
       `DELETE FROM wali_santri
        WHERE id = $1 AND tenant_id = $2
@@ -250,15 +268,14 @@ router.delete("/:id", ...withTenant, async (req, res) => {
 
     res.json({ success: true, message: "Wali deleted" });
   } catch (err) {
-    console.log(err);
-    res.status(500).json({ success: false, error: err.message });
+    sendWaliError(res, err);
   }
 });
 
 router.put("/:id/reset-pin", ...withTenant, async (req, res) => {
   try {
     const { id } = req.params;
-    const scopedUnitIds = await getScopedUnitIds(req);
+    const scopedUnitIds = await getRequiredScopedUnitIds(req);
 
     const waliResult = await pool.query(
       `SELECT nomor_hp FROM wali_santri
@@ -304,8 +321,7 @@ router.put("/:id/reset-pin", ...withTenant, async (req, res) => {
       data: updated.rows[0],
     });
   } catch (err) {
-    console.log(err);
-    res.status(500).json({ success: false, error: err.message });
+    sendWaliError(res, err);
   }
 });
 

@@ -56,7 +56,7 @@
     "android": {
       "package": "com.klikpesantren.wali",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 10,
+      "versionCode": 11,
       "predictiveBackGestureEnabled": true,
       "permissions": [
         "android.permission.INTERNET",

@@ -21,6 +21,15 @@ function checksum(sql) {
   return crypto.createHash("sha256").update(sql, "utf8").digest("hex");
 }
 
+function checksumMatches(sql, expectedChecksum) {
+  const variants = [
+    sql,
+    sql.replace(/\r\n/g, "\n"),
+    sql.replace(/\r?\n/g, "\r\n"),
+  ];
+  return variants.some((variant) => checksum(variant) === expectedChecksum);
+}
+
 function stripOuterTransaction(sql) {
   const withoutBom = sql.replace(/^\uFEFF/, "");
   if (!/^\s*BEGIN\s*;/i.test(withoutBom) || !/COMMIT\s*;\s*$/i.test(withoutBom)) {
@@ -99,7 +108,7 @@ async function getMigrationStatus(client) {
     if (!ledger) return { ...file, state: "pending" };
     return {
       ...file,
-      state: ledger.checksum === file.checksum ? "applied" : "drift",
+      state: checksumMatches(file.sql, ledger.checksum) ? "applied" : "drift",
       applied_at: ledger.applied_at,
     };
   });
@@ -138,6 +147,7 @@ module.exports = {
   MIGRATION_POLICY_PATH,
   applyMigrationPolicy,
   checksum,
+  checksumMatches,
   ensureLedger,
   getMigrationStatus,
   ledgerExists,

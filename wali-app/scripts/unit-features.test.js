@@ -231,7 +231,7 @@ test('universal app is WaliSantri and keeps canonical KlikPesantren API', () => 
   const appConfig = JSON.parse(fs.readFileSync(path.join(appRoot, 'app.json'), 'utf8'));
   const easConfig = fs.readFileSync(path.join(appRoot, 'eas.json'), 'utf8');
   assert.equal(appConfig.expo.name, 'WaliSantri');
-  assert.equal(appConfig.expo.android.versionCode, 11);
+  assert.equal(appConfig.expo.android.versionCode, 12);
   assert.equal(
     appConfig.expo.android.adaptiveIcon.foregroundImage,
     './assets/universal-walisantri-foreground-1024.png',

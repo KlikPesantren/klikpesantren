@@ -93,6 +93,7 @@ test('Android production config blocks cleartext and unused sensitive permission
   assert.ok(app.android.blockedPermissions.includes('android.permission.SYSTEM_ALERT_WINDOW'));
   assert.ok(app.android.blockedPermissions.includes('android.permission.READ_EXTERNAL_STORAGE'));
   assert.ok(app.android.blockedPermissions.includes('android.permission.WRITE_EXTERNAL_STORAGE'));
+  assert.ok(app.android.blockedPermissions.includes('android.permission.READ_MEDIA_IMAGES'));
 });
 
 test('authentication token uses SecureStore and login payload is not logged', () => {

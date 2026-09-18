@@ -230,8 +230,10 @@ test('cross-family child selection returns 403', async () => {
 test('universal app is WaliSantri and keeps canonical KlikPesantren API', () => {
   const appConfig = JSON.parse(fs.readFileSync(path.join(appRoot, 'app.json'), 'utf8'));
   const easConfig = fs.readFileSync(path.join(appRoot, 'eas.json'), 'utf8');
+  const { UNIVERSAL } = require(path.join(appRoot, 'config', 'buildBrand.js'));
   assert.equal(appConfig.expo.name, 'WaliSantri');
-  assert.equal(appConfig.expo.android.versionCode, 12);
+  assert.equal(appConfig.expo.android.versionCode, 13);
+  assert.equal(UNIVERSAL.current_version_code, 13);
   assert.equal(
     appConfig.expo.android.adaptiveIcon.foregroundImage,
     './assets/universal-walisantri-foreground-1024.png',

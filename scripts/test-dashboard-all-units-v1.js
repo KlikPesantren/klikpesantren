@@ -92,6 +92,16 @@ async function run() {
   assert.match(service, /COUNT\(DISTINCT gu\.guru_id\)/, "Teacher identity must be DISTINCT");
   assert.match(service, /SUM\(wa\.current_balance\)/, "Wallet must use canonical wallet_accounts current_balance");
   assert.doesNotMatch(service, /SUM\(s\.saldo\)|FROM santri[^]*saldo/, "Wallet aggregate must not use legacy santri.saldo");
+  assert.match(
+    service,
+    /dashboard_all_units_v1:cash[\s\S]*?bk\.tanggal < \(CURRENT_DATE \+ INTERVAL '1 day'\)/,
+    "All-unit cash total must exclude future-dated rows like canonical unit balances",
+  );
+  assert.match(
+    service,
+    /eligible_ledger[\s\S]*?bk\.tanggal < \(CURRENT_DATE \+ INTERVAL '1 day'\)/,
+    "Monthly cash closing must exclude future-dated rows from the current balance",
+  );
   assert.match(service, /l\.tanggal < \(make_date/, "Monthly chart must be cumulative closing balance");
   assert.match(route, /router\.get\("\/all-units-v1"/, "V1 must expose only a dedicated GET route");
   assert.doesNotMatch(route, /router\.(post|put|patch|delete)\("\/all-units-v1"/, "V1 must not add a write route");

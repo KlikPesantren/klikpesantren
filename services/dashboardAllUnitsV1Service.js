@@ -126,6 +126,7 @@ async function getDashboardAllUnitsV1(client, { tenantId, year }) {
        LEFT JOIN buku_kas bk
          ON bk.tenant_id = u.tenant_id
         AND bk.unit_id = u.id
+        AND bk.tanggal < (CURRENT_DATE + INTERVAL '1 day')
        WHERE u.tenant_id = $1
          AND u.is_active = true
        GROUP BY u.id, u.nama, u.sort_order
@@ -146,6 +147,7 @@ async function getDashboardAllUnitsV1(client, { tenantId, year }) {
           AND u.tenant_id = bk.tenant_id
           AND u.is_active = true
          WHERE bk.tenant_id = $1
+           AND bk.tanggal < (CURRENT_DATE + INTERVAL '1 day')
        )
        SELECT m.month,
               CASE

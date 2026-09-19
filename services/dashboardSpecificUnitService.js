@@ -1,6 +1,7 @@
 const { getEffectiveUnitFeatures } = require("./unitFeatureService");
 const { isFeatureEnabled } = require("./tenantFeatureService");
 const { getUnitCashRunningBalance } = require("./financeCashService");
+const { sahriyahLedgerJoin, sahriyahCanonicalExpressions } = require("./sahriyahCanonicalSql");
 
 function normalizeYear(value, currentYear = new Date().getFullYear()) {
   if (value == null || value === "") return currentYear;
@@ -28,6 +29,7 @@ function buildEligibility({ permissions = [], effectiveFeatures = [], cashEnable
 const num = (value) => Number(value || 0);
 
 async function getDashboardSpecificUnit(client, { tenantId, unitId, kelasId, year, permissions = [] }) {
+  const canonicalSahriyah = sahriyahCanonicalExpressions("t");
   const selectedYear = normalizeYear(year);
   const selectedMonth = new Date().getMonth() + 1;
   const params = [Number(tenantId), Number(unitId)];
@@ -75,8 +77,10 @@ async function getDashboardSpecificUnit(client, { tenantId, unitId, kelasId, yea
       SELECT su.id AS santri_unit_id FROM santri_units su JOIN santri s ON s.id=su.santri_id AND s.tenant_id=su.tenant_id
       WHERE su.tenant_id=$1 AND su.unit_id=$2 AND su.status='active' AND su.left_at IS NULL
       AND LOWER(TRIM(COALESCE(s.status,'aktif'))) IN ('aktif','active','')), bills AS (
-      SELECT DISTINCT ON (t.santri_unit_id) t.santri_unit_id,t.status FROM tagihan_sahriyah t
-      JOIN memberships m ON m.santri_unit_id=t.santri_unit_id WHERE t.tenant_id=$1 AND t.unit_id=$2
+      SELECT DISTINCT ON (t.santri_unit_id) t.santri_unit_id,${canonicalSahriyah.status} AS status FROM tagihan_sahriyah t
+      JOIN memberships m ON m.santri_unit_id=t.santri_unit_id
+      ${sahriyahLedgerJoin("t")}
+      WHERE t.tenant_id=$1 AND t.unit_id=$2
       AND t.bulan=$3 AND t.tahun=$4 ORDER BY t.santri_unit_id,t.id DESC)
       SELECT COUNT(*)::int AS total,
       COUNT(*) FILTER (WHERE LOWER(TRIM(COALESCE(b.status,'')))='lunas')::int AS paid,

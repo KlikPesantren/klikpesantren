@@ -50,10 +50,12 @@ async function generateSahriyah({
        SELECT * FROM targets WHERE setting_id IS NOT NULL
      ), inserted AS (
        INSERT INTO tagihan_sahriyah (
-         santri_id, bulan, tahun, nominal, nominal_beras, keterangan,
+         santri_id, bulan, tahun, nominal, nominal_beras, sisa_tagihan,
+         sisa_beras, keterangan,
          tenant_id, unit_id, santri_unit_id, actor_user_id, source
        )
-       SELECT santri_id, $3, $4, nominal_uang, nominal_beras, keterangan,
+       SELECT santri_id, $3, $4, nominal_uang, nominal_beras, nominal_uang,
+              nominal_beras, keterangan,
               $1, $2, santri_unit_id, $5, 'manual'
        FROM eligible
        WHERE NOT EXISTS (

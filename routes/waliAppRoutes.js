@@ -37,6 +37,11 @@ const { isFeatureEnabled } = require("../services/tenantFeatureService");
 const { getEffectiveUnitFeatures } = require("../services/unitFeatureService");
 const { isUnitFeatureEnabled } = require("../services/unitFeatureService");
 const { buildWaliCapabilities } = require("../services/waliCapabilitiesService");
+const {
+  sahriyahLedgerJoin,
+  sahriyahCanonicalSelect,
+  projectCanonicalSahriyah,
+} = require("../services/sahriyahCanonicalSql");
 
 const withWaliAuth = [waliAppAuthMiddleware, requireTenantFeature("wali_app")];
 
@@ -592,19 +597,18 @@ router.get(
 
           `
           SELECT
-            id,
-            bulan,
-            tahun,
-            nominal,
-            total_bayar,
-            sisa_tagihan,
-            status
-          FROM tagihan_sahriyah
-          WHERE santri_id = $1
-            AND tenant_id = $2
-            AND unit_id = $3
-            AND bulan = $4
-            AND tahun = $5
+            t.id,
+            t.bulan,
+            t.tahun,
+            t.nominal,
+            ${sahriyahCanonicalSelect("t")}
+          FROM tagihan_sahriyah t
+          ${sahriyahLedgerJoin("t")}
+          WHERE t.santri_id = $1
+            AND t.tenant_id = $2
+            AND t.unit_id = $3
+            AND t.bulan = $4
+            AND t.tahun = $5
           LIMIT 1
           `,
 
@@ -743,7 +747,9 @@ router.get(
           } : null,
 
           sahriyah_aktif:
-            isEnabled("sahriyah") ? (sahriyahAktif.rows[0] || null) : null,
+            isEnabled("sahriyah") && sahriyahAktif.rows[0]
+              ? projectCanonicalSahriyah(sahriyahAktif.rows[0])
+              : null,
 
           saldo_dompet:
             isEnabled("wallet") ? Number(santri.rows[0].saldo || 0) : null,
@@ -954,15 +960,12 @@ router.get(
           t.tahun,
           t.nominal,
           t.nominal_beras,
-          t.total_bayar,
-          t.sisa_tagihan,
-          t.beras_terbayar,
-          t.sisa_beras,
-          t.status,
           t.petugas,
           t.tanggal_bayar,
-          t.keterangan
+          t.keterangan,
+          ${sahriyahCanonicalSelect("t")}
         FROM tagihan_sahriyah t
+        ${sahriyahLedgerJoin("t")}
         WHERE t.santri_id = $1
           AND t.tenant_id = $2
           AND t.unit_id = $3
@@ -1007,7 +1010,7 @@ router.get(
 
         santri_id: santriId,
 
-        data: result.rows,
+        data: result.rows.map(projectCanonicalSahriyah),
 
         total: result.rows.length
 

@@ -42,6 +42,57 @@ async function financialSnapshot(tenantId) {
   return rows[0];
 }
 
+async function expectedSummary(tenantId, { status = null, kelasId = null } = {}) {
+  const { rows } = await pool.query(`
+    SELECT t.nominal, t.nominal_beras,
+      COALESCE(SUM(ps.nominal),0)::bigint AS paid,
+      COALESCE(SUM(ps.nominal_beras),0)::numeric AS paid_beras
+    FROM tagihan_sahriyah t
+    LEFT JOIN LATERAL (
+      SELECT ske.kelas_id FROM santri_kelas_enrollments ske
+      WHERE ske.tenant_id=t.tenant_id AND ske.santri_unit_id=t.santri_unit_id
+        AND ske.status='active' AND ske.end_date IS NULL
+      ORDER BY ske.id DESC LIMIT 1
+    ) enrollment ON TRUE
+    LEFT JOIN pembayaran_sahriyah ps
+      ON ps.tagihan_id=t.id AND ps.tenant_id=t.tenant_id
+    WHERE t.tenant_id=$1 AND t.unit_id=$2 AND t.bulan=$3 AND t.tahun=$4
+      AND ($5::int IS NULL OR enrollment.kelas_id=$5)
+    GROUP BY t.id, enrollment.kelas_id
+  `, [tenantId, UNIT_ID, BULAN, TAHUN, kelasId]);
+  const summary = {
+    total: 0, total_nominal: 0, lunas: 0, lunas_nominal: 0,
+    belum_lunas: 0, belum_lunas_nominal: 0, partial_count: 0,
+    partial_nominal_tagihan: 0, partial_sudah_dibayar: 0, partial_sisa: 0,
+  };
+  for (const row of rows) {
+    const nominal = Number(row.nominal);
+    const paid = Number(row.paid);
+    const remaining = Math.max(nominal - paid, 0);
+    const remainingBeras = Math.max(Number(row.nominal_beras || 0) - Number(row.paid_beras), 0);
+    const category = (paid > 0 || Number(row.paid_beras) > 0)
+      ? (remaining === 0 && remainingBeras === 0 ? 'Lunas' : 'Cicilan')
+      : 'Belum Lunas';
+    if (status && category.toLowerCase() !== status.toLowerCase()) continue;
+    summary.total += 1;
+    summary.total_nominal += nominal;
+    if (category === 'Lunas') {
+      summary.lunas += 1;
+      summary.lunas_nominal += nominal;
+    } else {
+      summary.belum_lunas += 1;
+      summary.belum_lunas_nominal += nominal;
+    }
+    if (category === 'Cicilan') {
+      summary.partial_count += 1;
+      summary.partial_nominal_tagihan += nominal;
+      summary.partial_sudah_dibayar += paid;
+      summary.partial_sisa += remaining;
+    }
+  }
+  return summary;
+}
+
 function assertSummary(summary, expected) {
   for (const [key, value] of Object.entries(expected)) {
     assert.equal(Number(summary?.[key]), value, `${key}: expected ${value}, got ${summary?.[key]}`);
@@ -68,22 +119,11 @@ async function main() {
 
   const main = await get(adminToken, { unit_id: UNIT_ID, bulan: BULAN, tahun: TAHUN, limit: 20, offset: 0 });
   assert.equal(main.status, 200);
-  assertSummary(main.body.summary, {
-    total: 80, total_nominal: 21250000,
-    lunas: 22, lunas_nominal: 7500000,
-    belum_lunas: 58, belum_lunas_nominal: 13750000,
-    partial_count: 1, partial_nominal_tagihan: 400000,
-    partial_sudah_dibayar: 250000, partial_sisa: 150000,
-  });
+  assertSummary(main.body.summary, await expectedSummary(tenantId));
 
   const cicilan = await get(adminToken, { unit_id: UNIT_ID, bulan: BULAN, tahun: TAHUN, status: "Cicilan" });
   assert.equal(cicilan.status, 200);
-  assertSummary(cicilan.body.summary, {
-    total: 1, total_nominal: 400000, lunas: 0, lunas_nominal: 0,
-    belum_lunas: 1, belum_lunas_nominal: 400000,
-    partial_count: 1, partial_nominal_tagihan: 400000,
-    partial_sudah_dibayar: 250000, partial_sisa: 150000,
-  });
+  assertSummary(cicilan.body.summary, await expectedSummary(tenantId, { status: 'Cicilan' }));
 
   const { rows: classFixtures } = await pool.query(`
     SELECT enrollment.kelas_id
@@ -99,26 +139,9 @@ async function main() {
   `, [UNIT_ID, BULAN, TAHUN]);
   assert(classFixtures[0], "NO_CLASS_FILTER_FIXTURE");
   const kelasId = classFixtures[0].kelas_id;
-  const { rows: classExpectedRows } = await pool.query(`
-    SELECT COUNT(*)::int total, COALESCE(SUM(t.nominal),0)::bigint total_nominal,
-      COUNT(*) FILTER (WHERE LOWER(TRIM(t.status))='lunas')::int lunas,
-      COALESCE(SUM(t.nominal) FILTER (WHERE LOWER(TRIM(t.status))='lunas'),0)::bigint lunas_nominal,
-      COUNT(*) FILTER (WHERE LOWER(TRIM(COALESCE(t.status,'')))<>'lunas')::int belum_lunas,
-      COALESCE(SUM(t.nominal) FILTER (WHERE LOWER(TRIM(COALESCE(t.status,'')))<>'lunas'),0)::bigint belum_lunas_nominal
-    FROM tagihan_sahriyah t
-    JOIN LATERAL (
-      SELECT ske.kelas_id FROM santri_kelas_enrollments ske
-      WHERE ske.tenant_id=t.tenant_id AND ske.santri_unit_id=t.santri_unit_id
-        AND ske.status='active' AND ske.end_date IS NULL
-      ORDER BY ske.id DESC LIMIT 1
-    ) enrollment ON true
-    WHERE t.unit_id=$1 AND t.bulan=$2 AND t.tahun=$3 AND enrollment.kelas_id=$4
-  `, [UNIT_ID, BULAN, TAHUN, kelasId]);
   const kelas = await get(adminToken, { unit_id: UNIT_ID, bulan: BULAN, tahun: TAHUN, kelas_id: kelasId });
   assert.equal(kelas.status, 200);
-  assertSummary(kelas.body.summary, Object.fromEntries(
-    Object.entries(classExpectedRows[0]).map(([key, value]) => [key, Number(value)]),
-  ));
+  assertSummary(kelas.body.summary, await expectedSummary(tenantId, { kelasId }));
 
   const noAuth = await get(null, { unit_id: UNIT_ID, bulan: BULAN, tahun: TAHUN });
   assert.equal(noAuth.status, 401);

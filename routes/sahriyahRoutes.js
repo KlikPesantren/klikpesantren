@@ -9,6 +9,12 @@ const {
 } = require("../utils/paginationHelpers");
 const { generateSahriyah } = require("../services/sahriyahGenerationService");
 const {
+  sahriyahLedgerJoin,
+  sahriyahCanonicalExpressions,
+  sahriyahCanonicalSelect,
+  projectCanonicalSahriyah,
+} = require("../services/sahriyahCanonicalSql");
+const {
   accessResponse,
   requireSantriInActiveUnit,
   resolveOperationalAccess,
@@ -16,6 +22,7 @@ const {
 } = require("../services/operationalUnitService");
 
 function buildSahriyahFilters(tenantId, query, access) {
+  const canonical = sahriyahCanonicalExpressions("t");
   const conditions = ["t.tenant_id = $1"];
   const params = [tenantId];
   let index = 2;
@@ -39,7 +46,7 @@ function buildSahriyahFilters(tenantId, query, access) {
   }
 
   if (query.status) {
-    conditions.push(`LOWER(TRIM(t.status)) = LOWER(TRIM($${index}))`);
+    conditions.push(`LOWER(TRIM(${canonical.status})) = LOWER(TRIM($${index}))`);
     params.push(String(query.status));
     index += 1;
   }
@@ -74,6 +81,7 @@ function buildSahriyahFilters(tenantId, query, access) {
           AND ske.status = 'active' AND ske.end_date IS NULL
         ORDER BY ske.id DESC LIMIT 1
       ) enrollment ON TRUE
+      ${sahriyahLedgerJoin("t")}
     `,
   };
 }
@@ -82,10 +90,6 @@ function formatNominalRp(value) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount) || amount <= 0) return null;
   return `Rp${amount.toLocaleString("id-ID")}`;
-}
-
-function isStatusLunas(status) {
-  return String(status || "").trim().toLowerCase() === "lunas";
 }
 
 async function notifyTagihanSahriyahDibuat({ tenantId, santriId, tagihanId, bulan, tahun, nominal }) {
@@ -133,26 +137,26 @@ router.get("/", async (req, res) => {
     const summaryResult = await pool.query(
        `SELECT
          COUNT(*)::int AS total,
-         COUNT(*) FILTER (WHERE LOWER(TRIM(t.status)) = 'lunas')::int AS lunas,
+         COUNT(*) FILTER (WHERE LOWER(TRIM(${sahriyahCanonicalExpressions("t").status})) = 'lunas')::int AS lunas,
          COUNT(*) FILTER (
-           WHERE LOWER(TRIM(COALESCE(t.status, ''))) <> 'lunas'
+           WHERE LOWER(TRIM(${sahriyahCanonicalExpressions("t").status})) <> 'lunas'
          )::int AS belum_lunas,
          COALESCE(SUM(t.nominal), 0)::numeric AS total_nominal,
          COALESCE(SUM(t.nominal) FILTER (
-           WHERE LOWER(TRIM(t.status)) = 'lunas'
+           WHERE LOWER(TRIM(${sahriyahCanonicalExpressions("t").status})) = 'lunas'
          ), 0)::numeric AS lunas_nominal,
          COALESCE(SUM(t.nominal) FILTER (
-           WHERE LOWER(TRIM(COALESCE(t.status, ''))) <> 'lunas'
+           WHERE LOWER(TRIM(${sahriyahCanonicalExpressions("t").status})) <> 'lunas'
          ), 0)::numeric AS belum_lunas_nominal,
-         COUNT(*) FILTER (WHERE LOWER(TRIM(t.status)) = 'cicilan')::int AS partial_count,
+         COUNT(*) FILTER (WHERE LOWER(TRIM(${sahriyahCanonicalExpressions("t").status})) = 'cicilan')::int AS partial_count,
          COALESCE(SUM(t.nominal) FILTER (
-           WHERE LOWER(TRIM(t.status)) = 'cicilan'
+           WHERE LOWER(TRIM(${sahriyahCanonicalExpressions("t").status})) = 'cicilan'
          ), 0)::numeric AS partial_nominal_tagihan,
-         COALESCE(SUM(t.total_bayar) FILTER (
-           WHERE LOWER(TRIM(t.status)) = 'cicilan'
+         COALESCE(SUM(${sahriyahCanonicalExpressions("t").paid}) FILTER (
+           WHERE LOWER(TRIM(${sahriyahCanonicalExpressions("t").status})) = 'cicilan'
          ), 0)::numeric AS partial_sudah_dibayar,
-         COALESCE(SUM(t.sisa_tagihan) FILTER (
-           WHERE LOWER(TRIM(t.status)) = 'cicilan'
+         COALESCE(SUM(${sahriyahCanonicalExpressions("t").remaining}) FILTER (
+           WHERE LOWER(TRIM(${sahriyahCanonicalExpressions("t").status})) = 'cicilan'
          ), 0)::numeric AS partial_sisa
        ${joinSql}
        WHERE ${whereSql}`,
@@ -160,7 +164,8 @@ router.get("/", async (req, res) => {
     );
 
     let listSql = `
-      SELECT t.*, s.nama, s.nis, enrollment.kelas_id, s.kamar, lp.latest_invoice_id
+      SELECT t.*, s.nama, s.nis, enrollment.kelas_id, s.kamar, lp.latest_invoice_id,
+             ${sahriyahCanonicalSelect("t")}
       ${joinSql}
       LEFT JOIN LATERAL (
         SELECT ps.id AS latest_invoice_id
@@ -185,7 +190,7 @@ router.get("/", async (req, res) => {
 
     res.json({
       success: true,
-      data: result.rows,
+      data: result.rows.map(projectCanonicalSahriyah),
       access: accessResponse(access),
       pagination: buildPaginationResponse({
         hasPagingParams: paging.hasPagingParams,
@@ -266,36 +271,82 @@ router.post("/generate", async (req, res) => {
 });
 
 router.put("/bayar/:id", async (req, res) => {
+  let client;
   try {
     const access = await resolveOperationalAccess(req, pool, { requireSpecific: true });
-    const { nominal, beras, petugas } = req.body;
+    const { nominal, beras, petugas, idempotency_key } = req.body;
+    const requestKey = String(idempotency_key || "").trim();
+    if (requestKey && (requestKey.length > 160 || !/^[a-zA-Z0-9_-]+$/.test(requestKey))) {
+      return res.status(400).json({ success: false, code: "INVALID_IDEMPOTENCY_KEY", error: "Kunci pembayaran tidak valid" });
+    }
+    const settlementKey = requestKey ? `sahriyah:${req.params.id}:${requestKey}` : null;
+    client = await pool.connect();
+    await client.query("BEGIN");
 
-    const tagihan = await pool.query(
+    const tagihan = await client.query(
       `SELECT t.*, s.nama, s.kamar
        FROM tagihan_sahriyah t
        LEFT JOIN santri s
          ON t.santri_id = s.id
         AND s.tenant_id = t.tenant_id
-       WHERE t.id = $1 AND t.tenant_id = $2 AND t.unit_id = $3`,
+       WHERE t.id = $1 AND t.tenant_id = $2 AND t.unit_id = $3
+       FOR UPDATE OF t`,
       [req.params.id, req.tenantId, access.unitId]
     );
 
     if (tagihan.rows.length === 0) {
+      await client.query("ROLLBACK");
+      client.release();
+      client = null;
       return res.status(404).json({ success: false, error: "Tagihan tidak ditemukan" });
     }
 
     const data = tagihan.rows[0];
+    const ledger = await client.query(
+      `SELECT COALESCE(SUM(nominal), 0)::bigint AS paid,
+              COALESCE(SUM(nominal_beras), 0)::numeric AS paid_beras
+       FROM pembayaran_sahriyah
+       WHERE tagihan_id = $1 AND tenant_id = $2`,
+      [req.params.id, req.tenantId],
+    );
+    const paid = Number(ledger.rows[0].paid);
+    const paidBeras = Number(ledger.rows[0].paid_beras);
+    if (settlementKey) {
+      const existing = await client.query(
+        `SELECT id FROM pembayaran_sahriyah
+         WHERE tenant_id=$1 AND tagihan_id=$2 AND settlement_idempotency_key=$3
+         LIMIT 1`,
+        [req.tenantId, req.params.id, settlementKey],
+      );
+      if (existing.rows.length) {
+        const sisaTagihan = Math.max(0, Number(data.nominal) - paid);
+        const sisaBeras = Math.max(0, Number(data.nominal_beras || 0) - paidBeras);
+        const status = paid > 0 || paidBeras > 0
+          ? (sisaTagihan === 0 && sisaBeras === 0 ? "Lunas" : "Cicilan")
+          : "Belum Lunas";
+        await client.query("ROLLBACK");
+        client.release();
+        client = null;
+        return res.json({ success: true, idempotent: true, invoice_id: existing.rows[0].id,
+          total_bayar: paid, sisa_tagihan: sisaTagihan, beras_terbayar: paidBeras,
+          sisa_beras: sisaBeras, status });
+      }
+    }
 
-    if (isStatusLunas(data.status)) {
+    if ((paid > 0 || paidBeras > 0) &&
+        paid >= Number(data.nominal) && paidBeras >= Number(data.nominal_beras || 0)) {
+      await client.query("ROLLBACK");
+      client.release();
+      client = null;
       return res.status(409).json({
         success: false,
         error: "Tagihan sahriyah sudah lunas dan tidak dapat dibayar lagi",
       });
     }
 
-    const totalBayarBaru = Number(data.total_bayar || 0) + Number(nominal);
+    const totalBayarBaru = paid + Number(nominal);
     const sisaTagihanBaru = Number(data.nominal) - totalBayarBaru;
-    const berasTerbayarBaru = Number(data.beras_terbayar || 0) + Number(beras || 0);
+    const berasTerbayarBaru = paidBeras + Number(beras || 0);
     const sisaBerasBaru = Number(data.nominal_beras || 0) - berasTerbayarBaru;
 
     let status = "Belum Lunas";
@@ -304,7 +355,7 @@ router.put("/bayar/:id", async (req, res) => {
 
     const tanggalBayar = status === "Lunas" ? new Date() : data.tanggal_bayar;
 
-    await pool.query(
+    await client.query(
       `UPDATE tagihan_sahriyah
        SET total_bayar = $1,
            sisa_tagihan = $2,
@@ -328,12 +379,13 @@ router.put("/bayar/:id", async (req, res) => {
       ]
     );
 
-    const pembayaranResult = await pool.query(
+    const pembayaranResult = await client.query(
       `INSERT INTO pembayaran_sahriyah (
          tagihan_id, nominal, nominal_beras, petugas, tenant_id,
-         unit_id, santri_unit_id, settlement_destination, actor_user_id, source
+         unit_id, santri_unit_id, settlement_destination, settlement_idempotency_key,
+         actor_user_id, source
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 'unit_cash'), $9, 'manual')
+       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 'unit_cash'), $9, $10, 'manual')
        RETURNING id`,
       [
         req.params.id,
@@ -344,13 +396,14 @@ router.put("/bayar/:id", async (req, res) => {
         access.unitId,
         data.santri_unit_id,
         data.settlement_destination,
+        settlementKey,
         req.user?.id || null,
       ]
     );
     const invoiceId = pembayaranResult.rows[0]?.id;
 
     if (Number(nominal) > 0) {
-      await pool.query(
+      await client.query(
         `INSERT INTO buku_kas (
            tanggal, jenis, kategori, keterangan, nominal, petugas, tenant_id, unit_id, actor_user_id, source
          )
@@ -360,6 +413,10 @@ router.put("/bayar/:id", async (req, res) => {
         [nominal, petugas, `Pembayaran Sahriyah - ${data.nama}`, req.tenantId, access.unitId, req.user?.id || null]
       );
     }
+
+    await client.query("COMMIT");
+    client.release();
+    client = null;
 
     const tagihanId = Number(req.params.id);
     const santriId = Number(data.santri_id);
@@ -402,8 +459,13 @@ router.put("/bayar/:id", async (req, res) => {
       invoice_id: invoiceId,
     });
   } catch (err) {
+    if (client) {
+      try { await client.query("ROLLBACK"); } catch { /* preserve original error */ }
+    }
     console.log(err);
     sendUnitError(res, err, err.message || "Gagal membayar sahriyah");
+  } finally {
+    if (client) client.release();
   }
 });
 

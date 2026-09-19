@@ -1,4 +1,5 @@
 const pool = require("../db");
+const { sahriyahLedgerJoin, sahriyahCanonicalExpressions } = require("./sahriyahCanonicalSql");
 
 const MONTHS_ID = [
   "Januari",
@@ -65,6 +66,7 @@ function buildWhatsAppText(invoice) {
 }
 
 async function getSahriyahInvoice(tenantId, invoiceId) {
+  const canonical = sahriyahCanonicalExpressions("ts");
   const result = await pool.query(
     `
     SELECT
@@ -78,11 +80,11 @@ async function getSahriyahInvoice(tenantId, invoiceId) {
       ts.tahun,
       ts.nominal AS tagihan_nominal,
       ts.nominal_beras AS tagihan_beras,
-      ts.total_bayar,
-      ts.sisa_tagihan,
-      ts.beras_terbayar,
-      ts.sisa_beras,
-      ts.status,
+      ${canonical.paid} AS total_bayar,
+      ${canonical.remaining} AS sisa_tagihan,
+      ${canonical.paidBeras} AS beras_terbayar,
+      ${canonical.remainingBeras} AS sisa_beras,
+      ${canonical.status} AS status,
       s.id AS santri_id,
       s.nis,
       s.nama AS santri_nama,
@@ -105,6 +107,7 @@ async function getSahriyahInvoice(tenantId, invoiceId) {
     INNER JOIN tagihan_sahriyah ts
       ON ts.id = ps.tagihan_id
      AND ts.tenant_id = ps.tenant_id
+    ${sahriyahLedgerJoin("ts")}
     LEFT JOIN santri s
       ON s.id = ts.santri_id
      AND s.tenant_id = ts.tenant_id

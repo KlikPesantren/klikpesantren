@@ -51,7 +51,7 @@ function collectRequirements(files) {
       for (const [name, operation] of [
         ["CLEANUP_COUNT_TABLES", "SELECT"],
         ["TENANT_ACTIVITY_TABLES", "SELECT"],
-        ["DELETE_TABLE_ORDER", "DELETE"],
+        ["DELETE_TABLE_ORDER", "TENANT_DELETE"],
       ]) {
         const list = source.match(new RegExp(`const ${name} = \\[([\\s\\S]*?)\\];`));
         if (!list) throw new Error(`Missing dynamic table allowlist: ${name}`);
@@ -81,9 +81,20 @@ async function main() {
     for (const [table, operations] of required) {
       if (!realTables.has(table)) continue;
       for (const [operation, file] of operations) {
-        counts[operation] += 1;
-        const result = await client.query("SELECT has_table_privilege(current_user, $1, $2) AS allowed", [`public.${table}`, operation]);
-        if (!result.rows[0].allowed) gaps.push({ table, operation, source: path.relative(path.join(__dirname, ".."), file) });
+        if (operation === "TENANT_DELETE") {
+          // The cleanup service skips tables without tenant_id; a direct DELETE
+          // requirement, if any, is counted separately.
+          if (operations.has("DELETE")) continue;
+          const tenantColumn = await client.query(
+            "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 AND column_name='tenant_id'",
+            [table],
+          );
+          if (!tenantColumn.rowCount) continue;
+        }
+        const privilege = operation === "TENANT_DELETE" ? "DELETE" : operation;
+        counts[privilege] += 1;
+        const result = await client.query("SELECT has_table_privilege(current_user, $1, $2) AS allowed", [`public.${table}`, privilege]);
+        if (!result.rows[0].allowed) gaps.push({ table, operation: privilege, source: path.relative(path.join(__dirname, ".."), file) });
       }
       if (operations.has("INSERT")) {
         const columns = await client.query("SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 AND column_name='id'", [table]);

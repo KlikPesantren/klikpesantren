@@ -41,6 +41,14 @@ destructive administrative workflow. Review that workflow and its separate
 authorization model before enabling it. Never treat a successful Absensi smoke as
 proof that tenant deletion is permitted.
 
+The dynamic cleanup list is conditional on a `tenant_id` column. Four listed
+tables (`absensi_santri`, `rfid_limit_override`, `rfid_limit_settings`, and
+`rfid_override_logs`) lack that column in the audited production schema and are
+skipped by the cleanup service. They are not missing runtime grants. The remaining
+19 missing DELETE grants belong to the Platform tenant-deletion transaction, not
+ordinary tenant requests. The endpoint is still exposed; a separately authorized
+maintenance design is needed before treating that destructive operation as ready.
+
 `schema_migrations` is owner-only and is excluded from runtime grants. Backup and
 reconciliation-only tables must not be added to the runtime role without a proven
 application request. Capture before/after `has_table_privilege` and

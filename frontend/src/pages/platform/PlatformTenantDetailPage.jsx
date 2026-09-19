@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import platformApi from "../../services/platformApi";
 import Badge from "../../components/ui/Badge";
 import PlatformButton from "../../components/platform/PlatformButton";
@@ -69,7 +69,6 @@ function addDays(value, days) {
 
 function PlatformTenantDetailPage() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const [tenant, setTenant] = useState(null);
   const [tenantDomain, setTenantDomain] = useState(null);
   const [domainLoading, setDomainLoading] = useState(false);
@@ -95,11 +94,6 @@ function PlatformTenantDetailPage() {
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingSaving, setBillingSaving] = useState(false);
   const [billingError, setBillingError] = useState("");
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteSummary, setDeleteSummary] = useState(null);
-  const [deleteInput, setDeleteInput] = useState("");
-  const [deleteLoading, setDeleteLoading] = useState(false);
-  const [deleteError, setDeleteError] = useState("");
   const [resetAdminOpen, setResetAdminOpen] = useState(false);
   const [resetAdminLoading, setResetAdminLoading] = useState(false);
   const [resetAdminError, setResetAdminError] = useState("");
@@ -501,56 +495,6 @@ function PlatformTenantDetailPage() {
     });
   };
 
-  const openDeleteModal = async () => {
-    setDeleteOpen(true);
-    setDeleteSummary(null);
-    setDeleteInput("");
-    setDeleteError("");
-    setDeleteLoading(true);
-
-    try {
-      await platformApi.delete(`/platform/tenants/${id}`);
-    } catch (err) {
-      const body = err.response?.data;
-      if (body?.summary) {
-        setDeleteSummary(body);
-      } else {
-        setDeleteError(body?.error || "Gagal memuat summary delete tenant");
-      }
-    } finally {
-      setDeleteLoading(false);
-    }
-  };
-
-  const closeDeleteModal = () => {
-    if (deleteLoading) return;
-    setDeleteOpen(false);
-    setDeleteSummary(null);
-    setDeleteInput("");
-    setDeleteError("");
-  };
-
-  const handleDeleteTenant = async () => {
-    if (deleteInput !== "DELETE") {
-      setDeleteError("Ketik DELETE untuk melanjutkan.");
-      return;
-    }
-
-    setDeleteLoading(true);
-    setDeleteError("");
-
-    try {
-      await platformApi.delete(`/platform/tenants/${id}`, {
-        params: { confirm: "DELETE" },
-      });
-      navigate("/platform/tenants");
-    } catch (err) {
-      setDeleteError(err.response?.data?.error || "Gagal delete tenant");
-    } finally {
-      setDeleteLoading(false);
-    }
-  };
-
   if (loading) {
     return <div style={centerStyle}>Memuat detail tenant...</div>;
   }
@@ -604,11 +548,11 @@ function PlatformTenantDetailPage() {
           </PlatformButton>
           {canDeleteTenant && (
             <PlatformButton
-              variant="danger"
-              onClick={openDeleteModal}
-              loading={deleteLoading && deleteOpen}
+              variant="secondary"
+              disabled
+              title="Hard delete tenant hanya melalui prosedur maintenance terkontrol"
             >
-              Delete Tenant
+              Hapus Tenant · Maintenance Only
             </PlatformButton>
           )}
           {isActive ? (
@@ -1223,60 +1167,6 @@ function PlatformTenantDetailPage() {
         </div>
       </Modal>
 
-      <Modal
-        open={deleteOpen}
-        title="Delete Tenant"
-        onClose={closeDeleteModal}
-        width={560}
-      >
-        <div>
-          <p style={deleteWarningStyle}>
-            Delete hanya untuk tenant simulasi/test yang sudah suspended atau inactive.
-          </p>
-          <div style={deleteInfoStyle}>
-            <div><strong>Nama:</strong> {tenantDisplayName(tenant)}</div>
-            <div><strong>Slug:</strong> {tenant.slug}</div>
-            <div><strong>Status:</strong> {tenant.status}</div>
-          </div>
-
-          {deleteError && <div style={errorBoxStyle}>{deleteError}</div>}
-
-          {deleteLoading && !deleteSummary ? (
-            <p style={featureHintStyle}>Memuat data count...</p>
-          ) : deleteSummary?.summary ? (
-            <>
-              <div style={deleteCountGridStyle}>
-                {Object.entries(deleteSummary.summary).map(([key, value]) => (
-                  <InfoItem key={key} label={key.replace(/_/g, " ")} value={value} />
-                ))}
-              </div>
-              <div style={fieldLikeStyle}>
-                <label htmlFor="delete-confirm">Ketik DELETE untuk konfirmasi</label>
-                <input
-                  id="delete-confirm"
-                  value={deleteInput}
-                  onChange={(e) => setDeleteInput(e.target.value)}
-                  style={deleteInputStyle}
-                  placeholder="DELETE"
-                />
-              </div>
-              <div style={deleteActionsStyle}>
-                <PlatformButton variant="secondary" onClick={closeDeleteModal} disabled={deleteLoading}>
-                  Batal
-                </PlatformButton>
-                <PlatformButton
-                  variant="danger"
-                  onClick={handleDeleteTenant}
-                  loading={deleteLoading}
-                  disabled={deleteInput !== "DELETE"}
-                >
-                  Delete Tenant
-                </PlatformButton>
-              </div>
-            </>
-          ) : null}
-        </div>
-      </Modal>
     </>
   );
 }
@@ -1636,48 +1526,6 @@ const credentialBoxStyle = {
   borderRadius: "var(--radius-sm)",
   background: "var(--neutral-subtle)",
   color: "var(--text-primary)",
-  fontSize: "14px",
-};
-
-const deleteWarningStyle = {
-  margin: "0 0 12px",
-  padding: "10px 12px",
-  borderRadius: "var(--radius-sm)",
-  background: "var(--danger-subtle)",
-  color: "var(--danger)",
-  fontWeight: 700,
-  fontSize: "13px",
-};
-
-const deleteInfoStyle = {
-  display: "grid",
-  gap: 6,
-  marginBottom: 12,
-  fontSize: "14px",
-  color: "var(--text-primary)",
-};
-
-const deleteCountGridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-  gap: 12,
-  marginTop: 14,
-  padding: "12px",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-sm)",
-};
-
-const fieldLikeStyle = {
-  marginTop: 14,
-};
-
-const deleteInputStyle = {
-  width: "100%",
-  boxSizing: "border-box",
-  marginTop: 6,
-  padding: "10px 12px",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-sm)",
   fontSize: "14px",
 };
 

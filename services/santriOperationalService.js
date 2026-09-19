@@ -1,6 +1,7 @@
 const pool = require("../db");
 const { isSantriAktif, isSantriNonAktif } = require("../utils/santriStatus");
 const { getBulanFilterVariants } = require("../utils/bulanNormalize");
+const { sahriyahLedgerJoin, sahriyahCanonicalExpressions } = require("./sahriyahCanonicalSql");
 
 async function getOperationalChecklist(tenantId, santriId, client = pool) {
   const santriResult = await client.query(
@@ -106,10 +107,11 @@ async function getExitSummary(tenantId, santriId, client = pool) {
 
   const sahriyahOpen = await client.query(
     `SELECT COUNT(*)::int AS total
-     FROM tagihan_sahriyah
-     WHERE santri_id = $1
-       AND tenant_id = $2
-       AND LOWER(TRIM(COALESCE(status, ''))) != 'lunas'`,
+     FROM tagihan_sahriyah t
+     ${sahriyahLedgerJoin("t")}
+     WHERE t.santri_id = $1
+       AND t.tenant_id = $2
+       AND ${sahriyahCanonicalExpressions("t").status} != 'Lunas'`,
     [santriId, tenantId],
   );
 

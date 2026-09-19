@@ -1,6 +1,7 @@
 const pool = require("../db");
 const { getTenantById } = require("./tenantService");
 const { getTenantHealth } = require("./tenantHealthService");
+const { sahriyahLedgerJoin, sahriyahCanonicalExpressions } = require("./sahriyahCanonicalSql");
 
 function getDateRanges(now = new Date()) {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -65,14 +66,15 @@ async function getOperasionalStats(tenantId) {
 
 async function getKeuanganStats(tenantId, ranges) {
   const { startOfMonth, startOfNextMonth } = ranges;
+  const canonical = sahriyahCanonicalExpressions("t");
 
   const [tagihan, pembayaran, bukuKas, kasInstansi] = await Promise.all([
     pool.query(
-      `SELECT COUNT(*)::int AS cnt, COALESCE(SUM(sisa_tagihan), 0)::bigint AS nominal
-       FROM tagihan_sahriyah
-       WHERE tenant_id = $1
-         AND status IN ('Belum Lunas', 'Cicilan')
-         AND sisa_tagihan > 0`,
+      `SELECT COUNT(*)::int AS cnt, COALESCE(SUM(${canonical.remaining}), 0)::bigint AS nominal
+       FROM tagihan_sahriyah t
+       ${sahriyahLedgerJoin("t")}
+       WHERE t.tenant_id = $1
+         AND ${canonical.remaining} > 0`,
       [tenantId]
     ),
     pool.query(

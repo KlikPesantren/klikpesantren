@@ -1,4 +1,5 @@
 const { getBulanFilterVariants } = require('../utils/bulanNormalize');
+const { sahriyahLedgerJoin, sahriyahCanonicalExpressions } = require('./sahriyahCanonicalSql');
 
 function normalizeScopeUnitId(unitId) {
   if (unitId == null || unitId === '') return null;
@@ -8,6 +9,7 @@ function normalizeScopeUnitId(unitId) {
 }
 
 async function getDashboardFinanceSummary(client, { tenantId, unitId, month, year }) {
+  const canonical = sahriyahCanonicalExpressions('t');
   const scopedUnitId = normalizeScopeUnitId(unitId);
   const monthVariants = getBulanFilterVariants(month);
   const commonParams = [Number(tenantId), scopedUnitId];
@@ -106,10 +108,13 @@ async function getDashboardFinanceSummary(client, { tenantId, unitId, month, yea
            AND LOWER(TRIM(COALESCE(s.status, 'aktif'))) IN ('aktif', 'active', '')
        ), current_bills AS (
          SELECT DISTINCT ON (t.unit_id, t.santri_unit_id)
-           t.unit_id, t.santri_unit_id, t.status, t.nominal, t.total_bayar, t.sisa_tagihan
+           t.unit_id, t.santri_unit_id, ${canonical.status} AS status,
+           t.nominal, ${canonical.paid} AS total_bayar,
+           ${canonical.remaining} AS sisa_tagihan
          FROM tagihan_sahriyah t
          JOIN scoped_memberships sm
            ON sm.unit_id = t.unit_id AND sm.santri_unit_id = t.santri_unit_id
+         ${sahriyahLedgerJoin('t')}
          WHERE t.tenant_id = $1 AND t.bulan = $3 AND t.tahun = $4
          ORDER BY t.unit_id, t.santri_unit_id, t.id DESC
        ), current_settings AS (
@@ -135,12 +140,7 @@ async function getDashboardFinanceSummary(client, { tenantId, unitId, month, yea
          COALESCE(SUM(
            CASE
              WHEN b.santri_unit_id IS NULL THEN COALESCE(cs.nominal_uang, 0)
-             WHEN LOWER(TRIM(COALESCE(b.status, ''))) = 'lunas' THEN 0
-             WHEN LOWER(TRIM(COALESCE(b.status, ''))) LIKE '%cicil%' THEN GREATEST(
-               COALESCE(NULLIF(b.sisa_tagihan, 0), COALESCE(NULLIF(b.nominal, 0), cs.nominal_uang, 0) - COALESCE(b.total_bayar, 0)),
-               0
-             )
-             ELSE COALESCE(NULLIF(b.sisa_tagihan, 0), NULLIF(b.nominal, 0), cs.nominal_uang, 0)
+             ELSE b.sisa_tagihan
            END
          ), 0)::bigint AS sisa_belum_dibayar
        FROM scoped_memberships sm
@@ -151,16 +151,17 @@ async function getDashboardFinanceSummary(client, { tenantId, unitId, month, yea
       [...commonParams, Number(month), Number(year)],
     ),
     client.query(
-      `SELECT s.nama, t.sisa_tagihan, t.unit_id
+      `SELECT s.nama, ${canonical.remaining} AS sisa_tagihan, t.unit_id
        FROM tagihan_sahriyah t
        JOIN unit_pendidikan u
          ON u.id = t.unit_id AND u.tenant_id = t.tenant_id AND u.is_active = true
        LEFT JOIN santri s ON s.id = t.santri_id AND s.tenant_id = t.tenant_id
+       ${sahriyahLedgerJoin('t')}
        WHERE t.tenant_id = $1
          AND ($2::int IS NULL OR t.unit_id = $2)
          AND t.santri_unit_id IS NOT NULL
-         AND t.sisa_tagihan > 0
-       ORDER BY t.sisa_tagihan DESC
+         AND ${canonical.remaining} > 0
+       ORDER BY ${canonical.remaining} DESC
        LIMIT 10`,
       commonParams,
     ),

@@ -12,6 +12,12 @@ const { JWT_SECRET } = require("../config/authSecrets");
 
 const API_BASE = String(process.env.SMOKE_API_BASE || "https://api.klikpesantren.com").replace(/\/$/, "");
 const SAVE_MODE = process.env.SMOKE_SAVE_MODE === "batch" ? "batch" : "sequential";
+const MAX_REPLAY_ROWS = process.env.SMOKE_MAX_ROWS
+  ? Number(process.env.SMOKE_MAX_ROWS)
+  : null;
+if (MAX_REPLAY_ROWS !== null && (!Number.isInteger(MAX_REPLAY_ROWS) || MAX_REPLAY_ROWS < 1)) {
+  throw new Error("SMOKE_MAX_ROWS must be a positive integer");
+}
 
 function hashMap(rows) {
   return Object.fromEntries(rows.map((row) => [String(row.id), row.row_hash]));
@@ -116,7 +122,8 @@ async function main() {
     `, [selected.tenant_id, selected.unit_id, selected.kelas_id, selected.tanggal,
       selected.session_id, selected.actor_user_id]);
 
-    const sizes = [...new Set([1, Math.min(10, rows.length), rows.length])].filter((size) => size > 0);
+    const maxRows = MAX_REPLAY_ROWS === null ? rows.length : Math.min(MAX_REPLAY_ROWS, rows.length);
+    const sizes = [...new Set([1, Math.min(10, maxRows), maxRows])].filter((size) => size > 0);
     const samples = [];
     for (const size of sizes) {
       const batch = rows.slice(0, size);

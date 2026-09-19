@@ -14,8 +14,6 @@ const {
 const { getTenantPlatformDashboard } = require("../services/tenantPlatformStatsService");
 const {
   attachTenantListHealth,
-  deleteTenantSafely,
-  getTenantCleanupSummary,
   getTenantHealth,
 } = require("../services/tenantHealthService");
 const {
@@ -443,96 +441,14 @@ router.patch(
 
 router.delete(
   "/:id",
-  async (req, res) => {
-    const client = await pool.connect();
-
-    try {
-      if (req.platformUser?.role !== "platform_superadmin") {
-        return res.status(403).json({
-          success: false,
-          error: "Hanya platform_superadmin yang boleh delete tenant",
-        });
-      }
-
-      const tenant = await getTenantById(req.params.id);
-      if (!tenant) {
-        return res.status(404).json({
-          success: false,
-          error: "Tenant tidak ditemukan",
-        });
-      }
-
-      const summary = await getTenantCleanupSummary(tenant.id, client);
-
-      if (tenant.slug === "default") {
-        return res.status(403).json({
-          success: false,
-          error: "Tenant default tidak boleh dihapus",
-          tenant,
-          summary,
-        });
-      }
-
-      if (tenant.status === "active") {
-        return res.status(400).json({
-          success: false,
-          error: "Tenant active tidak boleh dihapus. Suspend atau nonaktifkan tenant dulu.",
-          tenant,
-          summary,
-        });
-      }
-
-      if (!["suspended", "inactive"].includes(tenant.status)) {
-        return res.status(400).json({
-          success: false,
-          error: "Tenant hanya boleh dihapus jika status suspended atau inactive",
-          tenant,
-          summary,
-        });
-      }
-
-      if (req.query.confirm !== "DELETE") {
-        return res.status(400).json({
-          success: false,
-          error: "Ketik confirm=DELETE untuk menghapus tenant",
-          requires_confirm: "DELETE",
-          tenant,
-          summary,
-        });
-      }
-
-      await client.query("BEGIN");
-      const deleted = await deleteTenantSafely(tenant, req.platformUser, client);
-      await client.query("COMMIT");
-
-      res.json({
-        success: true,
-        deleted_tenant: {
-          id: tenant.id,
-          slug: tenant.slug,
-          nama: tenant.nama,
-        },
-        summary,
-        deleted,
-      });
-    } catch (err) {
-      try {
-        await client.query("ROLLBACK");
-      } catch (_) {
-        /* ignore rollback error */
-      }
-
-      const isFkError = err.code === "23503";
-      res.status(err.status || (isFkError ? 409 : 500)).json({
-        success: false,
-        error: isFkError
-          ? "Delete tenant gagal karena masih ada relasi data yang belum tertangani"
-          : err.message,
-        detail: isFkError ? err.detail : undefined,
-      });
-    } finally {
-      client.release();
-    }
+  (_req, res) => {
+    // Tenant-wide physical deletion requires a separate, controlled maintenance
+    // credential. The normal Railway runtime must never execute this workflow.
+    return res.status(409).json({
+      success: false,
+      code: "MAINTENANCE_REQUIRED",
+      error: "Hapus tenant hanya tersedia melalui prosedur maintenance terkontrol",
+    });
   }
 );
 

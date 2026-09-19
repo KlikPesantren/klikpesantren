@@ -20,7 +20,8 @@ for (const field of [
   assert(page.includes(`summary.${field}`), `frontend missing ${field}`);
 }
 
-assert(route.includes("LOWER(TRIM(COALESCE(t.status, ''))) <> 'lunas'"));
+assert(route.includes('sahriyahCanonicalExpressions("t")'));
+assert(route.includes('sahriyahLedgerJoin("t")'));
 assert(page.includes('Cicilan (Bagian Belum Lunas)'));
 assert(page.includes('<option value="Cicilan">Cicilan</option>'));
 assert(kpiCard.includes("secondaryValue"));

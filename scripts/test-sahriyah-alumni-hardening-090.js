@@ -103,10 +103,14 @@ async function fixtureSchema(client, schema) {
       santri_id INTEGER NOT NULL, santri_unit_id BIGINT, bulan INTEGER NOT NULL,
       tahun INTEGER NOT NULL, nominal BIGINT NOT NULL DEFAULT 0, nominal_beras NUMERIC DEFAULT 0,
       keterangan TEXT, total_bayar BIGINT DEFAULT 0, sisa_tagihan BIGINT DEFAULT 0,
+      sisa_beras NUMERIC DEFAULT 0,
       actor_user_id INTEGER, source TEXT,
       CONSTRAINT tagihan_sahriyah_tenant_santri_bulan_tahun_key UNIQUE (tenant_id,santri_id,bulan,tahun)
     );
-    CREATE TABLE pembayaran_sahriyah (id BIGSERIAL PRIMARY KEY, nominal BIGINT, nominal_beras NUMERIC);
+    CREATE TABLE pembayaran_sahriyah (
+      id BIGSERIAL PRIMARY KEY, tenant_id INTEGER, tagihan_id BIGINT,
+      nominal BIGINT, nominal_beras NUMERIC
+    );
     CREATE TABLE buku_kas (id BIGSERIAL PRIMARY KEY, nominal BIGINT);
     CREATE TABLE alumni (
       id BIGSERIAL PRIMARY KEY, tenant_id INTEGER NOT NULL, santri_id INTEGER,
@@ -164,6 +168,7 @@ async function main() {
   const url = guardedTestUrl();
   configureUnusedPool(url);
   const { generateSahriyah } = require("../services/sahriyahGenerationService");
+  const { sahriyahLedgerJoin, sahriyahCanonicalSelect, projectCanonicalSahriyah } = require("../services/sahriyahCanonicalSql");
   const { ensureAlumni } = require("../services/alumniService");
   const schema = `rehearsal_090_${Date.now()}`;
   if (!/^rehearsal_090_\d+$/.test(schema)) throw new Error("UNSAFE_SCHEMA_NAME");
@@ -186,6 +191,29 @@ async function main() {
     const sequentialRerun = await generateSahriyah({ tenantId: 900001, unitId: 7001, bulan: 9, tahun: 2026, client: owner });
     assert.strictEqual(sequentialFirst.createdCount, 1);
     assert.strictEqual(sequentialRerun.createdCount, 0);
+    const initialRemaining = (await owner.query(
+      `SELECT nominal,nominal_beras,total_bayar,sisa_tagihan,sisa_beras
+       FROM tagihan_sahriyah WHERE tenant_id=900001 AND unit_id=7001
+         AND bulan=9 AND tahun=2026`,
+    )).rows[0];
+    assert.strictEqual(Number(initialRemaining.sisa_tagihan), Number(initialRemaining.nominal));
+    assert.strictEqual(Number(initialRemaining.sisa_beras), Number(initialRemaining.nominal_beras));
+    assert.strictEqual(Number(initialRemaining.total_bayar), 0);
+    const generatedId = (await owner.query(
+      `SELECT id FROM tagihan_sahriyah WHERE tenant_id=900001 AND unit_id=7001
+         AND bulan=9 AND tahun=2026`,
+    )).rows[0].id;
+    await owner.query(`UPDATE tagihan_sahriyah SET sisa_tagihan=0 WHERE id=$1`, [generatedId]);
+    const canonicalRow = (await owner.query(
+      `SELECT t.*, ${sahriyahCanonicalSelect("t")}
+       FROM tagihan_sahriyah t ${sahriyahLedgerJoin("t")}
+       WHERE t.id=$1`, [generatedId],
+    )).rows[0];
+    const projected = projectCanonicalSahriyah(canonicalRow);
+    assert.strictEqual(Number(projected.sisa_tagihan), Number(initialRemaining.nominal),
+      "stale zero cache must not mask unpaid ledger balance");
+    assert.strictEqual(projected.status, "Belum Lunas");
+    await owner.query(`UPDATE tagihan_sahriyah SET sisa_tagihan=nominal WHERE id=$1`, [generatedId]);
 
     const leftAActiveB = await generateSahriyah({ tenantId: 900001, unitId: 7002, bulan: 9, tahun: 2026, client: owner });
     assert.strictEqual(leftAActiveB.createdCount, 2, "Unit B harus menerima dua membership aktif termasuk identity multi-unit");

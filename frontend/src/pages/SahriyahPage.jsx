@@ -99,6 +99,7 @@ function SahriyahPage() {
     beras: "",
     petugas: "",
   });
+  const paymentAttemptRef = useRef(null);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [filterKelas, setFilterKelas] = useState("");
@@ -215,6 +216,7 @@ function SahriyahPage() {
 
   const bayarTagihan = (tagihan) => {
     if (isSahriyahLunas(tagihan.status)) return;
+    paymentAttemptRef.current = null;
     setSelectedTagihan(tagihan);
     setFormBayar({ nominal: "", beras: "", petugas: "" });
     setShowBayar(true);
@@ -222,6 +224,7 @@ function SahriyahPage() {
 
   const tutupBayar = () => {
     if (isSavingBayar) return;
+    paymentAttemptRef.current = null;
     setShowBayar(false);
     setSelectedTagihan(null);
     setFormBayar({ nominal: "", beras: "", petugas: "" });
@@ -321,13 +324,22 @@ function SahriyahPage() {
     setIsSavingBayar(true);
 
     try {
-      const response = await api.put(`/sahriyah/bayar/${selectedTagihan.id}`, {
+      const payload = {
         nominal: Number(formBayar.nominal || 0),
         beras: Number(formBayar.beras || 0),
         petugas: formBayar.petugas,
         ...requireActiveUnitForWrite({ activeUnitId }),
+      };
+      const fingerprint = JSON.stringify({ tagihan_id: selectedTagihan.id, ...payload });
+      if (paymentAttemptRef.current?.fingerprint !== fingerprint) {
+        paymentAttemptRef.current = { fingerprint, key: crypto.randomUUID() };
+      }
+      const response = await api.put(`/sahriyah/bayar/${selectedTagihan.id}`, {
+        ...payload,
+        idempotency_key: paymentAttemptRef.current.key,
       });
 
+      paymentAttemptRef.current = null;
       setShowBayar(false);
       setSelectedTagihan(null);
       setFormBayar({ nominal: "", beras: "", petugas: "" });

@@ -68,14 +68,27 @@ function collectRequirements(files) {
 }
 
 async function main() {
+  const platformRoute = fs.readFileSync(path.join(__dirname, "..", "routes", "platformTenantRoutes.js"), "utf8");
+  const tenantDeleteDisabled = /router\.delete\(\s*"\/:id"[\s\S]*?MAINTENANCE_REQUIRED/.test(platformRoute);
   const files = sourceFiles();
   const required = collectRequirements(files);
   const client = await pool.connect();
   try {
     await client.query("BEGIN READ ONLY");
+    const role = (await client.query(`
+      SELECT r.rolsuper, r.rolcreatedb, r.rolcreaterole, r.rolreplication, r.rolbypassrls,
+        (SELECT COUNT(*)::int FROM pg_class c WHERE c.relowner=r.oid
+          AND c.relnamespace='public'::regnamespace) AS owned_objects
+      FROM pg_roles r WHERE r.rolname=current_user
+    `)).rows[0];
+    if (!role || role.rolsuper || role.rolcreatedb || role.rolcreaterole ||
+        role.rolreplication || role.rolbypassrls || Number(role.owned_objects) !== 0) {
+      throw new Error("RUNTIME_ROLE_SAFETY_FAILED");
+    }
     const { rows } = await client.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'");
     const realTables = new Set(rows.map((row) => row.tablename));
     const gaps = [];
+    const intentionallyDenied = [];
     const counts = Object.fromEntries(OPERATIONS.map((operation) => [operation, 0]));
     counts.SEQUENCE_USAGE = 0;
     for (const [table, operations] of required) {
@@ -94,7 +107,11 @@ async function main() {
         const privilege = operation === "TENANT_DELETE" ? "DELETE" : operation;
         counts[privilege] += 1;
         const result = await client.query("SELECT has_table_privilege(current_user, $1, $2) AS allowed", [`public.${table}`, privilege]);
-        if (!result.rows[0].allowed) gaps.push({ table, operation: privilege, source: path.relative(path.join(__dirname, ".."), file) });
+        if (!result.rows[0].allowed) {
+          const finding = { table, operation: privilege, source: path.relative(path.join(__dirname, ".."), file) };
+          if (operation === "TENANT_DELETE" && tenantDeleteDisabled) intentionallyDenied.push(finding);
+          else gaps.push(finding);
+        }
       }
       if (operations.has("INSERT")) {
         const columns = await client.query("SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 AND column_name='id'", [table]);
@@ -110,7 +127,7 @@ async function main() {
       }
     }
     await client.query("ROLLBACK");
-    console.log(JSON.stringify({ mode: "READ_ONLY", source_files: files.length, tables_covered: [...required.keys()].filter((table) => realTables.has(table)).length, required_operation_counts: counts, missing: gaps }, null, 2));
+    console.log(JSON.stringify({ mode: "READ_ONLY", role_safety: role, source_files: files.length, tables_covered: [...required.keys()].filter((table) => realTables.has(table)).length, required_operation_counts: counts, tenant_delete_disabled: tenantDeleteDisabled, intentionally_denied_destructive: intentionallyDenied, missing: gaps }, null, 2));
     if (gaps.length) process.exitCode = 1;
   } catch (error) {
     try { await client.query("ROLLBACK"); } catch { /* best effort */ }

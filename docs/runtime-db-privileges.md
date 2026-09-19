@@ -46,8 +46,15 @@ tables (`absensi_santri`, `rfid_limit_override`, `rfid_limit_settings`, and
 `rfid_override_logs`) lack that column in the audited production schema and are
 skipped by the cleanup service. They are not missing runtime grants. The remaining
 19 missing DELETE grants belong to the Platform tenant-deletion transaction, not
-ordinary tenant requests. The endpoint is still exposed; a separately authorized
-maintenance design is needed before treating that destructive operation as ready.
+ordinary tenant requests. A separately authorized maintenance design is needed
+before treating that destructive operation as ready.
+
+The normal-runtime route is fail-closed with `409 MAINTENANCE_REQUIRED`, and the
+Platform UI marks hard deletion maintenance-only. Suspension/inactivation remains
+the operational alternative. Future hard deletion should be a separate, explicitly
+invoked maintenance procedure using a short-lived privileged owner/migration
+credential, an audit trail, typed confirmation, and a transaction. Do not put that
+credential or the 19 DELETE grants into the normal Railway runtime environment.
 
 `schema_migrations` is owner-only and is excluded from runtime grants. Backup and
 reconciliation-only tables must not be added to the runtime role without a proven

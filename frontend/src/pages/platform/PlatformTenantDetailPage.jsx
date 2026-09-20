@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import platformApi from "../../services/platformApi";
 import Badge from "../../components/ui/Badge";
 import PlatformButton from "../../components/platform/PlatformButton";
@@ -13,6 +13,7 @@ import { formatCurrency } from "../../utils/formatCurrency";
 import { formatDateShort } from "../../utils/formatDate";
 import { openTenantAdminPortal } from "../../utils/tenantPortal";
 import BrandProfilePanel from "../../components/platform/BrandProfilePanel";
+import { getPlatformUser } from "../../utils/platformStorage";
 
 const APPLY_PACKAGE_OPTIONS = TENANT_PACKAGES;
 
@@ -69,6 +70,7 @@ function addDays(value, days) {
 
 function PlatformTenantDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [tenant, setTenant] = useState(null);
   const [tenantDomain, setTenantDomain] = useState(null);
   const [domainLoading, setDomainLoading] = useState(false);
@@ -103,6 +105,10 @@ function PlatformTenantDetailPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState("");
   const [confirmDefaultSlug, setConfirmDefaultSlug] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [editForm, setEditForm] = useState({
     nama: "",
     tenant_display_name: "",
@@ -455,6 +461,29 @@ function PlatformTenantDetailPage() {
     }
   };
 
+  const handleHardDelete = async () => {
+    if (!tenant || !["inactive", "suspended"].includes(tenant.status) ||
+        tenant.slug === "default" || getPlatformUser()?.role !== "platform_superadmin" ||
+        deleteConfirmation !== "DELETE") return;
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      await platformApi.delete(`/platform/tenants/${tenant.id}`, {
+        data: {
+          confirmation: "DELETE",
+          tenant_id: tenant.id,
+          tenant_slug: tenant.slug,
+        },
+      });
+      setDeleteOpen(false);
+      navigate("/platform/tenants", { replace: true });
+    } catch (err) {
+      setDeleteError(err.response?.data?.error || "Hard delete tenant gagal");
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   const saveBilling = async (patch) => {
     setBillingSaving(true);
     setBillingError("");
@@ -519,7 +548,10 @@ function PlatformTenantDetailPage() {
   const isActive = info.status === "active";
   const health = dashboard?.health || tenant.health || {};
   const featureStatus = health.feature_status || {};
-  const canDeleteTenant = !isActive && tenant.slug !== "default";
+  const canShowDeleteTenant = getPlatformUser()?.role === "platform_superadmin" &&
+    tenant.slug !== "default";
+  const canDeleteTenant = canShowDeleteTenant &&
+    ["inactive", "suspended"].includes(tenant.status);
 
   return (
     <>
@@ -546,13 +578,14 @@ function PlatformTenantDetailPage() {
           >
             Reset Admin Password
           </PlatformButton>
-          {canDeleteTenant && (
+          {canShowDeleteTenant && (
             <PlatformButton
-              variant="secondary"
-              disabled
-              title="Hard delete tenant hanya melalui prosedur maintenance terkontrol"
+              variant="danger"
+              disabled={!canDeleteTenant || actionLoading || deleteBusy}
+              onClick={() => { setDeleteConfirmation(""); setDeleteError(""); setDeleteOpen(true); }}
+              title={canDeleteTenant ? "Hapus tenant secara permanen" : "Suspend/nonaktifkan tenant terlebih dahulu"}
             >
-              Hapus Tenant · Maintenance Only
+              Hapus Tenant Permanen
             </PlatformButton>
           )}
           {isActive ? (
@@ -1130,6 +1163,40 @@ function PlatformTenantDetailPage() {
               Simpan
             </PlatformButton>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={deleteOpen}
+        title="Hapus Tenant Permanen"
+        onClose={() => { if (!deleteBusy) setDeleteOpen(false); }}
+        width={540}
+      >
+        <p style={errorBoxStyle}>
+          PERINGATAN: tindakan ini permanen. Semua data milik tenant ini akan dihapus
+          dan tidak dapat dipulihkan melalui aplikasi.
+        </p>
+        <p>Target: <strong>{tenantDisplayName(tenant)}</strong> · {tenant?.slug} · ID {tenant?.id}</p>
+        <label style={fieldLabelStyle}>
+          Ketik DELETE untuk mengonfirmasi target di atas
+          <input
+            style={fieldInputStyle}
+            value={deleteConfirmation}
+            onChange={(event) => setDeleteConfirmation(event.target.value)}
+            autoComplete="off"
+            disabled={deleteBusy}
+          />
+        </label>
+        {deleteError && <div style={errorBoxStyle}>{deleteError}</div>}
+        <div style={modalActionsStyle}>
+          <PlatformButton variant="secondary" onClick={() => setDeleteOpen(false)} disabled={deleteBusy}>
+            Batal
+          </PlatformButton>
+          <PlatformButton variant="danger" onClick={handleHardDelete}
+            disabled={!canDeleteTenant || deleteConfirmation !== "DELETE" || deleteBusy}
+            loading={deleteBusy}>
+            Hapus Permanen
+          </PlatformButton>
         </div>
       </Modal>
 

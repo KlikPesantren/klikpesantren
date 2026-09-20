@@ -34,47 +34,76 @@ const TENANT_ACTIVITY_TABLES = [
 ];
 
 const DELETE_TABLE_ORDER = [
-  "notification_logs",
-  "wali_push_tokens",
-  "rfid_sync_queue",
-  "rfid_limit_override",
-  "rfid_override_logs",
-  "rfid_limit_settings",
-  "transaksi_rfid",
-  "transaksi",
+  "absensi",
+  "absensi_guru",
+  "absensi_santri",
+  "alumni_units",
+  "app_brand_profiles",
+  "audit_logs",
   "devices",
+  "guru",
+  "hafalan",
+  "jenis_tagihan",
+  "kas_instansi_transaksi",
+  "kelas_mata_pelajaran",
+  "kesehatan_santri",
+  "mata_pelajaran",
   "merchant_rfid",
+  "nilai_mingguan",
+  "pelanggaran",
+  "pembayaran",
   "pembayaran_detail",
   "pembayaran_sahriyah",
-  "tagihan_sahriyah",
-  "pembayaran",
-  "sahriyah_setting",
-  "jenis_tagihan",
-  "buku_kas",
-  "kas_instansi_transaksi",
-  "program_unit_evaluasi",
-  "program_unit",
   "pengumuman",
   "perizinan",
-  "pelanggaran",
-  "absensi",
-  "absensi_santri",
-  "absensi_guru",
-  "hafalan",
-  "nilai_mingguan",
-  "kesehatan_santri",
-  "tamu",
-  "santri",
-  "wali_santri",
-  "wali_akun",
-  "guru",
-  "kelas",
-  "user_unit_scope",
-  "unit_pendidikan",
   "profil_pesantren",
-  "tenant_features",
-  "audit_logs",
+  "program_unit",
+  "program_unit_evaluasi",
+  "rfid_limit_override",
+  "rfid_limit_settings",
+  "rfid_override_logs",
+  "rfid_sync_queue",
+  "sahriyah_setting",
+  "santri_kelas_enrollments",
+  "tagihan_sahriyah",
+  "tamu",
+  "tenant_role_permissions",
+  "transaksi",
+  "transaksi_rfid",
+  "user_unit_scope",
+  "wali_akun",
+  "wallet_transaction_correction_audits",
+  "wallet_transactions",
+  "attendance_sessions",
+  "buku_kas",
+  "cash_account_transactions",
+  "guru_units",
+  "kelas",
+  "santri_units",
   "users",
+  "wallet_accounts",
+  "cash_transfers",
+  "santri",
+  "unit_pendidikan",
+  "wali_santri",
+];
+
+// These tenant-owned tables have a verified direct ON DELETE CASCADE FK to
+// tenants. They do not require an extra runtime DELETE grant.
+const CASCADE_TABLES = [
+  "alumni",
+  "cash_accounts",
+  "multi_unit_backfill_review",
+  "notification_logs",
+  "tenant_domains",
+  "tenant_features",
+  "tenant_role_overrides",
+  "unit_features",
+  "user_kelas_scope",
+  "wali_device_tokens",
+  "wali_home_links",
+  "wali_in_app_notifications",
+  "wali_push_tokens",
 ];
 
 let tableColumnsCache = null;
@@ -83,9 +112,12 @@ async function getTableColumns(client = pool) {
   if (tableColumnsCache) return tableColumnsCache;
 
   const { rows } = await client.query(
-    `SELECT table_name, column_name
-     FROM information_schema.columns
-     WHERE table_schema = 'public'`
+    `SELECT c.relname AS table_name, a.attname AS column_name
+     FROM pg_catalog.pg_class c
+     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid
+     WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+       AND a.attnum > 0 AND NOT a.attisdropped`
   );
 
   const map = new Map();
@@ -100,6 +132,54 @@ async function getTableColumns(client = pool) {
 
 function hasTenantColumn(columns, tableName) {
   return columns.has(tableName) && columns.get(tableName).has("tenant_id");
+}
+
+async function assertNoCrossTenantReferences(client, columns, tenantId) {
+  const { rows } = await client.query(
+    `SELECT child.relname AS child_table, parent.relname AS parent_table,
+       array_agg(child_column.attname::text ORDER BY keys.position) AS child_columns,
+       array_agg(parent_column.attname::text ORDER BY keys.position) AS parent_columns
+     FROM pg_catalog.pg_constraint fk
+     JOIN pg_catalog.pg_class child ON child.oid = fk.conrelid
+     JOIN pg_catalog.pg_class parent ON parent.oid = fk.confrelid
+     JOIN pg_catalog.pg_namespace child_schema ON child_schema.oid = child.relnamespace
+     JOIN pg_catalog.pg_namespace parent_schema ON parent_schema.oid = parent.relnamespace
+     JOIN LATERAL unnest(fk.conkey, fk.confkey) WITH ORDINALITY
+       AS keys(child_attnum, parent_attnum, position) ON true
+     JOIN pg_catalog.pg_attribute child_column
+       ON child_column.attrelid = child.oid AND child_column.attnum = keys.child_attnum
+     JOIN pg_catalog.pg_attribute parent_column
+       ON parent_column.attrelid = parent.oid AND parent_column.attnum = keys.parent_attnum
+     WHERE fk.contype = 'f' AND child_schema.nspname = 'public'
+       AND parent_schema.nspname = 'public'
+     GROUP BY fk.oid, child.relname, parent.relname`
+  );
+  const identifier = (value) => {
+    if (!/^[a-z_][a-z0-9_]*$/.test(value)) throw new Error("Identifier FK tidak aman");
+    return value;
+  };
+  for (const fk of rows) {
+    if (!hasTenantColumn(columns, fk.parent_table)) continue;
+    const child = identifier(fk.child_table);
+    const parent = identifier(fk.parent_table);
+    const join = fk.child_columns.map((column, index) =>
+      `child.${identifier(column)} = parent.${identifier(fk.parent_columns[index])}`
+    ).join(" AND ");
+    const foreignScope = hasTenantColumn(columns, child)
+      ? "AND child.tenant_id IS DISTINCT FROM parent.tenant_id"
+      : "";
+    const conflict = await client.query(
+      `SELECT 1 FROM ${child} child JOIN ${parent} parent ON ${join}
+       WHERE parent.tenant_id = $1 ${foreignScope} LIMIT 1`,
+      [tenantId]
+    );
+    if (conflict.rowCount) {
+      const err = new Error("Relasi lintas tenant perlu peninjauan sebelum hard delete");
+      err.status = 409;
+      err.code = "TENANT_CROSS_REFERENCE";
+      throw err;
+    }
+  }
 }
 
 async function countTenantRows(client, columns, tableName, tenantId) {
@@ -262,22 +342,32 @@ async function getTenantCleanupSummary(tenantId, client = pool) {
 
 async function deleteTenantSafely(tenant, platformUser, client) {
   const columns = await getTableColumns(client);
+  const explicit = new Set(DELETE_TABLE_ORDER);
+  const cascaded = new Set(CASCADE_TABLES);
+  const tenantTables = [...columns].filter(([, fields]) => fields.has("tenant_id"))
+    .map(([table]) => table);
+  const uncovered = tenantTables.filter((table) => !explicit.has(table) && !cascaded.has(table));
+  const missingExplicit = DELETE_TABLE_ORDER.filter((table) => !hasTenantColumn(columns, table));
+  const missingCascade = CASCADE_TABLES.filter((table) => !hasTenantColumn(columns, table));
+  const cascadeResult = await client.query(
+    `SELECT child.relname AS table_name
+     FROM pg_catalog.pg_constraint fk
+     JOIN pg_catalog.pg_class child ON child.oid = fk.conrelid
+     WHERE fk.contype = 'f' AND fk.confrelid = 'public.tenants'::regclass
+       AND fk.confdeltype = 'c'`
+  );
+  const verifiedCascade = new Set(cascadeResult.rows.map((row) => row.table_name));
+  const invalidCascade = CASCADE_TABLES.filter((table) => !verifiedCascade.has(table));
+  if (uncovered.length || missingExplicit.length || missingCascade.length || invalidCascade.length) {
+    const err = new Error("Skema tenant belum aman untuk hard delete");
+    err.status = 409;
+    err.code = "TENANT_DELETE_SCHEMA_UNSUPPORTED";
+    throw err;
+  }
+  await assertNoCrossTenantReferences(client, columns, tenant.id);
   const deleted = {};
 
   for (const tableName of DELETE_TABLE_ORDER) {
-    if (tableName === "user_unit_scope") {
-      const { rowCount } = await client.query(
-        `DELETE FROM user_unit_scope uus
-         USING users u
-         WHERE uus.user_id = u.id AND u.tenant_id = $1`,
-        [tenant.id]
-      );
-      deleted[tableName] = rowCount;
-      continue;
-    }
-
-    if (!hasTenantColumn(columns, tableName)) continue;
-
     const { rowCount } = await client.query(
       `DELETE FROM ${tableName} WHERE tenant_id = $1`,
       [tenant.id]

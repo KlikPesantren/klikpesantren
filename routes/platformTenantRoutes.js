@@ -15,6 +15,7 @@ const { getTenantPlatformDashboard } = require("../services/tenantPlatformStatsS
 const {
   attachTenantListHealth,
   getTenantHealth,
+  deleteTenantSafely,
 } = require("../services/tenantHealthService");
 const {
   applyTenantPackage,
@@ -441,14 +442,64 @@ router.patch(
 
 router.delete(
   "/:id",
-  (_req, res) => {
-    // Tenant-wide physical deletion requires a separate, controlled maintenance
-    // credential. The normal Railway runtime must never execute this workflow.
-    return res.status(409).json({
-      success: false,
-      code: "MAINTENANCE_REQUIRED",
-      error: "Hapus tenant hanya tersedia melalui prosedur maintenance terkontrol",
-    });
+  async (req, res) => {
+    if (req.platformUser?.role !== "platform_superadmin") {
+      return res.status(403).json({ success: false, code: "PLATFORM_ONLY", error: "Akses ditolak" });
+    }
+    const tenantId = Number(req.params.id);
+    if (!Number.isSafeInteger(tenantId) || tenantId <= 0) {
+      return res.status(400).json({ success: false, code: "INVALID_TENANT_ID", error: "Tenant tidak valid" });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows } = await client.query(
+        "SELECT id, slug, nama, status FROM tenants WHERE id = $1 FOR UPDATE",
+        [tenantId]
+      );
+      const tenant = rows[0];
+      if (!tenant) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ success: false, code: "TENANT_NOT_FOUND", error: "Tenant tidak ditemukan" });
+      }
+      if (tenant.slug === "default") {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ success: false, code: "PROTECTED_TENANT", error: "Tenant default tidak dapat dihapus" });
+      }
+      if (!["inactive", "suspended"].includes(tenant.status)) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ success: false, code: "TENANT_NOT_INACTIVE", error: "Suspend/nonaktifkan tenant sebelum hard delete" });
+      }
+      if (req.body?.confirmation !== "DELETE" ||
+          Number(req.body?.tenant_id) !== tenantId ||
+          req.body?.tenant_slug !== tenant.slug) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          success: false,
+          code: "DELETE_CONFIRMATION_REQUIRED",
+          error: "Konfirmasi DELETE, tenant_id, dan slug tenant harus cocok",
+        });
+      }
+
+      const deletedCounts = await deleteTenantSafely(tenant, req.platformUser, client);
+      await client.query("COMMIT");
+      return res.json({
+        success: true,
+        deleted_tenant: { id: tenant.id, slug: tenant.slug, nama: tenant.nama, status: tenant.status },
+        deleted_counts: deletedCounts,
+      });
+    } catch (err) {
+      try { await client.query("ROLLBACK"); } catch { /* preserve original error */ }
+      console.error("[platformTenantRoutes.delete]", err);
+      return res.status(err.status || 500).json({
+        success: false,
+        code: err.status ? err.code : "TENANT_DELETE_FAILED",
+        error: err.status ? err.message : "Hard delete tenant gagal; seluruh perubahan dibatalkan",
+      });
+    } finally {
+      client.release();
+    }
   }
 );
 

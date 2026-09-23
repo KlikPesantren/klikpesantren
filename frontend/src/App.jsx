@@ -109,6 +109,11 @@ const PrivacyPolicyPage = lazy(() =>
     default: module.PrivacyPolicyPage,
   }))
 );
+const WaliSantriPrivacyPolicyPage = lazy(() =>
+  import("./pages/OfficialWebsitePages").then((module) => ({
+    default: module.WaliSantriPrivacyPolicyPage,
+  }))
+);
 const TermsOfServicePage = lazy(() =>
   import("./pages/OfficialWebsitePages").then((module) => ({
     default: module.TermsOfServicePage,
@@ -197,6 +202,7 @@ function App() {
         <Route path="/blog" element={<LazyPage><BlogPage /></LazyPage>} />
         <Route path="/kontak" element={<LazyPage><ContactPage /></LazyPage>} />
         <Route path="/privacy-policy" element={<LazyPage><PrivacyPolicyPage /></LazyPage>} />
+        <Route path="/privacy/walisantri" element={<LazyPage><WaliSantriPrivacyPolicyPage /></LazyPage>} />
         <Route path="/terms-of-service" element={<LazyPage><TermsOfServicePage /></LazyPage>} />
 
         {/* Platform Console — auth terpisah dari tenant admin */}

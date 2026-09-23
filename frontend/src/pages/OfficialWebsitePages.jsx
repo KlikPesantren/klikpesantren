@@ -1253,27 +1253,33 @@ export function BlogPage() {
   );
 }
 
-export function PrivacyPolicyPage() {
+function PrivacyPolicyDocument({
+  title = "Kebijakan Privasi KlikPesantren",
+  seoTitle = "Privacy Policy KlikPesantren",
+  path = "/privacy-policy",
+  lastUpdated = "13 Juli 2026",
+  dateLabel = "Tanggal berlaku",
+}) {
   return (
     <PublicPageShell>
       <Seo
-        title="Privacy Policy KlikPesantren"
+        title={seoTitle}
         description="Kebijakan privasi KlikPesantren terkait pengelolaan informasi untuk layanan administrasi pesantren digital."
-        path="/privacy-policy"
+        path={path}
         jsonLd={breadcrumbJsonLd([
           { name: "Beranda", path: "/" },
-          { name: "Privacy Policy", path: "/privacy-policy" },
+          { name: title, path },
         ])}
       />
       <PageHero
         eyebrow="Legal"
         icon={<FaShieldAlt />}
-        title="Kebijakan Privasi KlikPesantren"
+        title={title}
         text="Penjelasan pemrosesan data pada platform KlikPesantren dan aplikasi Wali Santri."
       />
       <section className="kp-page-section">
         <div className="kp-shell kp-legal-content">
-          <p><strong>Tanggal berlaku:</strong> 13 Juli 2026</p>
+          <p><strong>{dateLabel}:</strong> {lastUpdated}</p>
 
           <h2>1. Pengelola dan ruang lingkup</h2>
           <p>
@@ -1360,6 +1366,22 @@ export function PrivacyPolicyPage() {
         </div>
       </section>
     </PublicPageShell>
+  );
+}
+
+export function PrivacyPolicyPage() {
+  return <PrivacyPolicyDocument />;
+}
+
+export function WaliSantriPrivacyPolicyPage() {
+  return (
+    <PrivacyPolicyDocument
+      title="Kebijakan Privasi WaliSantri"
+      seoTitle="Kebijakan Privasi WaliSantri"
+      path="/privacy/walisantri"
+      lastUpdated="24 September 2026"
+      dateLabel="Terakhir diperbarui"
+    />
   );
 }
 

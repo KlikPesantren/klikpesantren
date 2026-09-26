@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   FaArrowRight,
   FaChartLine,
@@ -19,12 +19,12 @@ import {
 import { Link } from "react-router-dom";
 import PublicLayout from "../components/public/PublicLayout";
 import Seo, { breadcrumbJsonLd } from "../components/public/Seo";
-import { fetchPublicWebsiteContent } from "../services/platformPublicApi";
+import {
+  buildWhatsAppUrl,
+  usePublicWebsiteContact,
+} from "../hooks/usePublicWebsiteContact";
 
-const whatsappNumber = "6281383919797";
-const whatsappBaseUrl = `https://wa.me/${whatsappNumber}`;
 const defaultContact = {
-  whatsapp: whatsappNumber,
   email: "hello@klikpesantren.com",
   instagram: "https://instagram.com/klikpesantren",
 };
@@ -194,32 +194,6 @@ const blogPosts = [
     text: "Bagaimana aplikasi wali membantu pengumuman, tagihan, dan informasi anak sampai lebih cepat.",
   },
 ];
-
-function usePublicWebsiteContact() {
-  const [contact, setContact] = useState(defaultContact);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    fetchPublicWebsiteContent()
-      .then((content) => {
-        if (cancelled) return;
-        setContact({
-          ...defaultContact,
-          ...(content?.contact || {}),
-        });
-      })
-      .catch(() => {
-        if (!cancelled) setContact(defaultContact);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return contact;
-}
 
 function PublicPageStyles() {
   return (
@@ -897,6 +871,7 @@ export function PricingPage() {
 }
 
 export function DemoPage() {
+  const contact = usePublicWebsiteContact();
   const [form, setForm] = useState({
     nama: "",
     pesantren: "",
@@ -907,6 +882,9 @@ export function DemoPage() {
   });
 
   const whatsappUrl = useMemo(() => {
+    const whatsappBaseUrl = buildWhatsAppUrl(contact.whatsapp);
+    if (!whatsappBaseUrl) return "";
+
     const message = [
       "Assalamu'alaikum, saya ingin minta demo KlikPesantren.",
       "",
@@ -919,7 +897,7 @@ export function DemoPage() {
     ].join("\n");
 
     return `${whatsappBaseUrl}?text=${encodeURIComponent(message)}`;
-  }, [form]);
+  }, [contact.whatsapp, form]);
 
   const updateField = (event) => {
     const { name, value } = event.target;
@@ -928,6 +906,7 @@ export function DemoPage() {
 
   const submitDemo = (event) => {
     event.preventDefault();
+    if (!whatsappUrl) return;
     window.open(whatsappUrl, "_blank", "noopener,noreferrer");
   };
 
@@ -1037,7 +1016,7 @@ export function DemoPage() {
             </div>
 
             <div className="kp-page-actions">
-              <button className="kp-btn kp-btn-primary" type="submit">
+              <button className="kp-btn kp-btn-primary" type="submit" disabled={!whatsappUrl}>
                 Kirim via WhatsApp <FaWhatsapp />
               </button>
             </div>
@@ -1130,7 +1109,7 @@ export function AboutPage() {
 
 export function ContactPage() {
   const contact = usePublicWebsiteContact();
-  const contactWhatsappUrl = `https://wa.me/${String(contact.whatsapp || whatsappNumber).replace(/\D/g, "")}`;
+  const contactWhatsappUrl = buildWhatsAppUrl(contact.whatsapp);
 
   return (
     <PublicPageShell>
@@ -1167,7 +1146,13 @@ export function ContactPage() {
               Jalur tercepat untuk bertanya, menjadwalkan demo, atau membahas
               kebutuhan awal.
             </p>
-            <a className="kp-contact-link" href={contactWhatsappUrl} target="_blank" rel="noreferrer">
+            <a
+              className="kp-contact-link"
+              href={contactWhatsappUrl || undefined}
+              aria-disabled={!contactWhatsappUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
               Chat WhatsApp
             </a>
           </article>

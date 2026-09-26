@@ -13,8 +13,10 @@ import {
   FaWhatsapp,
 } from "react-icons/fa";
 import Seo, { breadcrumbJsonLd } from "../components/public/Seo";
-
-const WHATSAPP_URL = "https://wa.me/6281383919797";
+import {
+  buildWhatsAppUrl,
+  usePublicWebsiteContact,
+} from "../hooks/usePublicWebsiteContact";
 
 const problemItems = [
   "Data santri tersebar di buku, Excel, dan grup chat.",
@@ -784,6 +786,9 @@ function CheckItem({ children }) {
 }
 
 export default function FoundingPartnerPage() {
+  const contact = usePublicWebsiteContact();
+  const whatsappUrl = buildWhatsAppUrl(contact.whatsapp);
+
   return (
     <main className="ks-landing">
       <Seo
@@ -812,7 +817,7 @@ export default function FoundingPartnerPage() {
             <a href="#harga">Harga</a>
             <a href="#faq">FAQ</a>
           </nav>
-          <a className="ks-button ks-button-primary" href={WHATSAPP_URL} target="_blank" rel="noreferrer">
+          <a className="ks-button ks-button-primary" href={whatsappUrl || undefined} aria-disabled={!whatsappUrl} target="_blank" rel="noreferrer">
             <FaWhatsapp /> Konsultasi
           </a>
         </div>
@@ -831,7 +836,7 @@ export default function FoundingPartnerPage() {
               dashboard, dan komunikasi wali dalam satu ekosistem SaaS.
             </p>
             <div className="ks-hero-actions">
-              <a className="ks-button ks-button-primary" href={WHATSAPP_URL} target="_blank" rel="noreferrer">
+              <a className="ks-button ks-button-primary" href={whatsappUrl || undefined} aria-disabled={!whatsappUrl} target="_blank" rel="noreferrer">
                 Daftar Founding Partner <FaArrowRight />
               </a>
               <a className="ks-button ks-button-soft" href="#mockup">
@@ -899,7 +904,7 @@ export default function FoundingPartnerPage() {
               sudah berjalan.
             </p>
             <div className="ks-hero-actions">
-              <a className="ks-button ks-button-dark" href={WHATSAPP_URL} target="_blank" rel="noreferrer">
+              <a className="ks-button ks-button-dark" href={whatsappUrl || undefined} aria-disabled={!whatsappUrl} target="_blank" rel="noreferrer">
                 Bicara Kebutuhan Pesantren
               </a>
             </div>
@@ -974,7 +979,7 @@ export default function FoundingPartnerPage() {
                 membangun sistem administrasi digital yang benar-benar cocok
                 dengan kebutuhan lapangan.
               </p>
-              <a className="ks-button ks-button-primary" href={WHATSAPP_URL} target="_blank" rel="noreferrer">
+              <a className="ks-button ks-button-primary" href={whatsappUrl || undefined} aria-disabled={!whatsappUrl} target="_blank" rel="noreferrer">
                 Ambil Slot Founding Partner <FaWhatsapp />
               </a>
             </div>
@@ -1062,7 +1067,7 @@ export default function FoundingPartnerPage() {
             Ceritakan kondisi pesantren, modul yang paling dibutuhkan, dan target
             implementasi. Tim KlikPesantren akan bantu susun langkah awalnya.
           </p>
-          <a className="ks-button ks-button-primary" href={WHATSAPP_URL} target="_blank" rel="noreferrer">
+          <a className="ks-button ks-button-primary" href={whatsappUrl || undefined} aria-disabled={!whatsappUrl} target="_blank" rel="noreferrer">
             Hubungi via WhatsApp <FaWhatsapp />
           </a>
         </div>

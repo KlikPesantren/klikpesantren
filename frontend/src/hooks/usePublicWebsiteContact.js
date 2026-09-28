@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { fetchPublicWebsiteContent } from "../services/platformPublicApi";
+import { useWebsiteContent } from "../context/WebsiteContentContext";
 
 const defaultContact = {
   whatsapp: "",
@@ -22,27 +21,6 @@ export function buildWhatsAppUrl(value) {
 }
 
 export function usePublicWebsiteContact() {
-  const [contact, setContact] = useState(defaultContact);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    fetchPublicWebsiteContent()
-      .then((content) => {
-        if (cancelled) return;
-        setContact({
-          ...defaultContact,
-          ...(content?.contact || {}),
-        });
-      })
-      .catch(() => {
-        if (!cancelled) setContact(defaultContact);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return contact;
+  const content = useWebsiteContent();
+  return { ...defaultContact, ...(content.contact || {}) };
 }

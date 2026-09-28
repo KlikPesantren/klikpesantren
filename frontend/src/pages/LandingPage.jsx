@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from "react";
 import {
   FaArrowRight,
   FaChartLine,
@@ -15,7 +14,7 @@ import {
 import { Link } from "react-router-dom";
 import PublicLayout from "../components/public/PublicLayout";
 import Seo, { homepageJsonLd } from "../components/public/Seo";
-import { fetchPublicWebsiteContent } from "../services/platformPublicApi";
+import { useWebsiteContent } from "../context/WebsiteContentContext";
 
 const STATIC_WEBSITE_CONTENT = {
   brand: {
@@ -599,39 +598,28 @@ function CheckItem({ children }) {
 }
 
 export default function LandingPage() {
-  const [remoteContent, setRemoteContent] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    fetchPublicWebsiteContent()
-      .then((content) => {
-        if (!cancelled && content) {
-          setRemoteContent(content);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRemoteContent(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const websiteContent = useMemo(
-    () => mergeWebsiteContent(remoteContent || {}),
-    [remoteContent]
-  );
+  const websiteContent = mergeWebsiteContent(useWebsiteContent());
   const homepage = websiteContent.homepage;
+  const hero = { ...homepage, ...(homepage.hero || {}) };
+  const campaignEnabled = websiteContent.campaign?.enabled !== false;
+  const homepageSections = homepage.sections || {};
+  const proofSection = homepageSections.proof || {};
+  const problemSection = homepageSections.problems || {};
+  const solutionSection = homepageSections.solution || {};
+  const featureSection = homepageSections.features || {};
+  const previewSection = homepageSections.preview || {};
+  const reasonSection = homepageSections.reasons || {};
+  const pricingTeaser = homepageSections.pricing_teaser || {};
+  const campaignTeaser = homepageSections.campaign_teaser || {};
+  const finalCta = homepageSections.final_cta || {};
 
   return (
     <PublicLayout>
       <Seo
-        title="KlikPesantren | Platform SaaS Operasional Pesantren Modern"
-        description="KlikPesantren membantu pesantren mengelola administrasi santri, keuangan, Wali Santri App, RFID, perizinan, pelanggaran, dan dashboard operasional."
+        title={websiteContent.seo.default_title}
+        description={websiteContent.seo.default_description}
+        image={websiteContent.seo.og_image_url}
+        canonicalBaseUrl={websiteContent.seo.canonical_base_url}
         path="/"
         jsonLd={homepageJsonLd}
       />
@@ -642,22 +630,21 @@ export default function LandingPage() {
           <div className="kp-shell kp-hero-grid">
             <div>
               <div className="kp-eyebrow">
-                <FaRegBell /> SaaS operasional pesantren
+                <FaRegBell /> {hero.eyebrow || "SaaS operasional pesantren"}
               </div>
-              <h1>{homepage.hero_title}</h1>
+              <h1>{hero.title || hero.hero_title}</h1>
               <p className="kp-hero-copy">
-                {homepage.hero_subtitle}
+                {hero.subtitle || hero.hero_subtitle}
               </p>
               <div className="kp-hero-actions">
-                <Link className="kp-btn kp-btn-primary" to={homepage.primary_cta_url || "/demo"}>
-                  {homepage.primary_cta_label} <FaArrowRight />
+                <Link className="kp-btn kp-btn-primary" to={hero.primary_cta_url || "/demo"}>
+                  {hero.primary_cta_label} <FaArrowRight />
                 </Link>
-                <Link
-                  className="kp-btn kp-btn-secondary"
-                  to={homepage.secondary_cta_url || "/founding-partner"}
-                >
-                  {homepage.secondary_cta_label}
-                </Link>
+                {campaignEnabled && hero.secondary_cta_enabled !== false ? (
+                  <Link className="kp-btn kp-btn-secondary" to={hero.secondary_cta_url || "/founding-partner"}>
+                    {hero.secondary_cta_label}
+                  </Link>
+                ) : null}
               </div>
               <div className="kp-hero-trust">
                 <span><FaCheck /> Web Admin</span>
@@ -668,7 +655,7 @@ export default function LandingPage() {
 
             <div className="kp-hero-visual" aria-label="Dashboard KlikPesantren">
               <img
-                src="/landing/dashboard-admin.png"
+                src={hero.image_url || "/landing/dashboard-admin.png"}
                 alt="Dashboard admin KlikPesantren"
                 fetchPriority="high"
               />
@@ -676,18 +663,17 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="kp-section">
+        {homepageSections.proof?.enabled !== false ? <section className="kp-section">
           <div className="kp-shell">
             <div className="kp-section-head center">
-              <div className="kp-eyebrow">Product Proof</div>
-              <h2>Satu ekosistem untuk kerja harian pesantren.</h2>
+              <div className="kp-eyebrow">{proofSection.eyebrow || "Product Proof"}</div>
+              <h2>{proofSection.title || "Satu ekosistem untuk kerja harian pesantren."}</h2>
               <p>
-                KlikPesantren menghubungkan tim internal pesantren, wali
-                santri, dan perangkat operasional dalam alur yang lebih rapi.
+                {proofSection.description || "KlikPesantren menghubungkan tim internal pesantren, wali santri, dan perangkat operasional dalam alur yang lebih rapi."}
               </p>
             </div>
             <div className="kp-proof-grid">
-              {productProof.map((item) => (
+              {(proofSection.items || productProof).map((item) => (
                 <article className="kp-proof-card" key={item.title}>
                   <strong>{item.title}</strong>
                   <p>{item.text}</p>
@@ -695,35 +681,31 @@ export default function LandingPage() {
               ))}
             </div>
           </div>
-        </section>
+        </section> : null}
 
-        <section className="kp-section kp-section-muted">
+        {homepageSections.problems?.enabled !== false ? <section className="kp-section kp-section-muted">
           <div className="kp-shell kp-two-col">
             <div className="kp-section-head">
-              <div className="kp-eyebrow">Problem</div>
-              <h2>Operasional pesantren sering berat karena informasi tersebar.</h2>
+              <div className="kp-eyebrow">{problemSection.eyebrow || "Problem"}</div>
+              <h2>{problemSection.title || "Operasional pesantren sering berat karena informasi tersebar."}</h2>
               <p>
-                Banyak pekerjaan penting berjalan paralel setiap hari. Ketika
-                data, transaksi, dan komunikasi tidak berada di satu sistem,
-                keputusan menjadi lebih lambat.
+                {problemSection.description || "Banyak pekerjaan penting berjalan paralel setiap hari. Ketika data, transaksi, dan komunikasi tidak berada di satu sistem, keputusan menjadi lebih lambat."}
               </p>
             </div>
             <div className="kp-list">
-              {problems.map((item) => (
+              {(problemSection.items || problems).map((item) => (
                 <CheckItem key={item}>{item}</CheckItem>
               ))}
             </div>
           </div>
-        </section>
+        </section> : null}
 
-        <section className="kp-section">
+        {solutionSection.enabled !== false ? <section className="kp-section">
           <div className="kp-shell kp-two-col">
             <div className="kp-solution-panel">
-              <h3>Dari pencatatan tersebar menjadi sistem kerja terintegrasi.</h3>
+              <h3>{solutionSection.panel_title || "Dari pencatatan tersebar menjadi sistem kerja terintegrasi."}</h3>
               <p>
-                KlikPesantren membantu pesantren memulai digitalisasi secara
-                bertahap, dari data santri dan pembayaran sampai app wali,
-                RFID, dan dashboard pimpinan.
+                {solutionSection.panel_description || "KlikPesantren membantu pesantren memulai digitalisasi secara bertahap, dari data santri dan pembayaran sampai app wali, RFID, dan dashboard pimpinan."}
               </p>
               <div className="kp-solution-steps">
                 <div>1. Rapikan data inti santri dan wali.</div>
@@ -732,66 +714,65 @@ export default function LandingPage() {
               </div>
             </div>
             <div className="kp-section-head">
-              <div className="kp-eyebrow">Solution</div>
-              <h2>Platform SaaS yang mengikuti cara kerja pesantren.</h2>
+              <div className="kp-eyebrow">{solutionSection.eyebrow || "Solution"}</div>
+              <h2>{solutionSection.title || "Platform SaaS yang mengikuti cara kerja pesantren."}</h2>
               <p>
-                Bukan website sekolah dan bukan profil yayasan. KlikPesantren
-                adalah produk operasional untuk pengurus, operator, bendahara,
-                pimpinan, dan wali santri.
+                {solutionSection.description || "Bukan website sekolah dan bukan profil yayasan. KlikPesantren adalah produk operasional untuk pengurus, operator, bendahara, pimpinan, dan wali santri."}
               </p>
               <div className="kp-section-actions">
-                <Link className="kp-btn kp-btn-primary" to="/fitur">
-                  Lihat Fitur <FaArrowRight />
+                <Link className="kp-btn kp-btn-primary" to={solutionSection.cta_url || "/fitur"}>
+                  {solutionSection.cta_label || "Lihat Fitur"} <FaArrowRight />
                 </Link>
               </div>
             </div>
           </div>
-        </section>
+        </section> : null}
 
-        <section className="kp-section kp-section-muted">
+        {homepageSections.features?.enabled !== false ? <section className="kp-section kp-section-muted">
           <div className="kp-shell">
             <div className="kp-section-head center">
-              <div className="kp-eyebrow">Fitur Utama</div>
-              <h2>Modul inti untuk operasional pesantren modern.</h2>
+              <div className="kp-eyebrow">{featureSection.eyebrow || "Fitur Utama"}</div>
+              <h2>{featureSection.title || "Modul inti untuk operasional pesantren modern."}</h2>
               <p>
-                Fitur disusun dari kebutuhan produk yang sudah ada agar pesantren
-                bisa mulai dari administrasi dasar dan berkembang bertahap.
+                {featureSection.description || "Fitur disusun dari kebutuhan produk yang sudah ada agar pesantren bisa mulai dari administrasi dasar dan berkembang bertahap."}
               </p>
             </div>
             <div className="kp-feature-grid">
-              {features.map((feature) => (
+              {features.map((feature, index) => {
+                const configuredFeature = featureSection.items?.[index] || {};
+                return (
                 <article className="kp-feature-card" key={feature.title}>
                   <div className="kp-feature-icon">{feature.icon}</div>
-                  <h3>{feature.title}</h3>
-                  <p>{feature.text}</p>
+                  <h3>{configuredFeature.title || feature.title}</h3>
+                  <p>{configuredFeature.text || feature.text}</p>
                 </article>
-              ))}
+                );
+              })}
             </div>
           </div>
-        </section>
+        </section> : null}
 
-        <section className="kp-section">
+        {homepageSections.preview?.enabled !== false ? <section className="kp-section">
           <div className="kp-shell">
             <div className="kp-section-head center">
-              <div className="kp-eyebrow">Product Preview</div>
-              <h2>Web admin dan aplikasi wali dalam satu alur operasional.</h2>
+              <div className="kp-eyebrow">{previewSection.eyebrow || "Product Preview"}</div>
+              <h2>{previewSection.title || "Web admin dan aplikasi wali dalam satu alur operasional."}</h2>
               <p>
-                Dashboard membantu tim internal memantau pekerjaan, sementara
-                aplikasi wali menjaga informasi tetap sampai ke orang tua.
+                {previewSection.description || "Dashboard membantu tim internal memantau pekerjaan, sementara aplikasi wali menjaga informasi tetap sampai ke orang tua."}
               </p>
             </div>
             <div className="kp-preview">
               <div className="kp-preview-grid">
                 <div className="kp-preview-window">
                   <img
-                    src="/landing/dashboard-admin.png"
+                    src={previewSection.admin_image_url || "/landing/dashboard-admin.png"}
                     alt="Preview web admin KlikPesantren"
                     loading="lazy"
                   />
                 </div>
                 <div className="kp-phone-frame">
                   <img
-                    src="/landing/wali-app.png"
+                    src={previewSection.wali_image_url || "/landing/wali-app.png"}
                     alt="Preview Wali Santri App KlikPesantren"
                     loading="lazy"
                   />
@@ -799,70 +780,67 @@ export default function LandingPage() {
               </div>
             </div>
           </div>
-        </section>
+        </section> : null}
 
-        <section className="kp-section kp-section-muted">
+        {homepageSections.reasons?.enabled !== false ? <section className="kp-section kp-section-muted">
           <div className="kp-shell">
             <div className="kp-section-head center">
-              <div className="kp-eyebrow">Why KlikPesantren</div>
-              <h2>Dibangun sebagai produk SaaS, bukan sekadar halaman profil.</h2>
+              <div className="kp-eyebrow">{reasonSection.eyebrow || "Why KlikPesantren"}</div>
+              <h2>{reasonSection.title || "Dibangun sebagai produk SaaS, bukan sekadar halaman profil."}</h2>
             </div>
             <div className="kp-reason-grid">
-              {reasons.map((item) => (
+              {(reasonSection.items || reasons).map((item) => (
                 <div className="kp-reason-card" key={item}>
                   {item}
                 </div>
               ))}
             </div>
           </div>
-        </section>
+        </section> : null}
 
         <section className="kp-section">
           <div className="kp-shell kp-teaser-grid">
-            <article className="kp-teaser-card">
-              <h3>Paket dibuat bertahap sesuai kebutuhan pesantren.</h3>
+            {pricingTeaser.enabled !== false ? <article className="kp-teaser-card">
+              <h3>{pricingTeaser.title || "Paket dibuat bertahap sesuai kebutuhan pesantren."}</h3>
               <p>
-                Mulai dari modul dasar, lalu berkembang ke perizinan,
-                pelanggaran, sahriyah, RFID, Wali App, dan kebutuhan custom.
+                {pricingTeaser.description || "Mulai dari modul dasar, lalu berkembang ke perizinan, pelanggaran, sahriyah, RFID, Wali App, dan kebutuhan custom."}
               </p>
               <div className="kp-section-actions">
-                <Link className="kp-btn kp-btn-secondary" to="/harga">
-                  Lihat Harga
+                <Link className="kp-btn kp-btn-secondary" to={pricingTeaser.cta_url || "/harga"}>
+                  {pricingTeaser.cta_label || "Lihat Harga"}
                 </Link>
               </div>
-            </article>
-            <article className="kp-teaser-card accent">
-              <h3>Program Founding Partner tetap tersedia.</h3>
+            </article> : null}
+            {campaignEnabled && homepageSections.campaign_teaser?.enabled !== false ? <article className="kp-teaser-card accent">
+              <h3>{campaignTeaser.title || "Program Founding Partner tetap tersedia."}</h3>
               <p>
-                Campaign lama dipertahankan untuk pesantren yang ingin ikut
-                fase awal dan mendapatkan pendampingan prioritas.
+                {campaignTeaser.description || "Campaign lama dipertahankan untuk pesantren yang ingin ikut fase awal dan mendapatkan pendampingan prioritas."}
               </p>
               <div className="kp-section-actions">
-                <Link className="kp-btn kp-btn-secondary" to="/founding-partner">
-                  Daftar Founding Partner
+                <Link className="kp-btn kp-btn-secondary" to={campaignTeaser.cta_url || "/founding-partner"}>
+                  {campaignTeaser.cta_label || "Daftar Founding Partner"}
                 </Link>
               </div>
-            </article>
+            </article> : null}
           </div>
         </section>
 
-        <section className="kp-final-cta">
+        {finalCta.enabled !== false ? <section className="kp-final-cta">
           <div className="kp-shell">
-            <h2>Siap melihat bagaimana KlikPesantren bekerja untuk operasional harian?</h2>
+            <h2>{finalCta.title || "Siap melihat bagaimana KlikPesantren bekerja untuk operasional harian?"}</h2>
             <p>
-              Jadwalkan demo untuk melihat alur admin, keuangan, RFID, app wali,
-              dan dashboard sesuai kebutuhan pesantren.
+              {finalCta.description || "Jadwalkan demo untuk melihat alur admin, keuangan, RFID, app wali, dan dashboard sesuai kebutuhan pesantren."}
             </p>
             <div className="kp-final-actions">
-              <Link className="kp-btn kp-btn-primary" to="/demo">
-                Minta Demo <FaArrowRight />
+              <Link className="kp-btn kp-btn-primary" to={finalCta.primary_url || "/demo"}>
+                {finalCta.primary_label || "Minta Demo"} <FaArrowRight />
               </Link>
-              <Link className="kp-btn kp-btn-secondary" to="/founding-partner">
-                Daftar Founding Partner
-              </Link>
+              {campaignEnabled ? <Link className="kp-btn kp-btn-secondary" to={finalCta.secondary_url || "/founding-partner"}>
+                {finalCta.secondary_label || "Daftar Founding Partner"}
+              </Link> : null}
             </div>
           </div>
-        </section>
+        </section> : null}
       </main>
     </PublicLayout>
   );

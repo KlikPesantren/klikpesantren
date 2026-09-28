@@ -16,13 +16,14 @@ import {
   FaUserCheck,
   FaWhatsapp,
 } from "react-icons/fa";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import PublicLayout from "../components/public/PublicLayout";
 import Seo, { breadcrumbJsonLd } from "../components/public/Seo";
 import {
   buildWhatsAppUrl,
   usePublicWebsiteContact,
 } from "../hooks/usePublicWebsiteContact";
+import { useWebsiteContent } from "../context/WebsiteContentContext";
 
 const defaultContact = {
   email: "hello@klikpesantren.com",
@@ -735,22 +736,27 @@ function PublicPageShell({ children }) {
 }
 
 export function FeaturesPage() {
+  const content = useWebsiteContent();
+  const page = content.pages?.features || {};
+  const hero = page.hero || {};
   return (
     <PublicPageShell>
       <Seo
         title="Fitur KlikPesantren | Administrasi, Keuangan, RFID, Wali App"
         description="Lihat fitur KlikPesantren untuk administrasi santri, keuangan pesantren, RFID, Wali Santri App, perizinan, pelanggaran, dashboard, dan multi tenant."
         path="/fitur"
+        image={content.seo?.og_image_url}
+        canonicalBaseUrl={content.seo?.canonical_base_url}
         jsonLd={breadcrumbJsonLd([
           { name: "Beranda", path: "/" },
           { name: "Fitur", path: "/fitur" },
         ])}
       />
       <PageHero
-        eyebrow="Fitur"
+        eyebrow={hero.eyebrow || "Fitur"}
         icon={<FaLayerGroup />}
-        title="Fitur lengkap untuk operasional pesantren modern."
-        text="KlikPesantren menyatukan administrasi santri, keuangan, komunikasi wali, RFID, perizinan, pelanggaran, dashboard, dan multi tenant dalam satu platform SaaS."
+        title={hero.title || "Fitur lengkap untuk operasional pesantren modern."}
+        text={hero.text || "KlikPesantren menyatukan administrasi santri, keuangan, komunikasi wali, RFID, perizinan, pelanggaran, dashboard, dan multi tenant dalam satu platform SaaS."}
       >
         <div className="kp-page-actions">
           <Link className="kp-btn kp-btn-primary" to="/demo">
@@ -765,16 +771,19 @@ export function FeaturesPage() {
       <section className="kp-page-section">
         <div className="kp-shell">
           <div className="kp-feature-detail-grid">
-            {features.map((feature) => (
+            {features.map((feature, index) => {
+              const configured = page.items?.[index] || {};
+              return (
               <article className="kp-feature-detail-card" key={feature.title}>
                 <div className="kp-feature-detail-icon">{feature.icon}</div>
                 <div>
-                  <h3>{feature.title}</h3>
-                  <p>{feature.summary}</p>
-                  <CheckList items={feature.points} />
+                  <h3>{configured.title || feature.title}</h3>
+                  <p>{configured.summary || feature.summary}</p>
+                  <CheckList items={configured.points || feature.points} />
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
@@ -798,79 +807,91 @@ export function FeaturesPage() {
 }
 
 export function PricingPage() {
+  const content = useWebsiteContent();
+  const hero = content.pages?.pricing?.hero || {};
+  const campaignEnabled = content.campaign?.enabled !== false;
+  const campaignBanner = content.pages?.pricing?.campaign_banner || {};
   return (
     <PublicPageShell>
       <Seo
         title="Harga KlikPesantren | Paket Basic, Standard, Premium, Custom"
         description="Paket KlikPesantren dibuat bertahap untuk pesantren: Basic, Standard, Premium, dan Custom. Jadwalkan demo untuk scope dan harga final."
         path="/harga"
+        image={content.seo?.og_image_url}
+        canonicalBaseUrl={content.seo?.canonical_base_url}
         jsonLd={breadcrumbJsonLd([
           { name: "Beranda", path: "/" },
           { name: "Harga", path: "/harga" },
         ])}
       />
       <PageHero
-        eyebrow="Harga"
+        eyebrow={hero.eyebrow || "Harga"}
         icon={<FaCreditCard />}
-        title="Paket bertahap sesuai kesiapan operasional pesantren."
-        text="Harga final disesuaikan setelah sesi demo dan pemetaan kebutuhan. Struktur paket dibuat agar pesantren dapat memulai dari modul inti lalu berkembang secara bertahap."
+        title={hero.title || "Paket bertahap sesuai kesiapan operasional pesantren."}
+        text={hero.text || "Harga final disesuaikan setelah sesi demo dan pemetaan kebutuhan. Struktur paket dibuat agar pesantren dapat memulai dari modul inti lalu berkembang secara bertahap."}
       >
         <div className="kp-page-actions">
           <Link className="kp-btn kp-btn-primary" to="/demo">
             Minta Demo <FaArrowRight />
           </Link>
-          <Link className="kp-btn kp-btn-secondary" to="/founding-partner">
+          {campaignEnabled ? <Link className="kp-btn kp-btn-secondary" to="/founding-partner">
             Founding Partner
-          </Link>
+          </Link> : null}
         </div>
       </PageHero>
 
       <section className="kp-page-section">
         <div className="kp-shell">
           <div className="kp-price-grid">
-            {pricingPlans.map((plan) => (
+            {pricingPlans.map((plan, index) => {
+              const configured = content.pages?.pricing?.plans?.[index] || {};
+              const renderedPlan = { ...plan, ...configured };
+              return (
               <article
-                className={`kp-price-card ${plan.featured ? "featured" : ""}`}
-                key={plan.name}
+                className={`kp-price-card ${renderedPlan.featured ? "featured" : ""}`}
+                key={renderedPlan.name}
               >
-                <h3>{plan.name}</h3>
-                <div className="kp-price-label">{plan.label}</div>
-                <p>{plan.text}</p>
+                <h3>{renderedPlan.name}</h3>
+                <div className="kp-price-label">{renderedPlan.label}</div>
+                <p>{renderedPlan.text}</p>
                 <div className="kp-price-note">Harga menunggu scope demo.</div>
-                <CheckList items={plan.features} />
+                <CheckList items={renderedPlan.features} />
                 <div className="kp-price-action">
                   <Link
-                    className={`kp-btn ${plan.featured ? "kp-btn-secondary" : "kp-btn-primary"}`}
+                    className={`kp-btn ${renderedPlan.featured ? "kp-btn-secondary" : "kp-btn-primary"}`}
                     to="/demo"
                   >
                     Minta Demo
                   </Link>
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
 
-      <section className="kp-page-section muted">
+      {campaignEnabled && campaignBanner.enabled !== false ? <section className="kp-page-section muted">
         <div className="kp-shell kp-partner-banner">
           <div>
-            <h2>Slot Founding Partner masih menjadi jalur khusus.</h2>
+            <h2>{campaignBanner.title || "Slot Founding Partner masih menjadi jalur khusus."}</h2>
             <p>
-              Untuk pesantren yang ingin ikut fase awal, campaign Founding
-              Partner tetap tersedia dengan pendampingan prioritas.
+              {campaignBanner.text || "Untuk pesantren yang ingin ikut fase awal, campaign Founding Partner tetap tersedia dengan pendampingan prioritas."}
             </p>
           </div>
           <Link className="kp-btn kp-btn-secondary" to="/founding-partner">
-            Lihat Founding Partner
+            {campaignBanner.cta_label || "Lihat Founding Partner"}
           </Link>
         </div>
-      </section>
+      </section> : null}
     </PublicPageShell>
   );
 }
 
 export function DemoPage() {
+  const content = useWebsiteContent();
+  const hero = content.pages?.demo?.hero || {};
+  const panel = content.pages?.demo?.panel || {};
   const contact = usePublicWebsiteContact();
   const [form, setForm] = useState({
     nama: "",
@@ -916,28 +937,29 @@ export function DemoPage() {
         title="Minta Demo KlikPesantren | Konsultasi Platform Pesantren"
         description="Jadwalkan demo KlikPesantren untuk melihat alur administrasi santri, keuangan, RFID, Wali Santri App, dan dashboard operasional."
         path="/demo"
+        image={content.seo?.og_image_url}
+        canonicalBaseUrl={content.seo?.canonical_base_url}
         jsonLd={breadcrumbJsonLd([
           { name: "Beranda", path: "/" },
           { name: "Demo", path: "/demo" },
         ])}
       />
       <PageHero
-        eyebrow="Minta Demo"
+        eyebrow={hero.eyebrow || "Minta Demo"}
         icon={<FaRegBell />}
-        title="Lihat bagaimana KlikPesantren bekerja untuk pesantren Anda."
-        text="Isi form singkat ini. Untuk sementara, permintaan demo akan diarahkan ke WhatsApp dengan pesan yang sudah terformat."
+        title={hero.title || "Lihat bagaimana KlikPesantren bekerja untuk pesantren Anda."}
+        text={hero.text || "Isi form singkat ini. Untuk sementara, permintaan demo akan diarahkan ke WhatsApp dengan pesan yang sudah terformat."}
       />
 
       <section className="kp-page-section">
         <div className="kp-shell kp-demo-grid">
           <aside className="kp-demo-panel">
-            <h2>Yang akan dibahas saat demo</h2>
+            <h2>{panel.title || "Yang akan dibahas saat demo"}</h2>
             <p>
-              Tim KlikPesantren akan membantu memetakan kondisi operasional,
-              modul prioritas, dan tahap implementasi yang paling realistis.
+              {panel.text || "Tim KlikPesantren akan membantu memetakan kondisi operasional, modul prioritas, dan tahap implementasi yang paling realistis."}
             </p>
             <CheckList
-              items={[
+              items={panel.items || [
                 "Kebutuhan administrasi santri dan wali",
                 "Alur pembayaran dan laporan keuangan",
                 "Kesiapan RFID, app wali, dan dashboard",
@@ -1032,22 +1054,36 @@ export function DemoPage() {
 }
 
 export function AboutPage() {
+  const content = useWebsiteContent();
+  const page = content.pages?.about || {};
+  const hero = page.hero || {};
+  const storyParagraphs = page.story_paragraphs || [
+    "Banyak pesantren telah berkembang cepat, tetapi pekerjaan administrasi masih sering bergantung pada buku, spreadsheet, grup chat, dan proses manual. Dampaknya terasa pada pembayaran, komunikasi wali, monitoring izin, pencatatan pelanggaran, dan laporan pimpinan.",
+    "KlikPesantren hadir sebagai platform SaaS yang menyatukan pekerjaan tersebut dalam satu ekosistem. Fokusnya bukan membuat profil sekolah atau website yayasan, tetapi menyediakan alat kerja operasional yang bisa dipakai setiap hari oleh tim pesantren.",
+  ];
+  const principles = page.principles || [
+    { title: "Visi", text: "Membantu pesantren memiliki sistem operasional digital yang rapi, aman, dan mudah berkembang." },
+    { title: "Misi", text: "Menyediakan modul administrasi, keuangan, komunikasi wali, RFID, dan dashboard yang dapat diimplementasikan bertahap." },
+    { title: "Prinsip produk", text: "Modular, mudah digunakan operator, siap multi tenant, dan berorientasi pada kebutuhan lapangan pesantren." },
+  ];
   return (
     <PublicPageShell>
       <Seo
         title="Tentang KlikPesantren | Platform Digitalisasi Pesantren"
         description="KlikPesantren adalah platform SaaS digitalisasi pesantren yang membantu operasional administrasi, keuangan, komunikasi wali, RFID, dan dashboard."
         path="/tentang"
+        image={content.seo?.og_image_url}
+        canonicalBaseUrl={content.seo?.canonical_base_url}
         jsonLd={breadcrumbJsonLd([
           { name: "Beranda", path: "/" },
           { name: "Tentang", path: "/tentang" },
         ])}
       />
       <PageHero
-        eyebrow="Tentang KlikPesantren"
+        eyebrow={hero.eyebrow || "Tentang KlikPesantren"}
         icon={<FaLayerGroup />}
-        title="Platform digitalisasi pesantren yang lahir dari kebutuhan operasional nyata."
-        text="KlikPesantren dibangun untuk membantu pesantren bekerja lebih rapi, cepat, dan terukur tanpa mengubah karakter utama pesantren sebagai lembaga pendidikan dan pembinaan."
+        title={hero.title || "Platform digitalisasi pesantren yang lahir dari kebutuhan operasional nyata."}
+        text={hero.text || "KlikPesantren dibangun untuk membantu pesantren bekerja lebih rapi, cepat, dan terukur tanpa mengubah karakter utama pesantren sebagai lembaga pendidikan dan pembinaan."}
       >
         <div className="kp-page-actions">
           <Link className="kp-btn kp-btn-primary" to="/demo">
@@ -1062,44 +1098,14 @@ export function AboutPage() {
       <section className="kp-page-section">
         <div className="kp-shell kp-about-grid">
           <article className="kp-story-card">
-            <h2>Cerita produk</h2>
-            <p>
-              Banyak pesantren telah berkembang cepat, tetapi pekerjaan
-              administrasi masih sering bergantung pada buku, spreadsheet, grup
-              chat, dan proses manual. Dampaknya terasa pada pembayaran,
-              komunikasi wali, monitoring izin, pencatatan pelanggaran, dan
-              laporan pimpinan.
-            </p>
-            <p>
-              KlikPesantren hadir sebagai platform SaaS yang menyatukan
-              pekerjaan tersebut dalam satu ekosistem. Fokusnya bukan membuat
-              profil sekolah atau website yayasan, tetapi menyediakan alat kerja
-              operasional yang bisa dipakai setiap hari oleh tim pesantren.
-            </p>
+            <h2>{page.story_title || "Cerita produk"}</h2>
+            {storyParagraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
           </article>
 
           <div className="kp-principles">
-            <div className="kp-principle">
-              <strong>Visi</strong>
-              <span>
-                Membantu pesantren memiliki sistem operasional digital yang
-                rapi, aman, dan mudah berkembang.
-              </span>
-            </div>
-            <div className="kp-principle">
-              <strong>Misi</strong>
-              <span>
-                Menyediakan modul administrasi, keuangan, komunikasi wali, RFID,
-                dan dashboard yang dapat diimplementasikan bertahap.
-              </span>
-            </div>
-            <div className="kp-principle">
-              <strong>Prinsip produk</strong>
-              <span>
-                Modular, mudah digunakan operator, siap multi tenant, dan
-                berorientasi pada kebutuhan lapangan pesantren.
-              </span>
-            </div>
+            {principles.map((principle) => <div className="kp-principle" key={principle.title}>
+              <strong>{principle.title}</strong><span>{principle.text}</span>
+            </div>)}
           </div>
         </div>
       </section>
@@ -1108,6 +1114,9 @@ export function AboutPage() {
 }
 
 export function ContactPage() {
+  const content = useWebsiteContent();
+  const page = content.pages?.contact || {};
+  const hero = page.hero || {};
   const contact = usePublicWebsiteContact();
   const contactWhatsappUrl = buildWhatsAppUrl(contact.whatsapp);
 
@@ -1117,16 +1126,18 @@ export function ContactPage() {
         title="Kontak KlikPesantren | WhatsApp, Email, dan Demo"
         description="Hubungi KlikPesantren melalui WhatsApp, email hello@klikpesantren.com, Instagram, atau jadwalkan demo platform operasional pesantren."
         path="/kontak"
+        image={content.seo?.og_image_url}
+        canonicalBaseUrl={content.seo?.canonical_base_url}
         jsonLd={breadcrumbJsonLd([
           { name: "Beranda", path: "/" },
           { name: "Kontak", path: "/kontak" },
         ])}
       />
       <PageHero
-        eyebrow="Kontak"
+        eyebrow={hero.eyebrow || "Kontak"}
         icon={<FaPhoneAlt />}
-        title="Hubungi tim KlikPesantren."
-        text="Pilih jalur komunikasi yang paling nyaman untuk demo, pertanyaan produk, atau diskusi kebutuhan implementasi pesantren."
+        title={hero.title || "Hubungi tim KlikPesantren."}
+        text={hero.text || "Pilih jalur komunikasi yang paling nyaman untuk demo, pertanyaan produk, atau diskusi kebutuhan implementasi pesantren."}
       >
         <div className="kp-page-actions">
           <Link className="kp-btn kp-btn-primary" to="/demo">
@@ -1143,8 +1154,7 @@ export function ContactPage() {
             </div>
             <h3>WhatsApp</h3>
             <p>
-              Jalur tercepat untuk bertanya, menjadwalkan demo, atau membahas
-              kebutuhan awal.
+              {page.whatsapp_text || "Jalur tercepat untuk bertanya, menjadwalkan demo, atau membahas kebutuhan awal."}
             </p>
             <a
               className="kp-contact-link"
@@ -1163,8 +1173,7 @@ export function ContactPage() {
             </div>
             <h3>Email</h3>
             <p>
-              Gunakan email untuk kebutuhan resmi, proposal, atau komunikasi
-              tertulis.
+              {page.email_text || "Gunakan email untuk kebutuhan resmi, proposal, atau komunikasi tertulis."}
             </p>
             <a className="kp-contact-link" href={`mailto:${contact.email || defaultContact.email}`}>
               {contact.email || defaultContact.email}
@@ -1177,8 +1186,7 @@ export function ContactPage() {
             </div>
             <h3>Instagram</h3>
             <p>
-              Kanal sosial untuk update produk, edukasi digitalisasi pesantren,
-              dan informasi campaign.
+              {page.instagram_text || "Kanal sosial untuk update produk, edukasi digitalisasi pesantren, dan informasi campaign."}
             </p>
             <a className="kp-contact-link" href={contact.instagram || defaultContact.instagram} target="_blank" rel="noreferrer">
               {String(contact.instagram || defaultContact.instagram).replace("https://instagram.com/", "@")}
@@ -1187,45 +1195,50 @@ export function ContactPage() {
         </div>
       </section>
 
-      <section className="kp-page-section muted">
+      {page.closing?.enabled !== false ? <section className="kp-page-section muted">
         <div className="kp-shell kp-partner-banner">
           <div>
-            <h2>Butuh arahan paket yang cocok?</h2>
+            <h2>{page.closing?.title || "Butuh arahan paket yang cocok?"}</h2>
             <p>
-              Mulai dari demo singkat. Tim KlikPesantren akan membantu memetakan
-              kebutuhan fitur dan tahap implementasi.
+              {page.closing?.text || "Mulai dari demo singkat. Tim KlikPesantren akan membantu memetakan kebutuhan fitur dan tahap implementasi."}
             </p>
           </div>
           <Link className="kp-btn kp-btn-secondary" to="/demo">
-            Minta Demo
+            {page.closing?.cta_label || "Minta Demo"}
           </Link>
         </div>
-      </section>
+      </section> : null}
     </PublicPageShell>
   );
 }
 
 export function BlogPage() {
+  const content = useWebsiteContent();
+  const page = content.pages?.blog || {};
+  const hero = page.hero || {};
+  if (page.enabled === false) return <Navigate to="/" replace />;
   return (
     <PublicPageShell>
       <Seo
         title="Blog KlikPesantren | Digitalisasi Administrasi Pesantren"
         description="Artikel KlikPesantren tentang digitalisasi administrasi santri, keuangan pesantren, RFID, Wali Santri App, dan operasional pesantren modern."
         path="/blog"
+        image={content.seo?.og_image_url}
+        canonicalBaseUrl={content.seo?.canonical_base_url}
         jsonLd={breadcrumbJsonLd([
           { name: "Beranda", path: "/" },
           { name: "Blog", path: "/blog" },
         ])}
       />
       <PageHero
-        eyebrow="Blog"
+        eyebrow={hero.eyebrow || "Blog"}
         icon={<FaRegBell />}
-        title="Insight digitalisasi pesantren."
-        text="Struktur blog awal untuk edukasi administrasi, keuangan, komunikasi wali, RFID, dan operasional pesantren. CMS belum diaktifkan pada sprint ini."
+        title={hero.title || "Insight digitalisasi pesantren."}
+        text={hero.text || "Edukasi administrasi, keuangan, komunikasi wali, RFID, dan operasional pesantren."}
       />
       <section className="kp-page-section">
         <div className="kp-shell kp-blog-grid">
-          {blogPosts.map((post) => (
+          {(page.posts || blogPosts).map((post) => (
             <article className="kp-blog-card" key={post.title}>
               <div className="kp-blog-category">{post.category}</div>
               <h3>{post.title}</h3>

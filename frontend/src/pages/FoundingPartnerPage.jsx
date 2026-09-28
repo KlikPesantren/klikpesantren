@@ -13,6 +13,8 @@ import {
   FaWhatsapp,
 } from "react-icons/fa";
 import Seo, { breadcrumbJsonLd } from "../components/public/Seo";
+import { Navigate } from "react-router-dom";
+import { useWebsiteContent } from "../context/WebsiteContentContext";
 import {
   buildWhatsAppUrl,
   usePublicWebsiteContact,
@@ -785,15 +787,24 @@ function CheckItem({ children }) {
   );
 }
 
-export default function FoundingPartnerPage() {
+export default function FoundingPartnerPage({ preview = false }) {
+  const websiteContent = useWebsiteContent();
+  const campaign = websiteContent.campaign || {};
+  const page = campaign.page || {};
   const contact = usePublicWebsiteContact();
   const whatsappUrl = buildWhatsAppUrl(contact.whatsapp);
+
+  if (campaign.enabled === false) {
+    return preview
+      ? <div style={{ padding: 32, fontFamily: "sans-serif" }}>Founding Partner dinonaktifkan pada Draft.</div>
+      : <Navigate to="/" replace />;
+  }
 
   return (
     <main className="ks-landing">
       <Seo
-        title="Founding Partner KlikPesantren | Program 5 Pesantren Awal"
-        description="Program Founding Partner KlikPesantren untuk pesantren yang ingin ikut fase awal digitalisasi administrasi santri, keuangan, RFID, dan Wali Santri App."
+        title={page.seo_title || "Founding Partner KlikPesantren | Program 5 Pesantren Awal"}
+        description={page.seo_description || "Program Founding Partner KlikPesantren untuk pesantren yang ingin ikut fase awal digitalisasi administrasi santri, keuangan, RFID, dan Wali Santri App."}
         path="/founding-partner"
         jsonLd={breadcrumbJsonLd([
           { name: "Beranda", path: "/" },
@@ -827,33 +838,27 @@ export default function FoundingPartnerPage() {
         <div className="ks-container ks-hero-grid">
           <div>
             <div className="ks-kicker">
-              <img className="ks-kicker-logo" src="/landing/logo.png" alt="" /> Platform administrasi pesantren modern
+              <img className="ks-kicker-logo" src={websiteContent.brand?.logo_url || "/landing/logo.png"} alt="" /> {page.hero_badge || "Platform administrasi pesantren modern"}
             </div>
-            <h1>Digitalisasi Pesantren Dimulai dari Sini</h1>
+            <h1>{page.hero_title || "Digitalisasi Pesantren Dimulai dari Sini"}</h1>
             <p>
-              KlikPesantren adalah platform administrasi pesantren modern untuk
-              mengelola data santri, keuangan, RFID, perizinan, pelanggaran,
-              dashboard, dan komunikasi wali dalam satu ekosistem SaaS.
+              {page.hero_description || "KlikPesantren adalah platform administrasi pesantren modern untuk mengelola data santri, keuangan, RFID, perizinan, pelanggaran, dashboard, dan komunikasi wali dalam satu ekosistem SaaS."}
             </p>
             <div className="ks-hero-actions">
               <a className="ks-button ks-button-primary" href={whatsappUrl || undefined} aria-disabled={!whatsappUrl} target="_blank" rel="noreferrer">
-                Daftar Founding Partner <FaArrowRight />
+                {page.hero_cta_label || "Daftar Founding Partner"} <FaArrowRight />
               </a>
               <a className="ks-button ks-button-soft" href="#mockup">
-                Lihat Gambaran Sistem
+                {page.secondary_cta_label || "Lihat Gambaran Sistem"}
               </a>
             </div>
-            <div className="ks-trust-row">
-              <span><FaCheck /> SaaS untuk operasional pesantren</span>
-              <span><FaCheck /> Web admin + Wali Santri App</span>
-              <span><FaCheck /> Siap multi tenant</span>
-            </div>
+            <div className="ks-trust-row">{(page.trust_items || ["SaaS untuk operasional pesantren", "Web admin + Wali Santri App", "Siap multi tenant"]).map((item) => <span key={item}><FaCheck /> {item}</span>)}</div>
           </div>
 
           <div className="ks-hero-visual" aria-label="Mockup dashboard KlikPesantren">
             <img
               className="ks-dashboard-image"
-              src="/landing/dashboard-admin.png"
+              src={page.hero_image_url || "/landing/dashboard-admin.png"}
               alt="Mockup dashboard admin KlikPesantren"
               fetchPriority="high"
             />
@@ -968,51 +973,48 @@ export default function FoundingPartnerPage() {
         </div>
       </section>
 
-      <section className="ks-section ks-section-cream" id="founding">
+      {page.founding?.enabled !== false ? <section className="ks-section ks-section-cream" id="founding">
         <div className="ks-container">
           <div className="ks-partner">
             <div>
-              <div className="ks-kicker">Program Terbatas</div>
-              <h2>Founding Partner KlikPesantren untuk 5 pesantren pertama.</h2>
+              <div className="ks-kicker">{page.founding?.eyebrow || "Program Terbatas"}</div>
+              <h2>{page.founding?.title || "Founding Partner KlikPesantren untuk 5 pesantren pertama."}</h2>
               <p>
-                Kami membuka kolaborasi awal untuk pesantren yang ingin ikut
-                membangun sistem administrasi digital yang benar-benar cocok
-                dengan kebutuhan lapangan.
+                {page.founding?.description || "Kami membuka kolaborasi awal untuk pesantren yang ingin ikut membangun sistem administrasi digital yang benar-benar cocok dengan kebutuhan lapangan."}
               </p>
               <a className="ks-button ks-button-primary" href={whatsappUrl || undefined} aria-disabled={!whatsappUrl} target="_blank" rel="noreferrer">
-                Ambil Slot Founding Partner <FaWhatsapp />
+                {page.founding?.cta_label || "Ambil Slot Founding Partner"} <FaWhatsapp />
               </a>
             </div>
             <div className="ks-slots">
-              <strong>5</strong>
-              <p>slot pesantren pertama untuk fase Founding Partner.</p>
+              <strong>{page.founding?.quota || "5"}</strong>
+              <p>{page.founding?.quota_text || "slot pesantren pertama untuk fase Founding Partner."}</p>
             </div>
           </div>
         </div>
-      </section>
+      </section> : null}
 
-      <section className="ks-section" id="benefit">
+      {page.benefits?.enabled !== false ? <section className="ks-section" id="benefit">
         <div className="ks-container">
           <div className="ks-section-head center">
-            <div className="ks-kicker">Benefit Founding Partner</div>
-            <h2>Lebih dekat dengan tim produk, lebih awal merasakan manfaatnya.</h2>
+            <div className="ks-kicker">{page.benefits?.eyebrow || "Benefit Founding Partner"}</div>
+            <h2>{page.benefits?.title || "Lebih dekat dengan tim produk, lebih awal merasakan manfaatnya."}</h2>
           </div>
           <div className="ks-benefits">
-            {benefits.map((benefit) => (
+            {(page.benefits?.items || benefits).map((benefit) => (
               <div className="ks-benefit" key={benefit}>{benefit}</div>
             ))}
           </div>
         </div>
-      </section>
+      </section> : null}
 
-      <section className="ks-section ks-section-alt" id="harga">
+      {page.pricing?.enabled !== false ? <section className="ks-section ks-section-alt" id="harga">
         <div className="ks-container">
           <div className="ks-section-head center">
-            <div className="ks-kicker">Paket</div>
-            <h2>Mulai sesuai kebutuhan, berkembang bersama operasional pesantren.</h2>
+            <div className="ks-kicker">{page.pricing?.eyebrow || "Paket"}</div>
+            <h2>{page.pricing?.title || "Mulai sesuai kebutuhan, berkembang bersama operasional pesantren."}</h2>
             <p>
-              Untuk tahap awal, Founding Partner akan mendapatkan penawaran
-              khusus setelah sesi konsultasi kebutuhan.
+              {page.pricing?.description || "Untuk tahap awal, Founding Partner akan mendapatkan penawaran khusus setelah sesi konsultasi kebutuhan."}
             </p>
           </div>
           <div className="ks-pricing">
@@ -1028,7 +1030,7 @@ export default function FoundingPartnerPage() {
             </article>
             <article className="ks-price-card featured">
               <h3>Founding Partner</h3>
-              <div className="ks-price">Khusus 5 awal</div>
+              <div className="ks-price">{page.pricing?.partner_price || "Khusus 5 awal"}</div>
               <p>Harga dan onboarding khusus untuk pesantren pertama yang ikut membangun KlikPesantren.</p>
               <ul>
                 <li>Prioritas setup awal</li>
@@ -1038,16 +1040,16 @@ export default function FoundingPartnerPage() {
             </article>
           </div>
         </div>
-      </section>
+      </section> : null}
 
-      <section className="ks-section" id="faq">
+      {page.faqs?.enabled !== false ? <section className="ks-section" id="faq">
         <div className="ks-container">
           <div className="ks-section-head center">
-            <div className="ks-kicker">FAQ</div>
-            <h2>Pertanyaan yang sering muncul sebelum mulai.</h2>
+            <div className="ks-kicker">{page.faqs?.eyebrow || "FAQ"}</div>
+            <h2>{page.faqs?.title || "Pertanyaan yang sering muncul sebelum mulai."}</h2>
           </div>
           <div className="ks-faq">
-            {faqs.map((item) => (
+            {(page.faqs?.items || faqs).map((item) => (
               <details key={item.question}>
                 <summary>
                   {item.question}
@@ -1058,20 +1060,19 @@ export default function FoundingPartnerPage() {
             ))}
           </div>
         </div>
-      </section>
+      </section> : null}
 
-      <section className="ks-cta" id="kontak">
+      {page.final_cta?.enabled !== false ? <section className="ks-cta" id="kontak">
         <div className="ks-container">
-          <h2>Siap jadi salah satu dari 5 Founding Partner KlikPesantren?</h2>
+          <h2>{page.final_cta?.title || "Siap jadi salah satu dari 5 Founding Partner KlikPesantren?"}</h2>
           <p>
-            Ceritakan kondisi pesantren, modul yang paling dibutuhkan, dan target
-            implementasi. Tim KlikPesantren akan bantu susun langkah awalnya.
+            {page.final_cta?.description || "Ceritakan kondisi pesantren, modul yang paling dibutuhkan, dan target implementasi. Tim KlikPesantren akan bantu susun langkah awalnya."}
           </p>
           <a className="ks-button ks-button-primary" href={whatsappUrl || undefined} aria-disabled={!whatsappUrl} target="_blank" rel="noreferrer">
-            Hubungi via WhatsApp <FaWhatsapp />
+            {page.final_cta?.cta_label || "Hubungi via WhatsApp"} <FaWhatsapp />
           </a>
         </div>
-      </section>
+      </section> : null}
 
       <footer className="ks-footer">
         <div className="ks-container ks-footer-inner">

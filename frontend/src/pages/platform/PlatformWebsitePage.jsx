@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import platformApi from "../../services/platformApi";
 import PlatformButton from "../../components/platform/PlatformButton";
+import WebsiteAssetField from "../../components/platform/WebsiteAssetField";
 
 const DEFAULT_CONTENT = {
   brand: {
@@ -147,7 +148,7 @@ const sections = [
     fields: [
       { path: "brand.website_name", label: "Website Name" },
       { path: "brand.tagline", label: "Tagline" },
-      { path: "brand.logo_url", label: "Logo URL" },
+      { path: "brand.logo_url", label: "Logo", type: "asset" },
     ],
   },
   {
@@ -172,7 +173,7 @@ const sections = [
       { path: "homepage.hero.eyebrow", label: "Eyebrow" },
       { path: "homepage.hero.title", label: "Hero Title" },
       { path: "homepage.hero.subtitle", label: "Hero Subtitle", type: "textarea" },
-      { path: "homepage.hero.image_url", label: "Hero Image URL" },
+      { path: "homepage.hero.image_url", label: "Hero Image", type: "asset" },
     ],
   },
   {
@@ -226,8 +227,8 @@ const sections = [
       ]),
       { path: "homepage.sections.preview.title", label: "Preview — Title" },
       { path: "homepage.sections.preview.description", label: "Preview — Description", type: "textarea" },
-      { path: "homepage.sections.preview.admin_image_url", label: "Admin Preview Image URL" },
-      { path: "homepage.sections.preview.wali_image_url", label: "Wali Preview Image URL" },
+      { path: "homepage.sections.preview.admin_image_url", label: "Admin Preview Image", type: "asset" },
+      { path: "homepage.sections.preview.wali_image_url", label: "Wali Preview Image", type: "asset" },
       { path: "homepage.sections.reasons.title", label: "Why — Title" },
       { path: "homepage.sections.reasons.items", label: "Why Items (satu per baris)", type: "lines" },
       { path: "homepage.sections.pricing_teaser.title", label: "Pricing Teaser — Title" },
@@ -247,6 +248,7 @@ const sections = [
       { path: "campaign.page.hero_badge", label: "Hero Badge" },
       { path: "campaign.page.hero_title", label: "Hero Title" },
       { path: "campaign.page.hero_description", label: "Hero Description", type: "textarea" },
+      { path: "campaign.page.hero_image_url", label: "Hero Image", type: "asset" },
       { path: "campaign.page.founding.enabled", label: "Section Program Terbatas", type: "checkbox" },
       { path: "campaign.page.founding.title", label: "Program Title" },
       { path: "campaign.page.founding.description", label: "Program Description", type: "textarea" },
@@ -334,7 +336,7 @@ const sections = [
         type: "textarea",
       },
       { path: "seo.canonical_base_url", label: "Canonical Base URL" },
-      { path: "seo.og_image_url", label: "OG Image URL" },
+      { path: "seo.og_image_url", label: "OG Image", type: "asset" },
     ],
   },
   {
@@ -517,7 +519,14 @@ function PlatformWebsitePage() {
                 </summary>
 
                 <div style={formGridStyle}>
-                  {section.fields.map((field) => (
+                  {section.fields.map((field) => field.type === "asset" ? (
+                    <WebsiteAssetField
+                      key={field.path}
+                      label={field.label}
+                      value={getValue(content, field.path)}
+                      onChange={(value) => updateField(field.path, value)}
+                    />
+                  ) : (
                     <label
                       key={field.path}
                       className="theme-field-label"

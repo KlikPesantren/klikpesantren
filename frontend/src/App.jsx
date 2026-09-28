@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import ProtectedRoute from "./components/ProtectedRoute";
-import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Routes, Route } from "react-router-dom";
 import { TenantProfileProvider } from "./context/TenantProfileContext";
 import { ActiveUnitProvider } from "./context/ActiveUnitContext";
 
@@ -73,6 +73,9 @@ import AboutKlikPesantrenPage from "./pages/AboutKlikPesantrenPage";
 import PlatformInfoAnnouncementsPage from "./pages/PlatformInfoAnnouncementsPage";
 import LandingPage from "./pages/LandingPage";
 import FoundingPartnerPage from "./pages/FoundingPartnerPage";
+import { WebsiteContentProvider } from "./context/WebsiteContentContext";
+import WebsitePreviewPage from "./pages/platform/WebsitePreviewPage";
+import WebsitePreviewRenderPage from "./pages/platform/WebsitePreviewRenderPage";
 
 const FeaturesPage = lazy(() =>
   import("./pages/OfficialWebsitePages").then((module) => ({
@@ -192,18 +195,23 @@ function App() {
       <TenantProfileProvider>
       <ActiveUnitProvider>
       <Routes>
-        <Route path="/" element={<RootRoute />} />
-        <Route path="/landing" element={<Navigate to="/founding-partner" replace />} />
-        <Route path="/founding-partner" element={<FoundingPartnerPage />} />
-        <Route path="/fitur" element={<LazyPage><FeaturesPage /></LazyPage>} />
-        <Route path="/harga" element={<LazyPage><PricingPage /></LazyPage>} />
-        <Route path="/demo" element={<LazyPage><DemoPage /></LazyPage>} />
-        <Route path="/tentang" element={<LazyPage><AboutPage /></LazyPage>} />
-        <Route path="/blog" element={<LazyPage><BlogPage /></LazyPage>} />
-        <Route path="/kontak" element={<LazyPage><ContactPage /></LazyPage>} />
-        <Route path="/privacy-policy" element={<LazyPage><PrivacyPolicyPage /></LazyPage>} />
-        <Route path="/privacy/walisantri" element={<LazyPage><WaliSantriPrivacyPolicyPage /></LazyPage>} />
-        <Route path="/terms-of-service" element={<LazyPage><TermsOfServicePage /></LazyPage>} />
+        <Route element={<WebsiteContentProvider><Outlet /></WebsiteContentProvider>}>
+          <Route path="/" element={<RootRoute />} />
+          <Route path="/landing" element={<Navigate to="/founding-partner" replace />} />
+          <Route path="/founding-partner" element={<FoundingPartnerPage />} />
+          <Route path="/fitur" element={<LazyPage><FeaturesPage /></LazyPage>} />
+          <Route path="/harga" element={<LazyPage><PricingPage /></LazyPage>} />
+          <Route path="/demo" element={<LazyPage><DemoPage /></LazyPage>} />
+          <Route path="/tentang" element={<LazyPage><AboutPage /></LazyPage>} />
+          <Route path="/blog" element={<LazyPage><BlogPage /></LazyPage>} />
+          <Route path="/kontak" element={<LazyPage><ContactPage /></LazyPage>} />
+          <Route path="/privacy-policy" element={<LazyPage><PrivacyPolicyPage /></LazyPage>} />
+          <Route path="/privacy/walisantri" element={<LazyPage><WaliSantriPrivacyPolicyPage /></LazyPage>} />
+          <Route path="/terms-of-service" element={<LazyPage><TermsOfServicePage /></LazyPage>} />
+        </Route>
+
+        <Route path="/platform/website/preview" element={<PlatformProtectedRoute><WebsitePreviewPage /></PlatformProtectedRoute>} />
+        <Route path="/platform/website/preview/render" element={<PlatformProtectedRoute><WebsitePreviewRenderPage /></PlatformProtectedRoute>} />
 
         {/* Platform Console — auth terpisah dari tenant admin */}
         <Route path="/platform/login" element={<PlatformLoginPage />} />

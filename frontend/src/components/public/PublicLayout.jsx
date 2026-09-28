@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { FaBars, FaTimes } from "react-icons/fa";
 import { Link, NavLink } from "react-router-dom";
+import { useWebsiteContent } from "../../context/WebsiteContentContext";
 
 const navItems = [
   { label: "Fitur", to: "/fitur" },
@@ -286,6 +287,16 @@ function PublicStyles() {
 
 export default function PublicLayout({ children }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const content = useWebsiteContent();
+  const campaignEnabled = content.campaign?.enabled !== false;
+  const items = Array.isArray(content.navigation?.items)
+    ? content.navigation.items
+    : navItems;
+  const visibleNavItems = items.filter(
+    (item) => item.enabled !== false && (!item.campaign || campaignEnabled)
+  );
+  const brandName = content.brand?.website_name || "KlikPesantren";
+  const logoUrl = content.brand?.logo_url || "/landing/logo.png";
 
   const closeMenu = () => setMenuOpen(false);
 
@@ -296,13 +307,13 @@ export default function PublicLayout({ children }) {
         <div className="kp-shell kp-header-inner">
           <Link className="kp-brand" to="/" aria-label="KlikPesantren">
             <span className="kp-brand-mark">
-              <img src="/landing/logo.png" alt="" />
+              <img src={logoUrl} alt="" />
             </span>
-            <span>KlikPesantren</span>
+            <span>{brandName}</span>
           </Link>
 
           <nav className="kp-nav" aria-label="Navigasi utama">
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <NavLink key={item.to} to={item.to}>
                 {item.label}
               </NavLink>
@@ -310,11 +321,11 @@ export default function PublicLayout({ children }) {
           </nav>
 
           <div className="kp-header-actions">
-            <Link className="kp-btn kp-btn-secondary" to="/founding-partner">
-              Founding Partner
-            </Link>
-            <Link className="kp-btn kp-btn-primary" to="/demo">
-              Minta Demo
+            {campaignEnabled ? <Link className="kp-btn kp-btn-secondary" to={content.navigation?.campaign_cta_url || "/founding-partner"}>
+              {content.navigation?.campaign_cta_label || "Founding Partner"}
+            </Link> : null}
+            <Link className="kp-btn kp-btn-primary" to={content.navigation?.primary_cta_url || "/demo"}>
+              {content.navigation?.primary_cta_label || "Minta Demo"}
             </Link>
           </div>
 
@@ -331,13 +342,13 @@ export default function PublicLayout({ children }) {
 
         <div className={`kp-mobile-panel ${menuOpen ? "open" : ""}`}>
           <div className="kp-shell kp-mobile-links">
-            {navItems.map((item) => (
+            {visibleNavItems.map((item) => (
               <NavLink key={item.to} to={item.to} onClick={closeMenu}>
                 {item.label}
               </NavLink>
             ))}
-            <Link className="kp-btn kp-btn-primary" to="/demo" onClick={closeMenu}>
-              Minta Demo
+            <Link className="kp-btn kp-btn-primary" to={content.navigation?.primary_cta_url || "/demo"} onClick={closeMenu}>
+              {content.navigation?.primary_cta_label || "Minta Demo"}
             </Link>
           </div>
         </div>
@@ -350,29 +361,27 @@ export default function PublicLayout({ children }) {
           <div>
             <div className="kp-footer-brand">
               <span className="kp-brand-mark">
-                <img src="/landing/logo.png" alt="" />
+                <img src={logoUrl} alt="" />
               </span>
-              <span>KlikPesantren</span>
+              <span>{brandName}</span>
             </div>
             <p>
-              Platform SaaS untuk membantu pesantren mengelola administrasi,
-              keuangan, komunikasi wali, dan operasional harian dalam satu
-              sistem terintegrasi.
+              {content.footer?.description || "Platform SaaS untuk membantu pesantren mengelola administrasi, keuangan, komunikasi wali, dan operasional harian dalam satu sistem terintegrasi."}
             </p>
           </div>
 
           <div className="kp-footer-grid">
             <div>
-              <h3>Produk</h3>
+              <h3>{content.footer?.product_title || "Produk"}</h3>
               <Link to="/fitur">Fitur</Link>
               <Link to="/harga">Harga</Link>
               <Link to="/demo">Minta Demo</Link>
             </div>
             <div>
-              <h3>Perusahaan</h3>
+              <h3>{content.footer?.company_title || "Perusahaan"}</h3>
               <Link to="/tentang">Tentang</Link>
               <Link to="/blog">Blog</Link>
-              <Link to="/founding-partner">Founding Partner</Link>
+              {campaignEnabled ? <Link to="/founding-partner">{content.campaign?.nav_label || "Founding Partner"}</Link> : null}
               <Link to="/kontak">Kontak</Link>
               <Link to="/privacy-policy">Privacy Policy</Link>
               <Link to="/terms-of-service">Terms of Service</Link>
@@ -381,7 +390,7 @@ export default function PublicLayout({ children }) {
         </div>
         <div className="kp-footer-bottom">
           <div className="kp-shell">
-            (c) 2026 KlikPesantren. Platform administrasi pesantren modern.
+            {content.footer?.copyright || "© 2026 KlikPesantren. Platform administrasi pesantren modern."}
           </div>
         </div>
       </footer>

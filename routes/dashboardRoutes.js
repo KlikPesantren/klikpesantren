@@ -5,8 +5,27 @@ const { accessError, resolveActiveUnit } = require("../services/unitAccessServic
 const { getDashboardAllUnitsV1 } = require("../services/dashboardAllUnitsV1Service");
 const { getDashboardFinanceSummary } = require("../services/dashboardFinanceSummaryService");
 const { getDashboardUnitSummary } = require("../services/dashboardUnitSummaryService");
+const {
+  getTenantSubscriptionNotice,
+} = require("../services/tenantSubscriptionNoticeService");
 
 const router = express.Router();
+
+router.get("/subscription-billing", async (req, res) => {
+  try {
+    const data = await getTenantSubscriptionNotice(req.tenantId);
+    if (!data) {
+      return res.status(404).json({ success: false, error: "Tenant tidak ditemukan" });
+    }
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error("[tenantSubscriptionBilling]", err);
+    return res.status(500).json({
+      success: false,
+      error: "Gagal memuat informasi langganan",
+    });
+  }
+});
 
 const UNIT_NATIVE_DASHBOARD_FIELDS = [
   "total_santri",

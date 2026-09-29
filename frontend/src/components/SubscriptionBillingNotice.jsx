@@ -40,6 +40,12 @@ function SubscriptionBillingNotice() {
         year: "numeric",
       })
     : "-";
+  const hasPaymentDetails = Boolean(
+    payment.bank_name
+      || payment.account_number
+      || payment.account_holder
+      || payment.instruction,
+  );
 
   const copyAccount = async () => {
     if (!payment.account_number) return;
@@ -65,20 +71,22 @@ function SubscriptionBillingNotice() {
           <span>Nominal</span>
           <strong>{subscription.amount == null ? "Belum ditetapkan" : rupiah.format(subscription.amount)}</strong>
         </div>
-        <div style={paymentStyle}>
-          {payment.bank_name ? <p><span>Bank</span><strong>{payment.bank_name}</strong></p> : null}
-          {payment.account_number ? (
-            <p>
-              <span>No. Rekening</span>
-              <strong>{payment.account_number}</strong>
-              <button type="button" onClick={copyAccount} style={copyStyle}>
-                {copied ? "Tersalin" : "Salin"}
-              </button>
-            </p>
-          ) : null}
-          {payment.account_holder ? <p><span>a.n.</span><strong>{payment.account_holder}</strong></p> : null}
-          {payment.instruction ? <div style={instructionStyle}>{payment.instruction}</div> : null}
-        </div>
+        {hasPaymentDetails ? (
+          <div style={paymentStyle}>
+            {payment.bank_name ? <p><span>Bank</span><strong>{payment.bank_name}</strong></p> : null}
+            {payment.account_number ? (
+              <p>
+                <span>No. Rekening</span>
+                <strong>{payment.account_number}</strong>
+                <button type="button" onClick={copyAccount} style={copyStyle}>
+                  {copied ? "Tersalin" : "Salin"}
+                </button>
+              </p>
+            ) : null}
+            {payment.account_holder ? <p><span>a.n.</span><strong>{payment.account_holder}</strong></p> : null}
+            {payment.instruction ? <div style={instructionStyle}>{payment.instruction}</div> : null}
+          </div>
+        ) : null}
         <div style={actionsStyle}>
           <button type="button" onClick={() => setOpen(false)} style={secondaryStyle}>Nanti</button>
           {payment.confirmation_url ? (

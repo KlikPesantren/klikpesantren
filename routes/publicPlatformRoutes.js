@@ -1,5 +1,5 @@
 const express = require("express");
-const { getPlatformSettings } = require("../services/platformSettingsService");
+const { getPublicPlatformSettings } = require("../services/platformSettingsService");
 const {
   listPublishedAnnouncementsForTenants,
 } = require("../services/platformAnnouncementService");
@@ -8,7 +8,7 @@ const router = express.Router();
 
 router.get("/settings", async (_req, res) => {
   try {
-    const data = await getPlatformSettings();
+    const data = await getPublicPlatformSettings();
     res.json({
       success: true,
       data: data.settings,

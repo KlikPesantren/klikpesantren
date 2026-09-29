@@ -13,6 +13,13 @@ const TEXT_FIELDS = [
   { key: "website_url", label: "Website URL", type: "text" },
   { key: "about_text", label: "About Text", type: "textarea" },
   { key: "tutorial_video_url", label: "Tutorial Video URL", type: "text" },
+  { key: "warning_days_before_due", label: "Peringatan sebelum jatuh tempo (hari)", type: "number" },
+  { key: "billing_bank_name", label: "Bank Pembayaran Langganan", type: "text" },
+  { key: "billing_account_number", label: "Nomor Rekening Langganan", type: "text" },
+  { key: "billing_account_holder", label: "Nama Pemilik Rekening", type: "text" },
+  { key: "billing_payment_instruction", label: "Instruksi Pembayaran", type: "textarea" },
+  { key: "billing_confirmation_whatsapp", label: "WhatsApp Konfirmasi Pembayaran", type: "text" },
+  { key: "billing_confirmation_message_template", label: "Template Konfirmasi ({tenant_name})", type: "textarea" },
 ];
 
 function PlatformProfilePage() {
@@ -46,6 +53,8 @@ function PlatformProfilePage() {
   }, []);
 
   useEffect(() => {
+    // Existing async loader owns its state transitions.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSettings();
   }, [loadSettings]);
 
@@ -142,7 +151,7 @@ function PlatformProfilePage() {
                   {field.type === "textarea" ? (
                     <textarea
                       className="theme-field"
-                      value={form[field.key] || ""}
+                      value={form[field.key] ?? ""}
                       onChange={(e) =>
                         setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
                       }
@@ -152,8 +161,15 @@ function PlatformProfilePage() {
                       className="theme-field"
                       type={field.type}
                       value={form[field.key] || ""}
+                      min={field.key === "warning_days_before_due" ? 0 : undefined}
+                      max={field.key === "warning_days_before_due" ? 365 : undefined}
                       onChange={(e) =>
-                        setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
+                        setForm((prev) => ({
+                          ...prev,
+                          [field.key]: field.type === "number"
+                            ? Number(e.target.value)
+                            : e.target.value,
+                        }))
                       }
                     />
                   )}

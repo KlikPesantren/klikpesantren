@@ -13,6 +13,7 @@ import DashboardSekretaris from "../components/dashboard/DashboardSekretaris";
 import { useActiveUnit } from "../context/ActiveUnitContext";
 import { getUser } from "../utils/storage";
 import { hasPermission } from "../utils/hasPermission";
+import SubscriptionBillingNotice from "../components/SubscriptionBillingNotice";
 
 const DEFAULT_SHORTCUTS = [
   { permission: "absensi.view", label: "Absensi Santri", path: "/absensi" },
@@ -167,6 +168,7 @@ function DashboardPage() {
   return (
     <AppShell title="Dashboard" breadcrumb="Dashboard">
       <DashboardResponsiveStyles />
+      {role === "superadmin" ? <SubscriptionBillingNotice /> : null}
       <div className="dashboard-page dashboard-monitoring-v3">
         <section className="dashboard-section dashboard-section--hero">
           <DashboardHero unitContext={unitContext} />

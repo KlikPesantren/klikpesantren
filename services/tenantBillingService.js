@@ -16,6 +16,7 @@ const BILLING_FIELDS = `
   subscription_expires_at,
   last_payment_at,
   next_invoice_at,
+  subscription_amount,
   billing_notes
 `;
 
@@ -94,6 +95,20 @@ function validateBillingPatch(tenant, patch = {}) {
 
   if (patch.next_invoice_at !== undefined) {
     updates.next_invoice_at = normalizeDate(patch.next_invoice_at, "next_invoice_at");
+  }
+
+  if (patch.subscription_amount !== undefined) {
+    if (patch.subscription_amount === null || patch.subscription_amount === "") {
+      updates.subscription_amount = null;
+    } else {
+      const amount = Number(patch.subscription_amount);
+      if (!Number.isFinite(amount) || amount < 0) {
+        const err = new Error("subscription_amount harus berupa nominal non-negatif");
+        err.status = 400;
+        throw err;
+      }
+      updates.subscription_amount = amount;
+    }
   }
 
   if (patch.billing_notes !== undefined) {

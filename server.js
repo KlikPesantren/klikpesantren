@@ -767,6 +767,24 @@ io.on(
 const PORT =
   process.env.PORT || 3000;
 
+const {
+  enforceAllTenantBillingExpiries,
+} = require("./services/tenantBillingEnforcementService");
+
+function startTenantBillingEnforcement() {
+  const enforce = () => enforceAllTenantBillingExpiries()
+    .then((rows) => {
+      if (rows.length) {
+        console.log(`[BILLING] Auto-suspended expired tenants: ${rows.length}`);
+      }
+    })
+    .catch((error) => console.error("[BILLING] Expiry enforcement failed:", error.message));
+
+  enforce();
+  const timer = setInterval(enforce, 60 * 60 * 1000);
+  timer.unref();
+}
+
 server.listen(
 
   PORT,
@@ -791,6 +809,8 @@ server.listen(
       console.error("[SCHEMA AUDIT] Startup check failed:", err.message);
 
     });
+
+    startTenantBillingEnforcement();
 
   }
 

@@ -2,6 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import platformApi from "../../services/platformApi";
 import PlatformButton from "../../components/platform/PlatformButton";
 import WebsiteAssetField from "../../components/platform/WebsiteAssetField";
+import {
+  getWebsiteContentValue,
+  hydrateWebsiteEditorContent,
+  setWebsiteContentValue,
+} from "../../utils/websiteEditorHydration";
 
 const DEFAULT_CONTENT = {
   brand: {
@@ -351,47 +356,6 @@ const sections = [
   },
 ];
 
-function mergeContent(defaults = DEFAULT_CONTENT, content = {}) {
-  if (Array.isArray(defaults)) return Array.isArray(content) ? content : defaults;
-  if (!defaults || typeof defaults !== "object") return content ?? defaults;
-  const source = content && typeof content === "object" ? content : {};
-  const merged = { ...defaults, ...source };
-  Object.keys(defaults).forEach((key) => { merged[key] = mergeContent(defaults[key], source[key]); });
-  if (defaults === DEFAULT_CONTENT) {
-    const legacy = content.homepage || {};
-    if (legacy.hero_title && !content.homepage?.hero?.title) merged.homepage.hero.title = legacy.hero_title;
-    if (legacy.hero_subtitle && !content.homepage?.hero?.subtitle) merged.homepage.hero.subtitle = legacy.hero_subtitle;
-    ["primary_cta_label", "primary_cta_url", "secondary_cta_label", "secondary_cta_url"].forEach((key) => {
-      if (legacy[key] && !content.homepage?.hero?.[key]) merged.homepage.hero[key] = legacy[key];
-    });
-  }
-  return merged;
-}
-
-function getValue(content, path) {
-  return path.split(".").reduce((value, key) => value?.[key], content) ?? "";
-}
-
-function setValue(content, path, value) {
-  const keys = path.split(".");
-  const next = Array.isArray(content) ? [...content] : { ...content };
-  let cursor = next;
-
-  keys.forEach((key, index) => {
-    if (index === keys.length - 1) {
-      cursor[key] = value;
-      return;
-    }
-
-    cursor[key] = Array.isArray(cursor[key])
-      ? [...cursor[key]]
-      : { ...(cursor[key] || {}) };
-    cursor = cursor[key];
-  });
-
-  return next;
-}
-
 function PlatformWebsitePage() {
   const [content, setContent] = useState(DEFAULT_CONTENT);
   const [status, setStatus] = useState("draft");
@@ -410,7 +374,7 @@ function PlatformWebsitePage() {
     try {
       const res = await platformApi.get("/platform/website/content");
       const data = res.data?.data || {};
-      setContent(mergeContent(data.content || {}));
+      setContent(hydrateWebsiteEditorContent(DEFAULT_CONTENT, data));
       setStatus(data.status || "draft");
       setUpdatedAt(data.updated_at || null);
       setPublishedAt(data.published_at || null);
@@ -429,7 +393,7 @@ function PlatformWebsitePage() {
   }, [loadContent]);
 
   const updateField = (path, value) => {
-    setContent((current) => setValue(current, path, value));
+    setContent((current) => setWebsiteContentValue(current, path, value));
     setDirty(true);
   };
 
@@ -442,7 +406,10 @@ function PlatformWebsitePage() {
         content,
       });
       const data = res.data?.data || {};
-      setContent(mergeContent(data.content || content));
+      setContent(hydrateWebsiteEditorContent(DEFAULT_CONTENT, {
+        ...data,
+        content: data.content || content,
+      }));
       setStatus(data.status || "draft");
       setUpdatedAt(data.updated_at || null);
       setPublishedAt(data.published_at || null);
@@ -462,7 +429,10 @@ function PlatformWebsitePage() {
     try {
       const res = await platformApi.post("/platform/website/publish");
       const data = res.data?.data || {};
-      setContent(mergeContent(data.content || content));
+      setContent(hydrateWebsiteEditorContent(DEFAULT_CONTENT, {
+        ...data,
+        content: data.content || content,
+      }));
       setStatus(data.status || "published");
       setUpdatedAt(data.updated_at || null);
       setPublishedAt(data.published_at || null);
@@ -495,6 +465,9 @@ function PlatformWebsitePage() {
         </div>
         <div style={statusStyle}>
           <span style={statusBadgeStyle}>{status}</span>
+          {status === "draft" ? (
+            <span>Perubahan Draft belum dipublish</span>
+          ) : null}
           {publishedAt ? (
             <span>Published {new Date(publishedAt).toLocaleString("id-ID")}</span>
           ) : null}
@@ -523,7 +496,7 @@ function PlatformWebsitePage() {
                     <WebsiteAssetField
                       key={field.path}
                       label={field.label}
-                      value={getValue(content, field.path)}
+                      value={getWebsiteContentValue(content, field.path) ?? ""}
                       onChange={(value) => updateField(field.path, value)}
                     />
                   ) : (
@@ -536,20 +509,20 @@ function PlatformWebsitePage() {
                       {field.type === "checkbox" ? (
                         <input
                           type="checkbox"
-                          checked={Boolean(getValue(content, field.path))}
+                          checked={Boolean(getWebsiteContentValue(content, field.path))}
                           onChange={(event) => updateField(field.path, event.target.checked)}
                         />
                       ) : field.type === "lines" ? (
                         <textarea
                           className="theme-field"
-                          value={(getValue(content, field.path) || []).join("\n")}
+                          value={(getWebsiteContentValue(content, field.path) || []).join("\n")}
                           onChange={(event) => updateField(field.path, event.target.value.split("\n").filter(Boolean))}
                           rows={5}
                         />
                       ) : field.type === "textarea" ? (
                         <textarea
                           className="theme-field"
-                          value={getValue(content, field.path)}
+                          value={getWebsiteContentValue(content, field.path) ?? ""}
                           onChange={(event) =>
                             updateField(field.path, event.target.value)
                           }
@@ -559,7 +532,7 @@ function PlatformWebsitePage() {
                         <input
                           className="theme-field"
                           type={field.type || "text"}
-                          value={getValue(content, field.path)}
+                          value={getWebsiteContentValue(content, field.path) ?? ""}
                           onChange={(event) =>
                             updateField(field.path, event.target.value)
                           }

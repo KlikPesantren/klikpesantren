@@ -124,6 +124,9 @@ require("./routes/absensiRoutes");
 const attendanceSessionRoutes =
 require("./routes/attendanceSessionRoutes");
 
+const attendanceDeviceRoutes =
+require("./routes/attendanceDeviceRoutes");
+
 const perizinanRoutes =
 require("./routes/perizinanRoutes");
 
@@ -490,6 +493,11 @@ app.use(
   requireUnitFeature("absensi"),
   requirePermission("absensi.view"),
   attendanceSessionRoutes
+);
+
+app.use(
+  "/attendance",
+  attendanceDeviceRoutes
 );
 
 app.use(

@@ -1,5 +1,13 @@
 const pool = require("../db");
 const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
+
+exports.registerDisabled = (req, res) => res.status(410).json({
+  success: false,
+  code: "DEVICE_ADMIN_PROVISIONING_REQUIRED",
+  error: "Self-registration device dinonaktifkan; gunakan provisioning Admin",
+});
+
 
 /**
  * POST /rfid/device/provision — admin creates device for own tenant
@@ -48,17 +56,20 @@ exports.provision = async (req, res) => {
     }
 
     const deviceSecret = crypto.randomBytes(32).toString("hex");
+    const deviceSecretHash = await bcrypt.hash(deviceSecret, 12);
 
     const { rows } = await pool.query(
       `INSERT INTO devices (
-         device_id, device_secret, nama_device, merchant_id,
-         status, firmware_version, tenant_id, created_at
+         device_id, device_secret, device_secret_hash, nama_device, merchant_id,
+         status, enabled, connection_state, firmware_version, tenant_id, created_at
        )
-       VALUES ($1, $2, $3, $4, 'offline', $5, $6, NOW())
-       RETURNING id, device_id, nama_device, merchant_id, tenant_id, status, created_at`,
+       VALUES ($1, $2, $3, $4, $5, 'offline', true, 'offline', $6, $7, NOW())
+       RETURNING id, device_id, nama_device, merchant_id, tenant_id,
+                 status, enabled, connection_state, created_at`,
       [
         String(deviceId).trim(),
-        deviceSecret,
+        "__HASHED_V1__",
+        deviceSecretHash,
         namaDevice || String(deviceId).trim(),
         merchantId || null,
         firmwareVersion || null,
@@ -81,74 +92,8 @@ exports.provision = async (req, res) => {
 /**
  * POST /rfid/device/register — legacy self-register (tenant_slug wajib)
  */
-exports.register = async (req, res) => {
-  try {
-    const { resolveTenantForLogin } = require("../services/tenantService");
-    const tenantResult = await resolveTenantForLogin(req.body.tenant_slug);
-    if (tenantResult.error) {
-      return res.status(tenantResult.status || 400).json({
-        success: false,
-        error: tenantResult.error,
-      });
-    }
-    const tenantId = tenantResult.tenant.id;
-    const { device_id: deviceId, nama_device: namaDevice, firmware_version: firmwareVersion } =
-      req.body;
 
-    if (!deviceId) {
-      return res.status(400).json({ success: false, error: "device_id wajib" });
-    }
-
-    const existing = await pool.query(
-      `SELECT * FROM devices WHERE tenant_id = $1 AND device_id = $2`,
-      [tenantId, deviceId]
-    );
-
-    if (existing.rows.length > 0) {
-      const row = existing.rows[0];
-      if (req.body.device_secret && req.body.device_secret !== row.device_secret) {
-        return res.status(401).json({
-          success: false,
-          error: "Device secret tidak valid",
-        });
-      }
-
-      await pool.query(
-        `UPDATE devices
-         SET last_ping = NOW(), firmware_version = $1
-         WHERE tenant_id = $2 AND device_id = $3`,
-        [firmwareVersion || null, tenantId, deviceId]
-      );
-
-      return res.json({
-        success: true,
-        registered: false,
-        device_secret: row.device_secret,
-      });
-    }
-
-    const deviceSecret = crypto.randomBytes(32).toString("hex");
-
-    const { rows } = await pool.query(
-      `INSERT INTO devices (
-         device_id, device_secret, nama_device, status, firmware_version, tenant_id, created_at
-       )
-       VALUES ($1, $2, $3, 'offline', $4, $5, NOW())
-       RETURNING *`,
-      [deviceId, deviceSecret, namaDevice || deviceId, firmwareVersion || null, tenantId]
-    );
-
-    res.json({
-      success: true,
-      registered: true,
-      device_secret: deviceSecret,
-      device: rows[0],
-    });
-  } catch (err) {
-    console.log(err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-};
+exports.register = exports.registerDisabled;
 
 exports.assignMerchant = async (req, res) => {
   try {
@@ -182,7 +127,9 @@ exports.assignMerchant = async (req, res) => {
       });
     }
 
-    res.json({ success: true, data: result.rows[0] });
+    const { device_secret: ignoredSecret, device_secret_hash: ignoredHash, ...safeDevice } = result.rows[0];
+    void ignoredSecret; void ignoredHash;
+    res.json({ success: true, data: safeDevice });
   } catch (err) {
     console.log(err);
     res.status(500).json({ success: false, error: err.message });
@@ -192,12 +139,12 @@ exports.assignMerchant = async (req, res) => {
 exports.heartbeat = async (req, res) => {
   try {
     const tenantId = req.tenantId;
-    const { device_id: deviceId } = req.body;
+    const deviceId = req.device.device_id;
     const ipAddress = req.ip;
 
     const result = await pool.query(
       `UPDATE devices
-       SET status = 'online', last_ping = NOW(), ip_address = $1
+       SET status = 'online', connection_state = 'online', last_ping = NOW(), ip_address = $1
        WHERE tenant_id = $2 AND device_id = $3
        RETURNING *`,
       [ipAddress, tenantId, deviceId]
@@ -231,7 +178,13 @@ exports.list = async (req, res) => {
       [req.tenantId]
     );
 
-    res.json({ success: true, data: rows });
+    const safeRows = rows.map((row) => {
+      const device = { ...row };
+      delete device.device_secret;
+      delete device.device_secret_hash;
+      return device;
+    });
+    res.json({ success: true, data: safeRows });
   } catch (err) {
     console.log(err);
     res.status(500).json({ success: false, error: err.message });

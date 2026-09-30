@@ -24,6 +24,14 @@ router.post(
   requirePermission("rfid.manage"),
   deviceController.provision
 );
+router.post(
+  "/:deviceId/rotate-secret",
+  authMiddleware,
+  tenantMiddleware,
+  requireTenantFeature("rfid"),
+  requirePermission("rfid.manage"),
+  deviceController.rotateSecret
+);
 
 router.get("/", ...adminDevice, deviceController.list);
 

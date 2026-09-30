@@ -614,6 +614,15 @@
       "notes": "canonical per-unit attendance session configuration with stable ID and historical label snapshot",
       "recommended_action": "APPLY_ORIGINAL",
       "execution_order": 210
+    },
+    {
+      "filename": "092_attendance_v1_foundation.sql",
+      "checksum": "c286e16a326b99d1d976e4e6d171719aa07896ec4fcbb8f0f51412a24f19a3b5",
+      "status": "NOT_APPLIED",
+      "evidence": "source/static/unit regression only; production migration explicitly forbidden in Phase 1",
+      "notes": "additive attendance occurrence, result, event, multi-unit and device-security foundation",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 220
     }
   ]
 }

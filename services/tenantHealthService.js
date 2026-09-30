@@ -92,6 +92,12 @@ const DELETE_TABLE_ORDER = [
 // tenants. They do not require an extra runtime DELETE grant.
 const CASCADE_TABLES = [
   "alumni",
+  "attendance_events",
+  "attendance_occurrence_units",
+  "attendance_occurrences",
+  "attendance_results",
+  "attendance_session_units",
+  "attendance_session_weekdays",
   "cash_accounts",
   "multi_unit_backfill_review",
   "notification_logs",

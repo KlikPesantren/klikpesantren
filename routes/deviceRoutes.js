@@ -10,12 +10,12 @@ const deviceAuthMiddleware = require("../middleware/deviceAuthMiddleware");
 // Device ping — requires valid device credentials
 router.post("/ping", deviceAuthMiddleware, requireTenantFeature("rfid"), async (req, res) => {
   try {
-    const { device_id: deviceId } = req.body;
+    const deviceId = req.device.device_id;
     const ip = req.ip;
 
     await pool.query(
       `UPDATE devices
-       SET last_ping = NOW(), ip_address = $1, status = 'online'
+       SET last_ping = NOW(), ip_address = $1, status = 'online', connection_state = 'online'
        WHERE tenant_id = $2 AND device_id = $3`,
       [ip, req.tenantId, deviceId]
     );
@@ -44,7 +44,13 @@ router.get(
         [req.tenantId]
       );
 
-      res.json({ success: true, data: result.rows });
+      const safeRows = result.rows.map((row) => {
+        const device = { ...row };
+        delete device.device_secret;
+        delete device.device_secret_hash;
+        return device;
+      });
+      res.json({ success: true, data: safeRows });
     } catch (err) {
       console.log(err);
       res.status(500).json({ success: false, error: err.message });

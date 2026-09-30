@@ -26,6 +26,7 @@
     "wali-identity:plan": "node scripts/plan-wali-identity-resolution.js",
     "wali-identity:apply": "node scripts/apply-wali-identity-resolution.js",
     "wali-identity:audit": "node scripts/audit-wali-identity-resolution.js",
+    "test:attendance-v1-phase1": "node scripts/test-attendance-v1-phase1.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:attendance-sessions": "node scripts/test-attendance-sessions.js",
     "test:guru-unit-scope": "node scripts/test-guru-unit-scope.js",

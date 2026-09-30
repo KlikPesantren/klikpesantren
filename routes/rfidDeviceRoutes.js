@@ -28,7 +28,7 @@ router.post(
 router.get("/", ...adminDevice, deviceController.list);
 
 // Device-authenticated routes (tenant from device credentials)
-router.post("/register", deviceController.register);
+router.post("/register", deviceController.registerDisabled);
 router.put(
   "/assign",
   authMiddleware,

@@ -1,5 +1,9 @@
 const pool = require("../db");
-const { decideAttendanceTransition, MAX_OFFLINE_AGE_MS } = require("./attendanceStatusPolicy");
+const {
+  decideAttendanceTransition,
+  maxFutureSkewMs,
+  MAX_OFFLINE_AGE_MS,
+} = require("./attendanceStatusPolicy");
 
 function attendanceError(code, message, status = 409) {
   const error = new Error(message);
@@ -234,7 +238,9 @@ async function recordAttendanceEvent(input, client = null) {
       throw attendanceError("INVALID_EVENT_TIME", "Timestamp event tidak valid", 400);
     }
     const age = receivedAt.getTime() - capturedAt.getTime();
-    const outcome = age < 0 || age > MAX_OFFLINE_AGE_MS ? "rejected_offline_age" : String(input.outcome || "accepted");
+    const outcome = age < -maxFutureSkewMs() || age > MAX_OFFLINE_AGE_MS
+      ? "rejected_offline_age"
+      : String(input.outcome || "accepted");
     const inserted = await db.query(
       `INSERT INTO attendance_events(tenant_id,event_key,provider,device_id,credential_reference,
          person_type,person_id,occurrence_id,captured_at,received_at,outcome,provenance)

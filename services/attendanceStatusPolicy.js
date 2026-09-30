@@ -1,6 +1,14 @@
 const STATUS = new Set(["H", "I", "S", "A"]);
 const SOURCE = new Set(["admin", "manual", "device", "system"]);
 const MAX_OFFLINE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+
+function maxFutureSkewMs() {
+  const configured = Number(process.env.ATTENDANCE_MAX_FUTURE_SKEW_MS);
+  return Number.isSafeInteger(configured) && configured >= 0
+    ? configured
+    : DEFAULT_MAX_FUTURE_SKEW_MS;
+}
 
 function policyError(code, message) {
   const error = new Error(message);
@@ -57,7 +65,7 @@ function decideAttendanceTransition({
     return { allowed: false, changed: false, code: "OUTSIDE_ATTENDANCE_WINDOW" };
   }
   const age = received.getTime() - captured.getTime();
-  if (age < 0 || age > MAX_OFFLINE_AGE_MS) {
+  if (age < -maxFutureSkewMs() || age > MAX_OFFLINE_AGE_MS) {
     return { allowed: false, changed: false, code: "EVENT_OUTSIDE_OFFLINE_POLICY" };
   }
 
@@ -75,7 +83,9 @@ function decideAttendanceTransition({
 }
 
 module.exports = {
+  DEFAULT_MAX_FUTURE_SKEW_MS,
   MAX_OFFLINE_AGE_MS,
   decideAttendanceTransition,
+  maxFutureSkewMs,
   policyError,
 };

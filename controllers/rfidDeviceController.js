@@ -2,6 +2,16 @@ const pool = require("../db");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 
+const DEVICE_SECRET_BYTES = 32;
+const DEVICE_SECRET_HASH_ROUNDS = 12;
+const HASHED_SECRET_SENTINEL = "__HASHED_V1__";
+
+async function createOneTimeDeviceSecret() {
+  const plaintext = crypto.randomBytes(DEVICE_SECRET_BYTES).toString("hex");
+  const hash = await bcrypt.hash(plaintext, DEVICE_SECRET_HASH_ROUNDS);
+  return { plaintext, hash };
+}
+
 exports.registerDisabled = (req, res) => res.status(410).json({
   success: false,
   code: "DEVICE_ADMIN_PROVISIONING_REQUIRED",
@@ -55,8 +65,10 @@ exports.provision = async (req, res) => {
       });
     }
 
-    const deviceSecret = crypto.randomBytes(32).toString("hex");
-    const deviceSecretHash = await bcrypt.hash(deviceSecret, 12);
+    const {
+      plaintext: deviceSecret,
+      hash: deviceSecretHash,
+    } = await createOneTimeDeviceSecret();
 
     const { rows } = await pool.query(
       `INSERT INTO devices (
@@ -68,7 +80,7 @@ exports.provision = async (req, res) => {
                  status, enabled, connection_state, created_at`,
       [
         String(deviceId).trim(),
-        "__HASHED_V1__",
+        HASHED_SECRET_SENTINEL,
         deviceSecretHash,
         namaDevice || String(deviceId).trim(),
         merchantId || null,
@@ -86,6 +98,60 @@ exports.provision = async (req, res) => {
   } catch (err) {
     console.log(err);
     res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+exports.rotateSecret = async (req, res) => {
+  try {
+    const tenantId = Number(req.tenantId);
+    const deviceId = String(req.params.deviceId || "").trim();
+    if (!Number.isInteger(tenantId) || tenantId <= 0 || !deviceId) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_DEVICE_TARGET",
+        error: "Target device tidak valid",
+      });
+    }
+
+    const {
+      plaintext: deviceSecret,
+      hash: deviceSecretHash,
+    } = await createOneTimeDeviceSecret();
+    const { rows } = await pool.query(
+      `UPDATE devices
+       SET device_secret = $1,
+           device_secret_hash = $2,
+           secret_rotated_at = NOW()
+       WHERE tenant_id = $3
+         AND device_id = $4
+       RETURNING id, device_id, nama_device, merchant_id, status, enabled,
+                 connection_state, firmware_version, tenant_id, secret_rotated_at`,
+      [HASHED_SECRET_SENTINEL, deviceSecretHash, tenantId, deviceId]
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({
+        success: false,
+        code: "DEVICE_NOT_FOUND",
+        error: "Device tidak ditemukan pada tenant aktif",
+      });
+    }
+
+    res.set("Cache-Control", "no-store");
+    res.set("Pragma", "no-cache");
+    return res.json({
+      success: true,
+      rotated: true,
+      device_secret: deviceSecret,
+      device: rows[0],
+    });
+  } catch (err) {
+    console.error("[RFID DEVICE SECRET ROTATION]", err.message);
+    return res.status(500).json({
+      success: false,
+      code: "DEVICE_SECRET_ROTATION_FAILED",
+      error: "Gagal merotasi credential device",
+    });
   }
 };
 

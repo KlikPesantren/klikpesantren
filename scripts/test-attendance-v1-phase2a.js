@@ -28,6 +28,31 @@ const walletController = read("controllers/rfidController.js");
 const attendanceCore = read("services/attendanceCoreService.js");
 const edc01Firmware = read("KasirRFID_V3 EDC01/KasirRFID_V3/KasirRFID_V3.ino");
 
+const approvedEdc01Keypad = Object.freeze({
+  rowPins: [13, 14, 27, 26],
+  colPins: [25, 33, 32, 15],
+  keymap: [
+    "1", "2", "3", "A",
+    "4", "5", "6", "B",
+    "7", "8", "9", "C",
+    "*", "0", "#", "D",
+  ],
+});
+
+function parseEdc01KeypadContract(source) {
+  const rowPins = source.match(/byte\s+rowPins\s*\[\s*ROWS\s*\]\s*=\s*\{([^}]+)\}/s);
+  const colPins = source.match(/byte\s+colPins\s*\[\s*COLS\s*\]\s*=\s*\{([^}]+)\}/s);
+  const keymap = source.match(/char\s+keys\s*\[\s*ROWS\s*\]\s*\[\s*COLS\s*\]\s*=\s*\{([\s\S]*?)\n\s*\};/);
+  assert(rowPins, "EDC01 rowPins definition missing");
+  assert(colPins, "EDC01 colPins definition missing");
+  assert(keymap, "EDC01 keymap definition missing");
+  return {
+    rowPins: [...rowPins[1].matchAll(/\d+/g)].map(([value]) => Number(value)),
+    colPins: [...colPins[1].matchAll(/\d+/g)].map(([value]) => Number(value)),
+    keymap: [...keymap[1].matchAll(/'([^'])'/g)].map(([, value]) => value),
+  };
+}
+
 const capturedAt = new Date("2026-09-30T00:30:00.000Z");
 const receivedAt = new Date("2026-09-30T00:31:00.000Z");
 const defaultOccurrence = {
@@ -343,6 +368,10 @@ async function main() {
     ]) {
       assert(edc01Firmware.includes(`code == "${code}"`), code);
     }
+  });
+  pass("EDC01 keypad pin order and logical layout remain hardware-compatible", () => {
+    assert.deepEqual(parseEdc01KeypadContract(edc01Firmware), approvedEdc01Keypad);
+    assert(edc01Firmware.includes("makeKeymap(keys)"));
   });
   pass("connectivity is not authorization", () => {
     assert(!/connection_state\s*[!=]==?\s*["']online/.test(adapterSource));

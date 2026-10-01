@@ -9,6 +9,8 @@
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
 #include <Preferences.h>
+#include <time.h>
+#include "AttendancePrototypeTypes.h"
 
 #define SS_PIN 5
 #define RST_PIN 4
@@ -27,6 +29,30 @@ const unsigned long WIFI_RECONNECT_INTERVAL_MS = 10000;
 const int API_TIMEOUT_MS = 15000;
 const int HEARTBEAT_TIMEOUT_MS = 8000;
 const int AUDIT_TIMEOUT_MS = 8000;
+
+const unsigned long NTP_RETRY_INTERVAL_MS = 60000;
+const unsigned long ATTENDANCE_FEEDBACK_DURATION_MS = 2500;
+const unsigned long UNKNOWN_UID_PAGE_DURATION_MS = 3000;
+const size_t UNKNOWN_UID_DIRECT_LENGTH = 12;
+const size_t UNKNOWN_UID_PAGE_CHARS = 7;
+const time_t MIN_VALID_EPOCH = 1704067200;
+
+const char KLIKPESANTREN_ROOT_CA[] PROGMEM = R"EOF(
+-----BEGIN CERTIFICATE-----
+MIICCTCCAY6gAwIBAgINAgPlwGjvYxqccpBQUjAKBggqhkjOPQQDAzBHMQswCQYD
+VQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEUMBIG
+A1UEAxMLR1RTIFJvb3QgUjQwHhcNMTYwNjIyMDAwMDAwWhcNMzYwNjIyMDAwMDAw
+WjBHMQswCQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2Vz
+IExMQzEUMBIGA1UEAxMLR1RTIFJvb3QgUjQwdjAQBgcqhkjOPQIBBgUrgQQAIgNi
+AATzdHOnaItgrkO4NcWBMHtLSZ37wWHO5t5GvWvVYRg1rkDdc/eJkTBa6zzuhXyi
+QHY7qca4R9gq55KRanPpsXI5nymfopjTX15YhmUPoYRlBtHci8nHc8iMai/lxKvR
+HYqjQjBAMA4GA1UdDwEB/wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQW
+BBSATNbrdP9JNqPV2Py1PsVq8JQdjDAKBggqhkjOPQQDAwNpADBmAjEA6ED/g94D
+9J+uHXqnLrmvT/aDHQ4thQEd0dlq7A/Cr8deVl5c1RxYIigL9zC2L7F8AjEA8GE8
+p/SgguMh1YQdc4acLa/KNJvxn7kjNuK8YAOdgLOaVsjh4rsUecrNIdSUtUlD
+-----END CERTIFICATE-----
+)EOF";
+
 
 // =====================
 // STATE
@@ -132,38 +158,29 @@ String resultMessage1 = "";
 String resultMessage2 = "";
 
 
-String ADMIN_UID_1 =
+String ADMIN_UID_1 = "";
+String ADMIN_UID_2 = "";
 
-  "54991506";
+// Runtime configuration is provisioned into ESP32 Preferences/NVS.
+String ssid = "";
+String password = "";
+String SERVER_URL = "";
+String TENANT_SLUG = "";
+String DEVICE_ID = "";
+String DEVICE_SECRET = "";
+String DEVICE_MODE = "";
+String HARDWARE_PROFILE = "";
 
-String ADMIN_UID_2 =
-
-  "1bb41406";
-
-
-// WIFI ==========
-
-const char* ssid =
-  "vivo Y19s";
-
-const char* password =
-  "1nyampe8";
-
-// =====================
-// BACKEND
-// =====================
-
-String SERVER_URL =
-  "https://api.klikpesantren.com";
-
-String TENANT_SLUG =
-  "anwarulhuda313";
-
-String DEVICE_ID =
-  "EDC01";
-
-String DEVICE_SECRET =
-  "SECRET123";
+bool runtimeConfigReady = false;
+bool ntpConfigured = false;
+unsigned long lastNtpAttempt = 0;
+bool attendanceFeedbackActive = false;
+unsigned long attendanceFeedbackStartedAt = 0;
+bool attendanceUnknownUidActive = false;
+String attendanceUnknownUid = "";
+size_t attendanceUnknownUidPage = 0;
+size_t attendanceUnknownUidPageCount = 0;
+unsigned long attendanceUnknownUidPageStartedAt = 0;
 
 // =====================
 // RFID
@@ -240,6 +257,169 @@ void beep(int duration) {
   );
 }
 
+bool isSupportedHardwareProfile() {
+  return HARDWARE_PROFILE == "EDC01" || HARDWARE_PROFILE == "EDC02";
+}
+
+bool isAttendanceMode() {
+  return DEVICE_MODE == "ATTENDANCE";
+}
+
+void applyHardwareProfile() {
+  const char edc01Keys[ROWS][COLS] = {
+    { '1', '2', '3', 'A' },
+    { '4', '5', '6', 'B' },
+    { '7', '8', '9', 'C' },
+    { '*', '0', '#', 'D' }
+  };
+  const char edc02Keys[ROWS][COLS] = {
+    { 'D', 'C', 'B', 'A' },
+    { '#', '9', '6', '3' },
+    { '0', '8', '5', '2' },
+    { '*', '7', '4', '1' }
+  };
+  const char (*selected)[COLS] = HARDWARE_PROFILE == "EDC02"
+    ? edc02Keys
+    : edc01Keys;
+  for (byte row = 0; row < ROWS; row++) {
+    for (byte column = 0; column < COLS; column++) {
+      keys[row][column] = selected[row][column];
+    }
+  }
+}
+
+void refreshRuntimeConfigReady() {
+  DEVICE_MODE.trim();
+  DEVICE_MODE.toUpperCase();
+  HARDWARE_PROFILE.trim();
+  HARDWARE_PROFILE.toUpperCase();
+  SERVER_URL.trim();
+  while (SERVER_URL.endsWith("/")) {
+    SERVER_URL.remove(SERVER_URL.length() - 1);
+  }
+  runtimeConfigReady =
+    ssid.length() > 0 &&
+    password.length() > 0 &&
+    SERVER_URL.startsWith("https://") &&
+    TENANT_SLUG.length() > 0 &&
+    DEVICE_ID.length() > 0 &&
+    DEVICE_SECRET.length() > 0 &&
+    isAttendanceMode() &&
+    isSupportedHardwareProfile();
+  applyHardwareProfile();
+}
+
+void loadRuntimeConfig() {
+  ssid = prefs.getString("wifi_ssid", "");
+  password = prefs.getString("wifi_password", "");
+  SERVER_URL = prefs.getString("api_base_url", "");
+  TENANT_SLUG = prefs.getString("tenant_slug", "");
+  DEVICE_ID = prefs.getString("device_id", "");
+  DEVICE_SECRET = prefs.getString("device_secret", "");
+  DEVICE_MODE = prefs.getString("device_mode", "");
+  HARDWARE_PROFILE = prefs.getString("hw_profile", "");
+  refreshRuntimeConfigReady();
+}
+
+void printPresence(const char* field, bool present) {
+  Serial.print(field);
+  Serial.print(": ");
+  Serial.println(present ? "SET" : "MISSING");
+}
+
+void printRuntimeConfigStatus() {
+  Serial.println("CONFIG STATUS");
+  printPresence("wifi_ssid", ssid.length() > 0);
+  printPresence("wifi_password", password.length() > 0);
+  printPresence("api_base_url", SERVER_URL.startsWith("https://"));
+  printPresence("tenant_slug", TENANT_SLUG.length() > 0);
+  printPresence("device_id", DEVICE_ID.length() > 0);
+  printPresence("device_secret", DEVICE_SECRET.length() > 0);
+  printPresence("device_mode", isAttendanceMode());
+  printPresence("hardware_profile", isSupportedHardwareProfile());
+  Serial.println(runtimeConfigReady ? "CONFIG READY" : "CONFIG INCOMPLETE");
+}
+
+bool storeProvisionedField(const String& field, String value) {
+  value.trim();
+  if (value.length() == 0) return false;
+  size_t bytesWritten = 0;
+
+  if (field == "wifi_ssid") {
+    bytesWritten = prefs.putString("wifi_ssid", value);
+  } else if (field == "wifi_password") {
+    bytesWritten = prefs.putString("wifi_password", value);
+  } else if (field == "api_base_url") {
+    if (!value.startsWith("https://")) return false;
+    while (value.endsWith("/")) value.remove(value.length() - 1);
+    bytesWritten = prefs.putString("api_base_url", value);
+  } else if (field == "tenant_slug") {
+    bytesWritten = prefs.putString("tenant_slug", value);
+  } else if (field == "device_id") {
+    bytesWritten = prefs.putString("device_id", value);
+  } else if (field == "device_secret") {
+    bytesWritten = prefs.putString("device_secret", value);
+  } else if (field == "device_mode") {
+    value.toUpperCase();
+    if (value != "ATTENDANCE") return false;
+    bytesWritten = prefs.putString("device_mode", value);
+  } else if (field == "hardware_profile") {
+    value.toUpperCase();
+    if (value != "EDC01" && value != "EDC02") return false;
+    bytesWritten = prefs.putString("hw_profile", value);
+  } else {
+    return false;
+  }
+
+  if (bytesWritten == 0) return false;
+  loadRuntimeConfig();
+  return true;
+}
+
+void handleSerialProvisioning() {
+  if (!Serial.available()) return;
+  String command = Serial.readStringUntil('\n');
+  command.trim();
+  if (command == "SHOW") {
+    printRuntimeConfigStatus();
+    return;
+  }
+  if (command == "HELP") {
+    Serial.println("SET <field> <value>");
+    Serial.println("Fields: wifi_ssid, wifi_password, api_base_url,");
+    Serial.println("tenant_slug, device_id, device_secret, device_mode,");
+    Serial.println("hardware_profile. Values are never echoed.");
+    return;
+  }
+  if (!command.startsWith("SET ")) {
+    Serial.println("PROVISION COMMAND REJECTED");
+    return;
+  }
+
+  String remainder = command.substring(4);
+  int separator = remainder.indexOf(' ');
+  if (separator <= 0) {
+    Serial.println("PROVISION COMMAND REJECTED");
+    return;
+  }
+  String field = remainder.substring(0, separator);
+  String value = remainder.substring(separator + 1);
+  if (storeProvisionedField(field, value)) {
+    Serial.println("CONFIG FIELD SAVED");
+    if (field == "wifi_ssid" || field == "wifi_password") {
+      WiFi.disconnect();
+      wifiWasConnected = false;
+    }
+    if (runtimeConfigReady) {
+      showAttendanceStandby();
+    } else {
+      showProvisioningRequired();
+    }
+  } else {
+    Serial.println("CONFIG FIELD REJECTED");
+  }
+}
+
 // LCD ===============
 
 String rupiah(int value) {
@@ -296,6 +476,10 @@ void printLine(
 
   String padded =
     text;
+
+  if (padded.length() > 16) {
+    padded = padded.substring(0, 16);
+  }
 
   while (
 
@@ -532,6 +716,8 @@ void connectWiFi() {
   static unsigned long
     lastAttempt = 0;
 
+  if (!runtimeConfigReady) return;
+
   // =====================
   // WIFI CONNECTED
   // =====================
@@ -653,9 +839,9 @@ void connectWiFi() {
 
   WiFi.begin(
 
-    ssid,
+    ssid.c_str(),
 
-    password
+    password.c_str()
 
   );
 }
@@ -685,7 +871,7 @@ bool apiPost(
   }
 
   WiFiClientSecure client;
-  client.setInsecure();
+  client.setCACert(KLIKPESANTREN_ROOT_CA);
   client.setTimeout(API_TIMEOUT_MS);
 
   HTTPClient http;
@@ -2085,7 +2271,7 @@ void sendPing() {
     ) return;
 
   WiFiClientSecure client;
-  client.setInsecure();
+  client.setCACert(KLIKPESANTREN_ROOT_CA);
   client.setTimeout(HEARTBEAT_TIMEOUT_MS);
 
   HTTPClient http;
@@ -2138,7 +2324,7 @@ void sendPing() {
     Serial.println(url);
 
     Serial.print("BODY: ");
-    Serial.println(body);
+    Serial.println("[REDACTED]");
 
     Serial.print("PING HTTP CODE: ");
     Serial.println(httpCode);
@@ -2190,7 +2376,7 @@ void sendAudit(
   }
 
   WiFiClientSecure client;
-  client.setInsecure();
+  client.setCACert(KLIKPESANTREN_ROOT_CA);
   client.setTimeout(AUDIT_TIMEOUT_MS);
 
   HTTPClient http;
@@ -2598,12 +2784,305 @@ void syncOfflineQueue() {
   }
 }
 
+void attendanceBeep(AttendanceTone feedbackTone) {
+  if (feedbackTone == ATTENDANCE_TONE_SUCCESS) {
+    beep(80);
+    return;
+  }
+  if (feedbackTone == ATTENDANCE_TONE_INFO) {
+    beep(70);
+    delay(90);
+    beep(70);
+    return;
+  }
+  beep(320);
+}
+
+void showAttendanceStandby() {
+  showScreen("Tempelkan Kartu", "Absensi");
+}
+
+void showProvisioningRequired() {
+  showScreen("Setup via Serial", "Config Belum Ada");
+}
+
+void showAttendanceFeedback(
+  const String& line1,
+  const String& line2,
+  AttendanceTone feedbackTone
+) {
+  attendanceUnknownUidActive = false;
+  attendanceUnknownUid = "";
+  printLine(0, line1);
+  printLine(1, line2);
+  lastLine1 = line1;
+  lastLine2 = line2;
+  lastLCDUpdate = millis();
+  attendanceBeep(feedbackTone);
+  attendanceFeedbackActive = true;
+  attendanceFeedbackStartedAt = millis();
+}
+
+void renderUnknownUidPage() {
+  String line1;
+  if (attendanceUnknownUid.length() <= UNKNOWN_UID_DIRECT_LENGTH) {
+    line1 = "UID:" + attendanceUnknownUid;
+  } else {
+    size_t offset = attendanceUnknownUidPage * UNKNOWN_UID_PAGE_CHARS;
+    String pagePrefix =
+      "UID" + String(attendanceUnknownUidPage + 1)
+      + "/" + String(attendanceUnknownUidPageCount) + ":";
+    line1 = pagePrefix + attendanceUnknownUid.substring(
+      offset,
+      min(offset + UNKNOWN_UID_PAGE_CHARS, attendanceUnknownUid.length())
+    );
+  }
+  printLine(0, line1);
+  printLine(1, "BELUM TERDAFTAR");
+  lastLine1 = line1;
+  lastLine2 = "BELUM TERDAFTAR";
+  lastLCDUpdate = millis();
+}
+
+void showUnknownCredentialFeedback(const String& scannedUid) {
+  attendanceUnknownUid = scannedUid;
+  attendanceUnknownUidPage = 0;
+  attendanceUnknownUidPageCount = scannedUid.length() <= UNKNOWN_UID_DIRECT_LENGTH
+    ? 1
+    : (scannedUid.length() + UNKNOWN_UID_PAGE_CHARS - 1) / UNKNOWN_UID_PAGE_CHARS;
+  attendanceUnknownUidActive = true;
+  attendanceFeedbackActive = true;
+  attendanceFeedbackStartedAt = millis();
+  attendanceUnknownUidPageStartedAt = attendanceFeedbackStartedAt;
+  renderUnknownUidPage();
+  attendanceBeep(ATTENDANCE_TONE_ERROR);
+}
+
+void updateAttendanceFeedback() {
+  if (!attendanceFeedbackActive) return;
+  if (attendanceUnknownUidActive) {
+    if (millis() - attendanceUnknownUidPageStartedAt < UNKNOWN_UID_PAGE_DURATION_MS) return;
+    if (attendanceUnknownUidPage + 1 < attendanceUnknownUidPageCount) {
+      attendanceUnknownUidPage += 1;
+      attendanceUnknownUidPageStartedAt = millis();
+      renderUnknownUidPage();
+      return;
+    }
+    attendanceUnknownUidActive = false;
+    attendanceUnknownUid = "";
+    attendanceFeedbackActive = false;
+    showAttendanceStandby();
+    return;
+  }
+  if (millis() - attendanceFeedbackStartedAt < ATTENDANCE_FEEDBACK_DURATION_MS) return;
+  attendanceFeedbackActive = false;
+  showAttendanceStandby();
+}
+
+bool attendanceClockValid() {
+  time_t now;
+  time(&now);
+  return now >= MIN_VALID_EPOCH;
+}
+
+void ensureAttendanceClock() {
+  if (WiFi.status() != WL_CONNECTED || attendanceClockValid()) return;
+  if (ntpConfigured && millis() - lastNtpAttempt < NTP_RETRY_INTERVAL_MS) return;
+  lastNtpAttempt = millis();
+  ntpConfigured = true;
+  configTime(0, 0, "pool.ntp.org", "time.google.com");
+}
+
+bool formatCapturedAtUtc(String& capturedAt) {
+  if (!attendanceClockValid()) return false;
+  time_t now;
+  time(&now);
+  struct tm utcTime;
+  if (gmtime_r(&now, &utcTime) == nullptr) return false;
+  char timestamp[21];
+  if (strftime(timestamp, sizeof(timestamp), "%Y-%m-%dT%H:%M:%SZ", &utcTime) == 0) {
+    return false;
+  }
+  capturedAt = String(timestamp);
+  return true;
+}
+
+bool createDurableAttendanceEventId(String& eventId) {
+  uint64_t current = prefs.getULong64("att_counter", 0);
+  if (current == UINT64_MAX) return false;
+  uint64_t next = current + 1;
+  if (prefs.putULong64("att_counter", next) == 0) return false;
+  char counterText[24];
+  snprintf(counterText, sizeof(counterText), "%llu", static_cast<unsigned long long>(next));
+  eventId = DEVICE_ID + "-attendance-" + String(counterText);
+  return eventId.length() <= 160;
+}
+
+AttendanceHttpResult postAttendanceEvent(const String& body) {
+  AttendanceHttpResult result = { false, -1, "" };
+  if (WiFi.status() != WL_CONNECTED || !runtimeConfigReady) return result;
+
+  WiFiClientSecure client;
+  client.setCACert(KLIKPESANTREN_ROOT_CA);
+  client.setTimeout(API_TIMEOUT_MS);
+
+  HTTPClient http;
+  String url = SERVER_URL + "/attendance/events";
+  if (!http.begin(client, url)) return result;
+  http.setTimeout(API_TIMEOUT_MS);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Device-Id", DEVICE_ID);
+  http.addHeader("X-Device-Secret", DEVICE_SECRET);
+  http.addHeader("X-Tenant-Slug", TENANT_SLUG);
+
+  int httpStatus = http.POST(body);
+  result.httpStatus = httpStatus;
+  result.transportOk = httpStatus >= 0;
+  if (result.transportOk) {
+    result.body = http.getString();
+  }
+  if (DEBUG) {
+    Serial.print("Attendance HTTP status: ");
+    Serial.println(httpStatus);
+  }
+  http.end();
+  return result;
+}
+
+String attendanceDisplayTime(const String& capturedAt) {
+  if (capturedAt.length() >= 16) {
+    return capturedAt.substring(11, 16) + "Z";
+  }
+  return "UTC";
+}
+
+void handleAttendanceResponse(
+  const AttendanceHttpResult& result,
+  const String& requestCapturedAt,
+  const String& scannedUid
+) {
+  if (!result.transportOk) {
+    showAttendanceFeedback("Koneksi Gagal", "Coba Lagi", ATTENDANCE_TONE_ERROR);
+    return;
+  }
+  if (result.httpStatus >= 500) {
+    showAttendanceFeedback("Server Error", "Coba Lagi", ATTENDANCE_TONE_ERROR);
+    return;
+  }
+
+  DynamicJsonDocument response(1024);
+  DeserializationError parseError = deserializeJson(response, result.body);
+  if (parseError) {
+    showAttendanceFeedback("Respons Server", "Tidak Valid", ATTENDANCE_TONE_ERROR);
+    return;
+  }
+
+  String code = response["code"].as<String>();
+  String personName = response["person"]["name"].as<String>();
+  String responseCapturedAt = response["captured_at"].as<String>();
+  String status = response["status"].as<String>();
+  if (responseCapturedAt.length() == 0) responseCapturedAt = requestCapturedAt;
+
+  if (code == "ATTENDANCE_RECORDED" && response["ok"] == true) {
+    if (personName.length() == 0) personName = "Absensi";
+    showAttendanceFeedback(
+      personName,
+      "Hadir " + attendanceDisplayTime(responseCapturedAt),
+      ATTENDANCE_TONE_SUCCESS
+    );
+  } else if (code == "ALREADY_ATTENDED" && response["ok"] == true) {
+    if (personName.length() == 0) personName = "Absensi";
+    showAttendanceFeedback(personName, "Sudah Absen", ATTENDANCE_TONE_INFO);
+  } else if (code == "STATUS_PROTECTED" && response["ok"] == true) {
+    if (personName.length() == 0) personName = "Absensi";
+    String protectedLabel = "Status Terkunci";
+    if (status == "I") protectedLabel = "Status: Izin";
+    if (status == "S") protectedLabel = "Status: Sakit";
+    showAttendanceFeedback(personName, protectedLabel, ATTENDANCE_TONE_INFO);
+  } else if (code == "UNKNOWN_CREDENTIAL") {
+    showUnknownCredentialFeedback(scannedUid);
+  } else if (code == "AMBIGUOUS_CREDENTIAL") {
+    showAttendanceFeedback("Konflik Kartu", "Hubungi Admin", ATTENDANCE_TONE_ERROR);
+  } else if (code == "NO_ACTIVE_SESSION") {
+    showAttendanceFeedback("Sesi Tidak Aktif", "Coba Nanti", ATTENDANCE_TONE_ERROR);
+  } else if (code == "NOT_ELIGIBLE") {
+    showAttendanceFeedback("Tidak Eligible", "Pada Sesi", ATTENDANCE_TONE_ERROR);
+  } else if (code == "AMBIGUOUS_SESSION") {
+    showAttendanceFeedback("Konflik Sesi", "Hubungi Admin", ATTENDANCE_TONE_ERROR);
+  } else if (code == "EVENT_TOO_OLD") {
+    showAttendanceFeedback("Event Kedaluwarsa", "Scan Ulang", ATTENDANCE_TONE_ERROR);
+  } else if (code == "INVALID_EVENT_TIME") {
+    showAttendanceFeedback("Waktu Device", "Tidak Valid", ATTENDANCE_TONE_ERROR);
+  } else if (code == "EVENT_ID_CONFLICT") {
+    showAttendanceFeedback("Konflik Event", "Scan Ulang", ATTENDANCE_TONE_ERROR);
+  } else if (code == "FEATURE_DISABLED") {
+    showAttendanceFeedback("Fitur Nonaktif", "Cek Platform", ATTENDANCE_TONE_ERROR);
+  } else if (code == "DEVICE_DISABLED") {
+    showAttendanceFeedback("Device Nonaktif", "Hubungi Admin", ATTENDANCE_TONE_ERROR);
+  } else if (
+    code == "DEVICE_AUTH_INVALID"
+    || code == "DEVICE_CREDENTIALS_REQUIRED"
+  ) {
+    showAttendanceFeedback("Akses Ditolak", "Cek Device", ATTENDANCE_TONE_ERROR);
+  } else if (
+    code == "DEVICE_TENANT_INVALID"
+    || code == "DEVICE_MERCHANT_INVALID"
+  ) {
+    showAttendanceFeedback("Konfig Device", "Tidak Cocok", ATTENDANCE_TONE_ERROR);
+  } else if (result.httpStatus == 401 || result.httpStatus == 403) {
+    showAttendanceFeedback("Akses Ditolak", "Cek Konfigurasi", ATTENDANCE_TONE_ERROR);
+  } else if (result.httpStatus >= 400) {
+    showAttendanceFeedback("Request Ditolak", "Cek Konfigurasi", ATTENDANCE_TONE_ERROR);
+  } else {
+    showAttendanceFeedback("Server Error", "Coba Lagi", ATTENDANCE_TONE_ERROR);
+  }
+}
+
+void handleAttendanceRFID() {
+  if (!runtimeConfigReady || !isAttendanceMode() || attendanceFeedbackActive) return;
+  if (millis() - lastRFIDRead < 200) return;
+
+  String uid = readRFID();
+  if (uid.length() == 0) return;
+  lastRFIDRead = millis();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    showAttendanceFeedback("Koneksi Gagal", "Coba Lagi", ATTENDANCE_TONE_ERROR);
+    return;
+  }
+
+  String capturedAt;
+  if (!formatCapturedAtUtc(capturedAt)) {
+    showAttendanceFeedback("Waktu Device", "Belum Valid", ATTENDANCE_TONE_ERROR);
+    return;
+  }
+
+  String eventId;
+  if (!createDurableAttendanceEventId(eventId)) {
+    showAttendanceFeedback("ID Event", "Bermasalah", ATTENDANCE_TONE_ERROR);
+    return;
+  }
+
+  StaticJsonDocument<384> request;
+  request["event_id"] = eventId;
+  request["credential_type"] = "rfid";
+  request["credential"] = uid;
+  request["captured_at"] = capturedAt;
+  String body;
+  serializeJson(request, body);
+
+  showScreen("Memproses", "Absensi");
+  AttendanceHttpResult result = postAttendanceEvent(body);
+  handleAttendanceResponse(result, capturedAt, uid);
+}
+
 // SETUP ===============
 //======================
 
 void setup() {
 
   Serial.begin(115200);
+  Serial.setTimeout(250);
 
   prefs.begin(
 
@@ -2612,6 +3091,9 @@ void setup() {
     false
 
   );
+
+  loadRuntimeConfig();
+  printRuntimeConfigStatus();
 
   pinMode(
 
@@ -2629,59 +3111,8 @@ void setup() {
 
   lcd.backlight();
 
-  // =====================
-  // LITTLEFS
-  // =====================
-
-  if (
-
-    !LittleFS.begin(true)
-
-  ) {
-
-    Serial.println(
-
-      "LittleFS ERROR"
-
-    );
-
-  }
-
-  else {
-
-    Serial.println(
-
-      "LittleFS OK"
-
-    );
-
-    File file =
-
-      LittleFS.open(
-
-        "/test.txt",
-
-        FILE_WRITE
-
-      );
-
-    if (file) {
-
-      file.println(
-
-        "HELLO EDC"
-
-      );
-
-      file.close();
-
-      Serial.println(
-
-        "FILE OK"
-
-      );
-    }
-  }
+  // Attendance mode never mounts or mutates the payment LittleFS queue.
+  // Existing payment queue data remains untouched for a later authorized flow.
 
   // =====================
   // WIFI
@@ -2693,7 +3124,11 @@ void setup() {
   // UI
   // =====================
 
-  showIdle();
+  if (runtimeConfigReady) {
+    showAttendanceStandby();
+  } else {
+    showProvisioningRequired();
+  }
 }
 
 // resetState ==========
@@ -2734,228 +3169,31 @@ void resetState() {
 // LOOP ===============
 
 void loop() {
-
+  handleSerialProvisioning();
   connectWiFi();
 
-  handleKeypad();
-
-  handleRFID();
-
-
-
-  // =====================
-  // PROCESS TRANSAKSI
-  // =====================
-  if (
-
-    WiFi.status()
-      == WL_CONNECTED
-
-    &&
-
-    !auditSent
-
-  ) {
-
-    auditSent =
-      true;
-
-    sendAudit(
-
-      "BOOT",
-
-      "device started"
-
-    );
+  if (!runtimeConfigReady || !isAttendanceMode()) {
+    showProvisioningRequired();
+    delay(5);
+    return;
   }
 
-  if (
+  ensureAttendanceClock();
 
-    processing
-
-  ) {
-
-    processing =
-      false;
-
-    processPayment();
+  if (WiFi.status() == WL_CONNECTED && attendanceClockValid() && !auditSent) {
+    auditSent = true;
+    sendAudit("BOOT", "ATTENDANCE");
   }
 
-  // =====================
-  // SHOW PAYMENT
-  // =====================
-
-  if (
-
-    currentState
-      == SHOW_PAYMENT
-
-    &&
-
-    millis()
-        - displayTimer
-
-      > 2500
-
-  ) {
-
-    currentState =
-      INPUT_PAYMENT;
-
-    showPaymentScreen();
+  updateAttendanceFeedback();
+  if (!attendanceFeedbackActive) {
+    handleAttendanceRFID();
   }
 
-  // =====================
-  // SHOW TOPUP
-  // =====================
-
-  if (
-
-    currentState
-      == SHOW_TOPUP
-
-    &&
-
-    millis()
-        - displayTimer
-
-      > 2500
-
-  ) {
-
-    currentState =
-      INPUT_TOPUP;
-
-    showTopupScreen();
-  }
-
-  // =====================
-  // OVERRIDE MODE
-  // =====================
-
-  if (
-
-    currentState
-      == WAIT_SANTRI
-
-    &&
-
-    overrideLimit
-
-    &&
-
-    millis()
-        - stateTimer
-
-      > 1800
-
-  ) {
-
-    if (
-
-      lastLine1
-        != "Scan Santri"
-
-      ||
-
-      lastLine2
-        != "Override"
-
-    ) {
-
-      showOverrideScreen();
-    }
-
-    stateTimer =
-      millis();
-  }
-
-  // =====================
-  // RESULT TIMER
-  // =====================
-
-  if (
-
-    currentState
-      == RESULT
-
-    &&
-
-    millis()
-        - resultTimer
-
-      > resultDuration
-
-  ) {
-
-    resetState();
-  }
-
-  // =====================
-  // SYNC
-  // =====================
-
-  if (
-
-    millis()
-      - lastSync
-
-    > SYNC_INTERVAL_MS
-
-  ) {
-
-    lastSync =
-      millis();
-
-    syncOfflineQueue();
-  }
-
-  // =====================
-  // PING
-  // =====================
-
-  if (
-
-    millis()
-      - lastPing
-
-    > HEARTBEAT_INTERVAL_MS
-
-  ) {
-
-    lastPing =
-      millis();
-
+  if (attendanceClockValid() && millis() - lastPing > HEARTBEAT_INTERVAL_MS) {
+    lastPing = millis();
     sendPing();
   }
 
-  // =====================
-  // IDLE REFRESH
-  // =====================
-
-  if (
-
-    currentState
-    == STANDBY
-
-  ) {
-
-    static unsigned long
-      lastIdleRefresh = 0;
-
-    if (
-
-      millis()
-        - lastIdleRefresh
-
-      > 1000
-
-    ) {
-
-      lastIdleRefresh =
-        millis();
-
-      showIdle();
-    }
-  }
+  delay(5);
 }

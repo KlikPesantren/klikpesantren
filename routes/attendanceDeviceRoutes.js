@@ -8,7 +8,8 @@ const router = express.Router();
 router.post(
   "/events",
   deviceAuthMiddleware,
-  requireTenantFeature("absensi"),
+  requireTenantFeature("pendidikan"),
+  requireTenantFeature("rfid"),
   attendanceDeviceController.ingestEvent,
 );
 

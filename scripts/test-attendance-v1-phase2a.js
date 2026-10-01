@@ -26,6 +26,7 @@ const serverSource = read("server.js");
 const migration = read("migrations/092_attendance_v1_foundation.sql");
 const walletController = read("controllers/rfidController.js");
 const attendanceCore = read("services/attendanceCoreService.js");
+const edc01Firmware = read("KasirRFID_V3 EDC01/KasirRFID_V3/KasirRFID_V3.ino");
 
 const capturedAt = new Date("2026-09-30T00:30:00.000Z");
 const receivedAt = new Date("2026-09-30T00:31:00.000Z");
@@ -316,10 +317,32 @@ async function main() {
     const h = createHarness(); await h.ingest(); await h.ingest();
     assert.equal(h.state.events.size, 1); assert.equal(h.state.applyCount, 1);
   });
-  pass("route uses secure auth and absensi feature", () => {
+  pass("route uses secure auth and canonical education plus RFID features", () => {
     assert(routeSource.includes("deviceAuthMiddleware"));
-    assert(routeSource.includes('requireTenantFeature("absensi")'));
+    assert(routeSource.includes('requireTenantFeature("pendidikan")'));
+    assert(routeSource.includes('requireTenantFeature("rfid")'));
+    assert(!routeSource.includes('requireTenantFeature("absensi")'));
     assert(serverSource.includes('"/attendance"'));
+  });
+  pass("EDC01 unknown RFID uses local UID paging without server logging", () => {
+    assert(edc01Firmware.includes('showUnknownCredentialFeedback(scannedUid)'));
+    assert(edc01Firmware.includes('handleAttendanceResponse(result, capturedAt, uid)'));
+    assert(edc01Firmware.includes('"BELUM TERDAFTAR"'));
+    assert(edc01Firmware.includes('UNKNOWN_UID_PAGE_CHARS'));
+    assert(edc01Firmware.includes('attendanceUnknownUid.substring('));
+    assert(!edc01Firmware.includes('Serial.println(uid)'));
+    assert(!edc01Firmware.includes('Serial.print(uid)'));
+  });
+  pass("EDC01 maps business and authorization responses explicitly", () => {
+    for (const code of [
+      "ATTENDANCE_RECORDED", "ALREADY_ATTENDED", "NO_ACTIVE_SESSION",
+      "NOT_ELIGIBLE", "STATUS_PROTECTED", "AMBIGUOUS_CREDENTIAL",
+      "AMBIGUOUS_SESSION", "EVENT_TOO_OLD", "INVALID_EVENT_TIME",
+      "EVENT_ID_CONFLICT", "FEATURE_DISABLED", "DEVICE_AUTH_INVALID",
+      "DEVICE_DISABLED",
+    ]) {
+      assert(edc01Firmware.includes(`code == "${code}"`), code);
+    }
   });
   pass("connectivity is not authorization", () => {
     assert(!/connection_state\s*[!=]==?\s*["']online/.test(adapterSource));

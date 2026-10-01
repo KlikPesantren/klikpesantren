@@ -26,7 +26,33 @@ const serverSource = read("server.js");
 const migration = read("migrations/092_attendance_v1_foundation.sql");
 const walletController = read("controllers/rfidController.js");
 const attendanceCore = read("services/attendanceCoreService.js");
-const edc01Firmware = read("KasirRFID_V3 EDC01/KasirRFID_V3/KasirRFID_V3.ino");
+const approvedEdc01Firmware = read("KasirRFID_V3 EDC01/KasirRFID_V3/KasirRFID_V3.ino");
+const edc01Firmware = read("AttendanceRFID_EDC01/AttendanceRFID_EDC01.ino");
+
+const approvedEdc01Keypad = Object.freeze({
+  rowPins: [13, 14, 27, 26],
+  colPins: [25, 33, 32, 15],
+  keymap: [
+    "1", "2", "3", "A",
+    "4", "5", "6", "B",
+    "7", "8", "9", "C",
+    "*", "0", "#", "D",
+  ],
+});
+
+function parseEdc01KeypadContract(source) {
+  const rowPins = source.match(/byte\s+rowPins\s*\[\s*ROWS\s*\]\s*=\s*\{([^}]+)\}/s);
+  const colPins = source.match(/byte\s+colPins\s*\[\s*COLS\s*\]\s*=\s*\{([^}]+)\}/s);
+  const keymap = source.match(/char\s+keys\s*\[\s*ROWS\s*\]\s*\[\s*COLS\s*\]\s*=\s*\{([\s\S]*?)\n\s*\};/);
+  assert(rowPins, "EDC01 rowPins definition missing");
+  assert(colPins, "EDC01 colPins definition missing");
+  assert(keymap, "EDC01 keymap definition missing");
+  return {
+    rowPins: [...rowPins[1].matchAll(/\d+/g)].map(([value]) => Number(value)),
+    colPins: [...colPins[1].matchAll(/\d+/g)].map(([value]) => Number(value)),
+    keymap: [...keymap[1].matchAll(/'([^'])'/g)].map(([, value]) => value),
+  };
+}
 
 const capturedAt = new Date("2026-09-30T00:30:00.000Z");
 const receivedAt = new Date("2026-09-30T00:31:00.000Z");
@@ -326,7 +352,10 @@ async function main() {
   });
   pass("EDC01 unknown RFID uses local UID paging without server logging", () => {
     assert(edc01Firmware.includes('showUnknownCredentialFeedback(scannedUid)'));
-    assert(edc01Firmware.includes('handleAttendanceResponse(result, capturedAt, uid)'));
+    assert(
+      /handleAttendanceResponse\(\s*result,\s*pendingCapturedAt,\s*pendingUid\s*\)/s
+        .test(edc01Firmware),
+    );
     assert(edc01Firmware.includes('"BELUM TERDAFTAR"'));
     assert(edc01Firmware.includes('UNKNOWN_UID_PAGE_CHARS'));
     assert(edc01Firmware.includes('attendanceUnknownUid.substring('));
@@ -343,6 +372,35 @@ async function main() {
     ]) {
       assert(edc01Firmware.includes(`code == "${code}"`), code);
     }
+  });
+  pass("EDC01 keypad pin order and logical layout remain hardware-compatible", () => {
+    assert.deepEqual(
+      parseEdc01KeypadContract(edc01Firmware),
+      parseEdc01KeypadContract(approvedEdc01Firmware),
+    );
+    assert.deepEqual(parseEdc01KeypadContract(edc01Firmware), approvedEdc01Keypad);
+    assert(edc01Firmware.includes("makeKeymap(keys)"));
+  });
+  pass("EDC01 dedicated runtime contains Attendance only", () => {
+    for (const state of [
+      "BOOT", "LOAD_CONFIG", "WIFI_CONNECTING", "TIME_SYNC",
+      "READY", "CARD_READ", "SENDING", "RESULT",
+    ]) {
+      assert(edc01Firmware.includes(state), state);
+    }
+    for (const forbidden of [
+      "LittleFS", "CHECK_SALDO", "SHOW_PAYMENT", "SHOW_TOPUP",
+      "INPUT_PAYMENT", "INPUT_TOPUP", "nominalInput", "rfidPayment",
+      "wallet_accounts", "wallet_transactions",
+    ]) {
+      assert(!edc01Firmware.includes(forbidden), forbidden);
+    }
+    assert(!edc01Firmware.includes("setInsecure"));
+    assert(!edc01Firmware.includes("WiFi.config"));
+    assert.equal((edc01Firmware.match(/WiFi\.begin\s*\(/g) || []).length, 1);
+    assert(edc01Firmware.includes('prefs.begin(NVS_NAMESPACE, false)'));
+    assert(edc01Firmware.includes('prefs.getULong64("att_counter", 0)'));
+    assert(edc01Firmware.includes('prefs.putULong64("att_counter", next)'));
   });
   pass("connectivity is not authorization", () => {
     assert(!/connection_state\s*[!=]==?\s*["']online/.test(adapterSource));

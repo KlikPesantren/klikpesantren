@@ -11,6 +11,7 @@ const {
   getAttendanceSessionInUnit,
 } = require("../services/academicUnitService");
 const { upsertAttendanceBatch } = require("../services/attendanceBatchService");
+const { attendanceReadSql } = require("../services/attendanceReadSql");
 
 const ATTENDANCE_STATUSES = new Set(["H", "I", "S", "A"]);
 const MAX_BATCH_SIZE = 5000;
@@ -175,7 +176,7 @@ router.get("/", async (req, res) => {
                      a.status, a.unit_id, a.kelas_id, a.santri_unit_id, a.enrollment_id,
                      (SELECT kamar FROM santri WHERE id = a.santri_id AND tenant_id = a.tenant_id) AS kamar,
                      TO_CHAR(a.tanggal::date, 'YYYY-MM-DD') AS tanggal
-                 FROM absensi a
+                 FROM (${attendanceReadSql()}) a
                  LEFT JOIN attendance_sessions configured
                    ON configured.tenant_id = a.tenant_id
                   AND configured.unit_id = a.unit_id

@@ -10,6 +10,7 @@ const router =
 
 const pool =
   require("../db");
+const { attendanceReadSql } = require("../services/attendanceReadSql");
 
 const waliAppService =
   require("../services/waliAppService");
@@ -582,7 +583,7 @@ router.get(
               OR status = 'Hadir'
             ) AS hadir,
             COUNT(*) AS total
-          FROM absensi
+          FROM (${attendanceReadSql("$2")}) attendance
           WHERE santri_id = $1
             AND tenant_id = $2
             AND unit_id = $3
@@ -2139,7 +2140,7 @@ router.get(
               WHERE status IN ('A', 'Alpa', 'Alfa')
             ) AS alpa,
             COUNT(*) AS total
-          FROM absensi
+          FROM (${attendanceReadSql("$2")}) attendance
           WHERE santri_id = $1
             AND tenant_id = $2
             AND unit_id = $3
@@ -2164,7 +2165,7 @@ router.get(
             tanggal,
             sesi,
             status
-          FROM absensi
+          FROM (${attendanceReadSql("$2")}) attendance
           WHERE santri_id = $1
             AND tenant_id = $2
             AND unit_id = $3

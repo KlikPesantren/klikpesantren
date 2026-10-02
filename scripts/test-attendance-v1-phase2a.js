@@ -27,7 +27,7 @@ const migration = read("migrations/092_attendance_v1_foundation.sql");
 const walletController = read("controllers/rfidController.js");
 const attendanceCore = read("services/attendanceCoreService.js");
 const approvedEdc01Firmware = read("KasirRFID_V3 EDC01/KasirRFID_V3/KasirRFID_V3.ino");
-const edc01Firmware = read("AttendanceRFID_EDC01/AttendanceRFID_EDC01.ino");
+const edc01Firmware = read("firmware/Absensi_RFID/Absensi_RFID.ino");
 
 const approvedEdc01Keypad = Object.freeze({
   rowPins: [13, 14, 27, 26],
@@ -231,7 +231,7 @@ async function main() {
     assert.equal(h.state.lastEventInput.outcome, "rejected_ambiguous_credential");
   });
   pass("cross-tenant credential impossible", () => {
-    assert(credentialSource.includes("WHERE tenant_id=$1 AND uid_rfid=$2"));
+    assert(credentialSource.includes('WHERE tenant_id=$1 AND (${attendanceUidSql("s.uid_rfid")})=$2'));
   });
   pass("inactive membership not eligible", async () => {
     assert.equal((await createHarness({ eligible: false }).ingest()).body.code, "NOT_ELIGIBLE");
@@ -353,7 +353,7 @@ async function main() {
   pass("EDC01 unknown RFID uses local UID paging without server logging", () => {
     assert(edc01Firmware.includes('showUnknownCredentialFeedback(scannedUid)'));
     assert(
-      /handleAttendanceResponse\(\s*result,\s*pendingCapturedAt,\s*pendingUid\s*\)/s
+      /handleAttendanceResponse\(\s*local,\s*pendingCapturedAt,\s*pendingUid\s*\)/s
         .test(edc01Firmware),
     );
     assert(edc01Firmware.includes('"BELUM TERDAFTAR"'));

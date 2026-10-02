@@ -21,7 +21,7 @@ const connection = {
     if (sql.startsWith("SELECT t.attendance_timezone")) return {rows: unitActive ? [{attendance_timezone: fixture.timezone}] : []};
     if (sql.startsWith("SELECT s.id,s.code")) return {rows: fixture.sessions};
     if (sql.startsWith("WITH clock")) return {rows: fixture.windows};
-    if (sql.startsWith("SELECT s.uid_rfid")) return {rows: fixture.credentials};
+    if (sql.startsWith("WITH identities")) return {rows: fixture.credentials};
     throw new Error("Unexpected snapshot query");
   },
 };
@@ -58,11 +58,11 @@ async function main() {
   assert.equal(result.refresh_after_epoch - result.generated_epoch, 900);
   assert.equal(result.windows[0].state, "cancelled");
   assert.equal(result.credentials[0].eligible, true);
-  assert.deepEqual(Object.keys(result.credentials[0]).sort(), ["eligible","person_type","status","type","value"]);
+  assert.deepEqual(Object.keys(result.credentials[0]).sort(), ["display_name","eligible","person_type","status","type","value"]);
   assert(queries[0].sql.includes("REPEATABLE READ READ ONLY"));
   assert.equal(queries.at(-1).sql, "COMMIT");
   assert(queries.some(q => q.sql.includes("attendance_occurrence_units") && q.sql.includes("ou.unit_id=$2")));
-  assert(queries.some(q => q.sql.includes("other.tenant_id=s.tenant_id") && q.sql.includes("other.uid_rfid=s.uid_rfid")));
+  assert(queries.some(q => q.sql.includes("other.tenant_id=s.tenant_id") && q.sql.includes("other.value=s.value") && q.sql.includes("LOWER(BTRIM(s.uid_rfid))")));
   assert(queries.every(q => !/INSERT|UPDATE|DELETE|wallet|pembayaran/i.test(q.sql)));
   fixture.credentials[0].identity_count = 2;
   const ambiguous = JSON.parse((await service.buildSnapshotPayload({tenantId:1, device, now})).snapshot_json);
@@ -93,15 +93,15 @@ async function main() {
     assert.equal(JSON.parse(JSON.parse(body).snapshot_json).authorized_unit_id,2);
   } finally { await new Promise(resolve => server.close(resolve)); }
   const root = path.join(__dirname, "..");
-  const firmware = fs.readFileSync(path.join(root,"AttendanceRFID_EDC01/AttendanceRFID_EDC01.ino"),"utf8");
-  const runtime = fs.readFileSync(path.join(root,"AttendanceRFID_EDC01/AttendanceHybridRuntime.h"),"utf8");
+  const firmware = fs.readFileSync(path.join(root,"firmware/Absensi_RFID/Absensi_RFID.ino"),"utf8");
+  const runtime = fs.readFileSync(path.join(root,"firmware/Absensi_RFID/AttendanceHybridRuntime.h"),"utf8");
   const route = fs.readFileSync(path.join(root,"routes/attendanceDeviceRoutes.js"),"utf8");
   assert.equal((firmware.match(/rfid\.uid\.uidByte\[index\]/g) || []).length, 1);
   assert(firmware.includes('snprintf(byteText, sizeof(byteText), "%02x", rfid.uid.uidByte[index])'));
   assert(!firmware.includes('"%02X"'));
   assert(/String uid = readRfidUid\(\);[\s\S]*?pendingUid = uid;/.test(firmware));
   assert(firmware.includes('request["credential"] = pendingUid;'));
-  assert.equal((firmware.match(/hybrid\.validate\(pendingUid,/g) || []).length, 2);
+  assert.equal((firmware.match(/hybrid\.validate\(pendingUid,/g) || []).length, 1);
   assert(firmware.includes('showUnknownCredentialFeedback(scannedUid);'));
   assert(firmware.includes('attendanceUnknownUid = scannedUid;'));
   assert(firmware.includes('attendanceUnknownUid.substring('));
@@ -113,7 +113,13 @@ async function main() {
   assert(/case RuntimeState::WIFI_CONNECTING:[\s\S]*?updateWifiConnecting\(\);\s*if \(WiFi.status\(\) != WL_CONNECTED\) showReady\(\);/.test(firmware));
   assert(firmware.includes("xTaskCreate(networkWorker"));
   assert(firmware.includes("networkRevision != configRevision"));
-  assert(firmware.includes("pendingQueued = hybrid.append(pendingRequestBody"));
+  assert(firmware.includes("hybrid.append(pendingRequestBody"));
+  assert(!firmware.includes("NetworkJob::TAP"));
+  const tap = firmware.match(/void prepareAttendanceRequest\(\) \{[\s\S]*?\n\}/)[0];
+  assert(tap.includes("queuePendingTap()") && !tap.includes("startNetworkJob"));
+  assert(!firmware.includes('showScreen("SINKRONISASI"'));
+  assert(/if \(hybrid.append[\s\S]*?showAttendanceFeedback\(name, "BERHASIL"/.test(firmware));
+  assert(firmware.includes('if (feedbackActive) return;'));
   assert(runtime.includes('queueStore.load(raw, false)'));
   assert(!firmware.includes("setInsecure"));
   assert(!/Serial\.(print|println)\([^;]*(pendingUid|deviceSecret|wifiPassword)/.test(firmware));

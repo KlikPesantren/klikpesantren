@@ -1,4 +1,5 @@
 const pool = require("../db");
+const { canonicalAttendanceUid, attendanceUidSql } = require("../utils/attendanceRfidUid");
 
 function credentialError(code, message, status = 400) {
   const error = new Error(message);
@@ -16,7 +17,7 @@ function normalizeCredential(type, value) {
       422,
     );
   }
-  const credential = String(value || "").trim();
+  const credential = canonicalAttendanceUid(value);
   if (!credential || credential.length > 200) {
     throw credentialError("INVALID_CREDENTIAL", "Credential RFID tidak valid");
   }
@@ -30,8 +31,8 @@ async function resolveAttendanceCredential(
   const normalized = normalizeCredential(credentialType, credential);
   const { rows } = await client.query(
     `SELECT id,nama
-     FROM santri
-     WHERE tenant_id=$1 AND uid_rfid=$2
+     FROM santri s
+     WHERE tenant_id=$1 AND (${attendanceUidSql("s.uid_rfid")})=$2
      ORDER BY id
      LIMIT 2`,
     [tenantId, normalized.credential],

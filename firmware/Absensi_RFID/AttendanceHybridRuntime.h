@@ -21,15 +21,33 @@ inline bool mountAttendanceStorage() {
 }
 
 const size_t ATTENDANCE_CACHE_BYTES = 24 * 1024;
-const size_t ATTENDANCE_QUEUE_BYTES = 32 * 1024;
-const size_t ATTENDANCE_QUEUE_ITEMS = 96;
+// Default classic ESP32 partition: 0x160000 (1,441,792 bytes) LittleFS.
+// Dual queue slots <=98,434 bytes, dual cache slots <=49,412 bytes.
+// 128 items cover one 100-person session +28% margin. Heap, not flash, is the
+// limiting resource: bounded 64KiB JSON arena; never allocate an unbounded queue.
+const size_t ATTENDANCE_QUEUE_BYTES = 48 * 1024;
+const size_t ATTENDANCE_QUEUE_ITEMS = 128;
+
+inline String canonicalAttendanceUid(String uid) {
+  size_t begin = 0, end = uid.length();
+  while (begin < end && (uid[begin] == ' ' || uid[begin] == '\t' || uid[begin] == '\r' || uid[begin] == '\n')) begin++;
+  while (end > begin && (uid[end - 1] == ' ' || uid[end - 1] == '\t' || uid[end - 1] == '\r' || uid[end - 1] == '\n')) end--;
+  uid = uid.substring(begin, end);
+  bool hex = uid.length() > 0;
+  for (size_t i = 0; i < uid.length(); i++) {
+    char c = uid[i];
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) hex = false;
+  }
+  if (hex) for (size_t i = 0; i < uid.length(); i++) if (uid[i] >= 'A' && uid[i] <= 'F') uid[i] += 'a' - 'A';
+  return uid;
+}
 
 class AttendanceHybridRuntime {
  public:
   AttendanceHybridRuntime(Preferences& prefs)
     : cacheStore(prefs, "att_cache_slot", "/att_cache_a", "/att_cache_b", ATTENDANCE_CACHE_BYTES + 65),
       queueStore(prefs, "att_queue_slot", "/att_queue_a", "/att_queue_b", ATTENDANCE_QUEUE_BYTES),
-      cache(64 * 1024), queue(48 * 1024) {}
+      cache(64 * 1024), queue(64 * 1024) {}
   bool healthy = false;
   bool hasCache = false;
   String context;
@@ -108,7 +126,7 @@ class AttendanceHybridRuntime {
     if (!fresh(trusted, now)) return "STALE_CACHE";
     bool found = false;
     for (JsonObject c : cache["credentials"].as<JsonArray>()) {
-      if (c["value"].as<String>() != uid) continue;
+      if (canonicalAttendanceUid(c["value"].as<String>()) != canonicalAttendanceUid(uid)) continue;
       found = true;
       if (c["status"] != "valid") return "AMBIGUOUS_CREDENTIAL";
       if (!c["eligible"].as<bool>()) return "NOT_ELIGIBLE";
@@ -124,10 +142,17 @@ class AttendanceHybridRuntime {
     if (matches == 0) return "NO_ACTIVE_SESSION";
     if (matches > 1) return "AMBIGUOUS_SESSION";
     for (JsonObject e : queue["events"].as<JsonArray>()) {
-      if (e["occurrence"].as<String>() == occurrence && e["request"]["credential"].as<String>() == uid)
+      if (e["occurrence"].as<String>() == occurrence && canonicalAttendanceUid(e["request"]["credential"].as<String>()) == canonicalAttendanceUid(uid))
         return "LOCAL_DUPLICATE";
     }
     return "VALID";
+  }
+  String displayName(const String& uid) const {
+    for (JsonObjectConst c : cache["credentials"].as<JsonArrayConst>()) {
+      if (canonicalAttendanceUid(c["value"].as<String>()) == canonicalAttendanceUid(uid) && c["status"] == "valid")
+        return c["display_name"].as<String>();
+    }
+    return "";
   }
   bool append(const String& body, const String& occurrence, int64_t epoch) {
     if (!healthy) return false;

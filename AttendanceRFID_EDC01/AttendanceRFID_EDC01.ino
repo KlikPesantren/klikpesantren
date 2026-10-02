@@ -9,6 +9,9 @@
 #include <Keypad.h>
 #include <Preferences.h>
 #include <time.h>
+#include <esp_sntp.h>
+#include <atomic>
+#include "AttendanceHybridRuntime.h"
 
 #define RFID_SS_PIN 5
 #define RFID_RST_PIN 4
@@ -68,7 +71,46 @@ struct HttpResult {
   String body;
 };
 
+class AttendanceResponseStream : public Stream {
+ public:
+  explicit AttendanceResponseStream(String& output) : output_(output), started_(millis()) {}
+  int available() override { return 0; }
+  int read() override { return -1; }
+  int peek() override { return -1; }
+  void flush() override {}
+  size_t write(uint8_t value) override { return write(&value, 1); }
+  size_t write(const uint8_t* bytes, size_t length) override {
+    if (output_.length() + length > 64 * 1024 || millis() - started_ > ATTENDANCE_HTTP_TIMEOUT_MS)
+      return 0;
+    return output_.concat(reinterpret_cast<const char*>(bytes), length) ? length : 0;
+  }
+ private:
+  String& output_;
+  unsigned long started_;
+};
+
 Preferences prefs;
+AttendanceHybridRuntime hybrid(prefs);
+std::atomic<bool> trustedTimeThisBoot(false);
+std::atomic<time_t> lastTrustedSync(0);
+bool lastWifiConnected = false;
+unsigned long nextCacheAttemptAt = 0;
+unsigned long nextReplayAt = 0;
+unsigned long replayBackoffMs = 5000;
+enum class NetworkJob { NONE, TAP, SNAPSHOT, REPLAY, HEARTBEAT };
+NetworkJob networkJob = NetworkJob::NONE;
+TaskHandle_t networkTaskHandle = nullptr;
+SemaphoreHandle_t networkDone = nullptr;
+bool networkBusy = false;
+HttpResult networkResult = {false, -1, ""};
+String networkBody, networkEndpoint, networkApi, networkDevice, networkSecret, networkTenant;
+unsigned configRevision = 0;
+unsigned networkRevision = 0;
+int replayIndex = -1;
+String replayEventId;
+bool pendingQueued = false;
+bool backendReachable = false;
+bool attendanceAccessBlocked = false;
 MFRC522 rfid(RFID_SS_PIN, RFID_RST_PIN);
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 
@@ -218,6 +260,10 @@ void printRuntimeConfigStatus() {
   printPresence("device_mode", isAttendanceMode());
   printPresence("hardware_profile", isEdc01Profile());
   Serial.println(runtimeConfigReady ? "CONFIG READY" : "CONFIG INCOMPLETE");
+  Serial.print("Attendance pending: "); Serial.println(hybrid.count("pending"));
+  Serial.print("Attendance review: "); Serial.println(hybrid.count("quarantined"));
+  Serial.print("Attendance storage: "); Serial.println(hybrid.healthy ? "OK" : "ERROR");
+  Serial.print("Attendance cache: "); Serial.println(hybrid.hasCache ? "PRESENT" : "MISSING");
 }
 
 bool storeProvisionedField(const String& field, String value) {
@@ -261,7 +307,16 @@ void showProvisioningRequired() {
 }
 
 void showReady() {
-  showScreen("SIAP ABSENSI", "TEMPELKAN KARTU");
+  if (attendanceAccessBlocked) { showScreen("AKSES DITOLAK", "HUBUNGI ADMIN"); return; }
+  if (!attendanceClockValid()) { showScreen("WAKTU TDK VALID", "BUTUH INTERNET"); return; }
+  if (!hybrid.healthy) { showScreen("QUEUE BERMASALAH", "HUBUNGI ADMIN"); return; }
+  if (WiFi.status() != WL_CONNECTED || !backendReachable) {
+    if (!hybrid.hasCache) { showScreen("DATA BELUM ADA", "BUTUH INTERNET"); return; }
+    if (!hybrid.fresh(true, time(nullptr))) { showScreen("DATA KADALUARSA", "SAMBUNG INTERNET"); return; }
+  }
+  String status = WiFi.status() == WL_CONNECTED && backendReachable ? "ONLINE" : "OFFLINE";
+  showScreen("SIAP ABSENSI", status + " Q:" + String(hybrid.count("pending")) +
+    (hybrid.count("quarantined") ? " R:" + String(hybrid.count("quarantined")) : ""));
 }
 
 void handleSerialProvisioning() {
@@ -312,7 +367,14 @@ void handleSerialProvisioning() {
 bool attendanceClockValid() {
   time_t now;
   time(&now);
-  return now >= MIN_VALID_EPOCH;
+  time_t synchronizedAt = lastTrustedSync.load();
+  return trustedTimeThisBoot.load() && now >= MIN_VALID_EPOCH && now >= synchronizedAt &&
+    now - synchronizedAt <= 604800;
+}
+
+void onTimeSync(struct timeval* tv) {
+  lastTrustedSync.store(tv->tv_sec);
+  trustedTimeThisBoot.store(tv->tv_sec >= MIN_VALID_EPOCH);
 }
 
 bool formatCapturedAtUtc(String& capturedAt) {
@@ -349,6 +411,10 @@ void updateWifiConnecting() {
     ntpRequested = false;
     transitionTo(RuntimeState::TIME_SYNC);
     return;
+  }
+
+  if (attendanceClockValid() && hybrid.fresh(true, time(nullptr))) {
+    showReady(); transitionTo(RuntimeState::READY); return;
   }
 
   if (!wifiAttemptActive) {
@@ -421,31 +487,52 @@ HttpResult postAuthenticatedJson(
   int timeoutMs
 ) {
   HttpResult result = { false, -1, "" };
-  if (WiFi.status() != WL_CONNECTED || !runtimeConfigReady) return result;
+  if (WiFi.status() != WL_CONNECTED) return result;
 
   WiFiClientSecure client;
   client.setCACert(KLIKPESANTREN_ROOT_CA);
   client.setTimeout(timeoutMs);
 
   HTTPClient http;
-  String url = apiBaseUrl + endpoint;
+  String url = networkApi + endpoint;
   if (!http.begin(client, url)) return result;
 
   http.setConnectTimeout(timeoutMs);
   http.setTimeout(timeoutMs);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Device-Id", deviceId);
-  http.addHeader("X-Device-Secret", deviceSecret);
-  http.addHeader("X-Tenant-Slug", tenantSlug);
+  http.addHeader("X-Device-Id", networkDevice);
+  http.addHeader("X-Device-Secret", networkSecret);
+  http.addHeader("X-Tenant-Slug", networkTenant);
 
-  int status = http.POST(body);
+  int status = networkJob == NetworkJob::SNAPSHOT ? http.GET() : http.POST(body);
   result.status = status;
   result.transportOk = status >= 0;
   if (result.transportOk) {
-    result.body = http.getString();
+    // HTTPClient decodes chunk framing into a bounded sink, never unbounded getString().
+    AttendanceResponseStream responseStream(result.body);
+    if (http.getSize() > 64 * 1024 || http.writeToStream(&responseStream) < 0) {
+      result.transportOk = false; result.body = String();
+    }
   }
   http.end();
   return result;
+}
+
+void networkWorker(void*) {
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    networkResult = postAuthenticatedJson(networkEndpoint, networkBody, ATTENDANCE_HTTP_TIMEOUT_MS);
+    networkSecret = ""; // Auth stays in process memory only.
+    xSemaphoreGive(networkDone);
+  }
+}
+
+bool startNetworkJob(NetworkJob job, const String& endpoint, const String& body) {
+  if (networkBusy || !networkTaskHandle || WiFi.status() != WL_CONNECTED || !attendanceClockValid()) return false;
+  networkJob = job; networkEndpoint = endpoint; networkBody = body;
+  networkApi = apiBaseUrl; networkDevice = deviceId; networkSecret = deviceSecret; networkTenant = tenantSlug;
+  networkRevision = configRevision; networkBusy = true;
+  xTaskNotifyGive(networkTaskHandle); return true;
 }
 
 void sendHeartbeatIfDue() {
@@ -458,17 +545,7 @@ void sendHeartbeatIfDue() {
   }
 
   lastHeartbeatAt = millis();
-  HttpResult result = postAuthenticatedJson(
-    "/rfid/device/heartbeat",
-    "{}",
-    HEARTBEAT_HTTP_TIMEOUT_MS
-  );
-  if (!result.transportOk) {
-    Serial.println("Heartbeat transport failed");
-  } else {
-    Serial.print("Heartbeat HTTP: ");
-    Serial.println(result.status);
-  }
+  startNetworkJob(NetworkJob::HEARTBEAT, "/rfid/device/heartbeat", "{}");
 }
 
 void showAttendanceFeedback(
@@ -632,11 +709,6 @@ void handleAttendanceResponse(
 }
 
 void prepareAttendanceRequest() {
-  if (WiFi.status() != WL_CONNECTED) {
-    showAttendanceFeedback("KONEKSI GAGAL", "COBA LAGI", FeedbackTone::ERROR);
-    transitionTo(RuntimeState::RESULT);
-    return;
-  }
   if (!formatCapturedAtUtc(pendingCapturedAt)) {
     showAttendanceFeedback("WAKTU BELUM", "TERSINKRON", FeedbackTone::ERROR);
     transitionTo(RuntimeState::RESULT);
@@ -655,20 +727,29 @@ void prepareAttendanceRequest() {
   request["captured_at"] = pendingCapturedAt;
   pendingRequestBody = "";
   serializeJson(request, pendingRequestBody);
+  pendingQueued = false;
+  String occurrence;
+  String decision = hybrid.validate(pendingUid, attendanceClockValid(), time(nullptr), occurrence);
+  if (decision == "LOCAL_DUPLICATE") {
+    showAttendanceFeedback("SUDAH TERSIMPAN", "", FeedbackTone::INFO);
+    clearPendingTap(); return;
+  }
+  // Cache-valid taps are persisted before HTTP, closing timeout/reboot loss windows.
+  if (decision == "VALID") {
+    pendingQueued = hybrid.append(pendingRequestBody, occurrence, time(nullptr));
+    if (!pendingQueued) {
+      if (WiFi.status() != WL_CONNECTED || !backendReachable || networkBusy) {
+        showAttendanceFeedback("QUEUE PENUH", "BELUM TERSIMPAN", FeedbackTone::ERROR);
+        clearPendingTap(); return;
+      }
+      // Immediate online authority remains usable; a failed send cannot claim offline success.
+    }
+  }
   transitionTo(RuntimeState::SENDING);
 }
 
-void sendPendingAttendance() {
-  showScreen("MENGIRIM", "ABSENSI");
-  HttpResult result = postAuthenticatedJson(
-    "/attendance/events",
-    pendingRequestBody,
-    ATTENDANCE_HTTP_TIMEOUT_MS
-  );
-  Serial.print("Attendance HTTP: ");
-  Serial.println(result.status);
-  handleAttendanceResponse(result, pendingCapturedAt, pendingUid);
-
+void clearPendingTap() {
+  pendingQueued = false;
   pendingRequestBody = "";
   pendingEventId = "";
   pendingCapturedAt = "";
@@ -676,12 +757,131 @@ void sendPendingAttendance() {
   transitionTo(RuntimeState::RESULT);
 }
 
+void queuePendingTap() {
+  if (attendanceAccessBlocked) {
+    showAttendanceFeedback("AKSES DITOLAK", "HUBUNGI ADMIN", FeedbackTone::ERROR);
+    clearPendingTap(); return;
+  }
+  if (pendingQueued) {
+    showAttendanceFeedback("ABSEN TERSIMPAN", "OFFLINE", FeedbackTone::SUCCESS);
+    clearPendingTap(); return;
+  }
+  String occurrence;
+  String decision = hybrid.validate(pendingUid, attendanceClockValid(), time(nullptr), occurrence);
+  if (decision == "VALID") {
+    if (hybrid.append(pendingRequestBody, occurrence, time(nullptr))) {
+      showAttendanceFeedback("ABSEN TERSIMPAN", "OFFLINE", FeedbackTone::SUCCESS);
+    } else {
+      showAttendanceFeedback(hybrid.healthy ? "QUEUE PENUH" : "QUEUE RUSAK", "BELUM TERSIMPAN", FeedbackTone::ERROR);
+    }
+  } else if (decision == "LOCAL_DUPLICATE") {
+    showAttendanceFeedback("SUDAH TERSIMPAN", "", FeedbackTone::INFO);
+  } else if (decision == "TIME_INVALID") {
+    showAttendanceFeedback("WAKTU TDK VALID", "BUTUH INTERNET", FeedbackTone::ERROR);
+  } else if (decision == "NO_CACHE") {
+    showAttendanceFeedback("DATA BELUM ADA", "BUTUH INTERNET", FeedbackTone::ERROR);
+  } else if (decision == "STALE_CACHE") {
+    showAttendanceFeedback("DATA KADALUARSA", "SAMBUNG INTERNET", FeedbackTone::ERROR);
+  } else {
+    HttpResult local = {true, 200, ""};
+    StaticJsonDocument<128> response; response["code"] = decision;
+    serializeJson(response, local.body);
+    handleAttendanceResponse(local, pendingCapturedAt, pendingUid);
+  }
+  clearPendingTap();
+}
+
+void sendPendingAttendance() {
+  if (networkBusy && networkJob == NetworkJob::TAP) return;
+  if (backendReachable && !attendanceAccessBlocked && startNetworkJob(NetworkJob::TAP, "/attendance/events", pendingRequestBody)) {
+    showScreen("MENGIRIM", "ABSENSI");
+  } else {
+    queuePendingTap();
+  }
+}
+
+void consumeNetworkResult() {
+  if (!networkBusy || xSemaphoreTake(networkDone, 0) != pdTRUE) return;
+  NetworkJob completed = networkJob;
+  networkBusy = false; networkJob = NetworkJob::NONE; networkBody = "";
+  if (networkRevision != configRevision) { networkResult.body = ""; return; }
+  HttpResult result = std::move(networkResult);
+  backendReachable = result.transportOk && result.status < 500;
+  if (result.status == 401 || result.status == 403) attendanceAccessBlocked = true;
+  if (completed == NetworkJob::TAP) {
+    if (!result.transportOk || result.status >= 500 || result.status == 408 || result.status == 429) {
+      queuePendingTap(); // Same original event_id and captured_at, including timeout-after-commit.
+    } else {
+      DynamicJsonDocument response(1024);
+      if (pendingQueued && !deserializeJson(response, result.body)) {
+        String code = response["code"].as<String>();
+        ReplayDisposition decision = attendanceReplayDisposition(true, result.status, code.c_str());
+        if (decision == ReplayDisposition::RECONCILED) hybrid.finish(pendingEventId, "reconciled", code);
+        else if (decision == ReplayDisposition::QUARANTINE) hybrid.finish(pendingEventId, "quarantined", code);
+      }
+      handleAttendanceResponse(result, pendingCapturedAt, pendingUid);
+      clearPendingTap();
+    }
+  } else if (completed == NetworkJob::SNAPSHOT) {
+    String snapshot, checksum;
+    {
+      DynamicJsonDocument response(64 * 1024);
+      if (result.status == 200 && !deserializeJson(response, result.body) &&
+          response["code"] == "ATTENDANCE_SNAPSHOT_READY") {
+        snapshot = response["snapshot_json"].as<String>(); checksum = response["checksum"].as<String>();
+      }
+    }
+    result.body = String(); // Release response before cache write/verification to bound peak heap.
+    if (hybrid.installCache(snapshot, checksum)) attendanceAccessBlocked = false;
+    nextCacheAttemptAt = millis() + 60000;
+  } else if (completed == NetworkJob::REPLAY) {
+    DynamicJsonDocument response(1024);
+    String code;
+    if (!deserializeJson(response, result.body)) code = response["code"].as<String>();
+    ReplayDisposition decision = attendanceReplayDisposition(result.transportOk, result.status, code.c_str());
+    bool saved = false;
+    if (decision == ReplayDisposition::RECONCILED) saved = hybrid.finish(replayEventId, "reconciled", code);
+    else if (decision == ReplayDisposition::QUARANTINE) saved = hybrid.finish(replayEventId, "quarantined", code);
+    if (saved) {
+      replayBackoffMs = 5000; nextReplayAt = millis() + 1000;
+      if (hybrid.count("pending") == 0 && runtimeState == RuntimeState::READY) {
+        if (hybrid.count("quarantined")) showAttendanceFeedback("DATA PERLU CEK",
+          "REVIEW:" + String(hybrid.count("quarantined")), FeedbackTone::ERROR);
+        else showAttendanceFeedback("SYNC SELESAI", "SISA:0", FeedbackTone::INFO);
+        transitionTo(RuntimeState::RESULT);
+      }
+    } else {
+      nextReplayAt = millis() + replayBackoffMs;
+      replayBackoffMs = min(replayBackoffMs * 2, 300000UL);
+    }
+    replayIndex = -1;
+    replayEventId = "";
+  }
+}
+
+void scheduleBackgroundNetwork() {
+  if (networkBusy || runtimeState != RuntimeState::READY || WiFi.status() != WL_CONNECTED || !attendanceClockValid()) return;
+  if (millis() >= nextCacheAttemptAt && (attendanceAccessBlocked || !backendReachable || hybrid.refreshDue(time(nullptr)))) {
+    nextCacheAttemptAt = millis() + 60000;
+    startNetworkJob(NetworkJob::SNAPSHOT, "/attendance/device/snapshot", ""); return;
+  }
+  if (!attendanceAccessBlocked && backendReachable && hybrid.healthy && millis() >= nextReplayAt && (replayIndex = hybrid.oldestPending()) >= 0) {
+    replayEventId = hybrid.eventId(replayIndex);
+    if (startNetworkJob(NetworkJob::REPLAY, "/attendance/events", hybrid.replayBody(replayIndex))) {
+      showScreen("SINKRONISASI", "SISA:" + String(hybrid.count("pending")));
+    }
+    return;
+  }
+  sendHeartbeatIfDue();
+}
+
 void updateReady() {
   if (WiFi.status() != WL_CONNECTED) {
-    wifiAttemptActive = false;
-    nextWifiAttemptAt = millis() + 500;
-    transitionTo(RuntimeState::WIFI_CONNECTING);
-    return;
+    if (!wifiAttemptActive) beginWifiAttempt();
+    else if (millis() - wifiAttemptStartedAt >= WIFI_CONNECT_TIMEOUT_MS) {
+      WiFi.disconnect(false, false); wifiAttemptActive = false;
+      nextWifiAttemptAt = millis() + WIFI_RETRY_BACKOFF_MS;
+    }
   }
   if (!attendanceClockValid()) {
     ntpRequested = false;
@@ -689,11 +889,12 @@ void updateReady() {
     return;
   }
 
-  sendHeartbeatIfDue();
+  showReady();
+  if (attendanceAccessBlocked) { scheduleBackgroundNetwork(); return; }
   if (millis() - lastRfidReadAt < RFID_DEBOUNCE_MS) return;
 
   String uid = readRfidUid();
-  if (uid.length() == 0) return;
+  if (uid.length() == 0) { scheduleBackgroundNetwork(); return; }
 
   lastRfidReadAt = millis();
   pendingUid = uid;
@@ -712,6 +913,10 @@ void processRuntimeState() {
       if (!configDirty) break;
       configDirty = false;
       loadRuntimeConfig();
+      configRevision++;
+      pendingRequestBody = ""; pendingEventId = ""; pendingCapturedAt = ""; pendingUid = "";
+      pendingQueued = false;
+      hybrid.load(apiBaseUrl + "|" + tenantSlug + "|" + deviceId);
       printRuntimeConfigStatus();
       if (!runtimeConfigReady) {
         showProvisioningRequired();
@@ -729,6 +934,7 @@ void processRuntimeState() {
 
     case RuntimeState::WIFI_CONNECTING:
       updateWifiConnecting();
+      if (WiFi.status() != WL_CONNECTED) showReady();
       break;
 
     case RuntimeState::TIME_SYNC:
@@ -761,6 +967,9 @@ void setup() {
   Serial.setTimeout(100);
 
   prefs.begin(NVS_NAMESPACE, false);
+  sntp_set_time_sync_notification_cb(onTimeSync);
+  networkDone = xSemaphoreCreateBinary();
+  if (networkDone) xTaskCreate(networkWorker, "attendance-net", 12288, nullptr, 1, &networkTaskHandle);
 
   pinMode(BUZZER_PIN, OUTPUT);
   SPI.begin();
@@ -778,6 +987,16 @@ void setup() {
 
 void loop() {
   handleSerialProvisioning();
+  bool connected = WiFi.status() == WL_CONNECTED;
+  if (connected && !lastWifiConnected) {
+    backendReachable = true;
+    configTime(0, 0, "pool.ntp.org", "time.google.com");
+    nextCacheAttemptAt = 0; nextReplayAt = 0;
+    // Reconnect requires a new snapshot even while the previous one remains fresh.
+    if (hybrid.hasCache) hybrid.cache["refresh_after_epoch"] = 0;
+  }
+  lastWifiConnected = connected;
+  consumeNetworkResult();
   processRuntimeState();
   delay(1);
 }

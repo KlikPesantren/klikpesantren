@@ -389,7 +389,7 @@ async function main() {
       assert(edc01Firmware.includes(state), state);
     }
     for (const forbidden of [
-      "LittleFS", "CHECK_SALDO", "SHOW_PAYMENT", "SHOW_TOPUP",
+      "CHECK_SALDO", "SHOW_PAYMENT", "SHOW_TOPUP", "payment_queue",
       "INPUT_PAYMENT", "INPUT_TOPUP", "nominalInput", "rfidPayment",
       "wallet_accounts", "wallet_transactions",
     ]) {

@@ -96,6 +96,16 @@ async function main() {
   const firmware = fs.readFileSync(path.join(root,"AttendanceRFID_EDC01/AttendanceRFID_EDC01.ino"),"utf8");
   const runtime = fs.readFileSync(path.join(root,"AttendanceRFID_EDC01/AttendanceHybridRuntime.h"),"utf8");
   const route = fs.readFileSync(path.join(root,"routes/attendanceDeviceRoutes.js"),"utf8");
+  assert.equal((firmware.match(/rfid\.uid\.uidByte\[index\]/g) || []).length, 1);
+  assert(firmware.includes('snprintf(byteText, sizeof(byteText), "%02x", rfid.uid.uidByte[index])'));
+  assert(!firmware.includes('"%02X"'));
+  assert(/String uid = readRfidUid\(\);[\s\S]*?pendingUid = uid;/.test(firmware));
+  assert(firmware.includes('request["credential"] = pendingUid;'));
+  assert.equal((firmware.match(/hybrid\.validate\(pendingUid,/g) || []).length, 2);
+  assert(firmware.includes('showUnknownCredentialFeedback(scannedUid);'));
+  assert(firmware.includes('attendanceUnknownUid = scannedUid;'));
+  assert(firmware.includes('attendanceUnknownUid.substring('));
+  assert(firmware.includes('start + UNKNOWN_UID_PAGE_CHARS'));
   assert(route.includes('"/device/snapshot"'));
   assert.equal((route.match(/requireTenantFeature\("pendidikan"\)/g)||[]).length, 2);
   assert.equal((route.match(/requireTenantFeature\("rfid"\)/g)||[]).length, 2);

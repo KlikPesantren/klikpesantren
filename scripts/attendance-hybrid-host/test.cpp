@@ -30,6 +30,24 @@ String request(const char* id) {
 }
 void reset() { hostFs = HostFs(); hostPartitionErased = false; }
 int main() {
+  // Synthetic bytes prove case, leading-zero and byte-order compatibility.
+  const String canonicalUid = readRfidUid();
+  assert(canonicalUid == "0ab102ff");
+  reset(); Preferences uidPrefs; AttendanceHybridRuntime uidRuntime(uidPrefs); uidRuntime.load("uid-test");
+  JsonDocument uidCache; deserializeJson(uidCache, snapshot());
+  uidCache["credentials"][0]["value"] = canonicalUid;
+  std::string uidSnapshot; serializeJson(uidCache, uidSnapshot);
+  assert(uidRuntime.installCache(uidSnapshot, AttendanceDualSlotStore::sha256(uidSnapshot)));
+  String uidOccurrence;
+  assert(uidRuntime.validate(canonicalUid, true, NOW, uidOccurrence) == "VALID");
+  assert(uidRuntime.validate("0AB102FF", true, NOW, uidOccurrence) == "UNKNOWN_CREDENTIAL");
+  JsonDocument uidRequest; deserializeJson(uidRequest, request("uid-event"));
+  uidRequest["credential"] = canonicalUid;
+  std::string uidBody; serializeJson(uidRequest, uidBody);
+  assert(uidRuntime.append(uidBody, "session:date", NOW));
+  AttendanceHybridRuntime uidReboot(uidPrefs); uidReboot.load("uid-test");
+  JsonDocument replay; deserializeJson(replay, uidReboot.replayBody(uidReboot.oldestPending()));
+  assert(replay["credential"].as<String>() == canonicalUid);
   reset(); Preferences p; AttendanceHybridRuntime h(p); h.load("scope-a"); assert(h.healthy);
   String raw = snapshot(), key;
   assert(h.validate("TEST-CARD", false, NOW, key) == "TIME_INVALID");

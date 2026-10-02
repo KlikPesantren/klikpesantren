@@ -459,7 +459,7 @@ String readRfidUid() {
   uid.reserve(rfid.uid.size * 2);
   char byteText[3];
   for (byte index = 0; index < rfid.uid.size; index++) {
-    snprintf(byteText, sizeof(byteText), "%02X", rfid.uid.uidByte[index]);
+    snprintf(byteText, sizeof(byteText), "%02x", rfid.uid.uidByte[index]);
     uid += byteText;
   }
 

@@ -5,6 +5,14 @@ const attendanceDeviceController = require("../controllers/attendanceDeviceContr
 
 const router = express.Router();
 
+router.get(
+  "/device/snapshot",
+  deviceAuthMiddleware,
+  requireTenantFeature("pendidikan"),
+  requireTenantFeature("rfid"),
+  attendanceDeviceController.getSnapshot,
+);
+
 router.post(
   "/events",
   deviceAuthMiddleware,

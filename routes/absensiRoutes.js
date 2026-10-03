@@ -10,7 +10,7 @@ const {
   getActiveStudentContext,
   getAttendanceSessionInUnit,
 } = require("../services/academicUnitService");
-const { upsertAttendanceBatch } = require("../services/attendanceBatchService");
+const { saveManualAttendanceBatch } = require("../services/attendanceManualService");
 const { attendanceReadSql } = require("../services/attendanceReadSql");
 
 const ATTENDANCE_STATUSES = new Set(["H", "I", "S", "A"]);
@@ -252,9 +252,11 @@ router.post("/batch", async (req, res) => {
     await client.query("BEGIN");
 
     const { rows: sessions } = await client.query(
-      `SELECT id, display_name
+      `SELECT id, display_name, start_time, end_time
        FROM attendance_sessions
-       WHERE tenant_id = $1 AND unit_id = $2 AND active = true
+       WHERE tenant_id = $1 AND active = true AND (unit_id = $2 OR EXISTS(
+         SELECT 1 FROM attendance_session_units su WHERE su.tenant_id=attendance_sessions.tenant_id
+         AND su.session_id=attendance_sessions.id AND su.unit_id=$2))
          AND id = ANY($3::bigint[])`,
       [access.tenantId, access.unitId, sessionIds],
     );
@@ -304,7 +306,8 @@ router.post("/batch", async (req, res) => {
       };
     });
 
-    const processedCount = await upsertAttendanceBatch(client, {
+    const processedCount = await saveManualAttendanceBatch(client, {
+      sessions: sessionById,
       entries: payload,
       tenantId: access.tenantId,
       unitId: access.unitId,
@@ -369,7 +372,7 @@ router.post("/", async (req, res) => {
       req.tenantId,
       session_id,
       access.unitId,
-      { requireActive: true },
+      { requireActive: true, allowParticipantUnit: true },
     );
     const santriCheck = await assertSantriAllowed(access, santri_id);
     if (!santriCheck.ok) {
@@ -378,6 +381,19 @@ router.post("/", async (req, res) => {
         error: santriCheck.error,
         code: santriCheck.code,
       });
+    }
+
+    if (session.start_time && session.end_time) {
+      const entry=normalizeBatchEntries([{santri_id,tanggal,session_id,status}])[0];
+      const client=await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const processed=await saveManualAttendanceBatch(client,{entries:[{...entry,
+          session_name:session.display_name,...santriCheck.context}],sessions:new Map([[Number(session.id),session]]),
+          tenantId:req.tenantId,unitId:access.unitId,actorUserId:req.user.id});
+        await client.query("COMMIT"); return res.json({success:true,data:{processed}});
+      } catch(error){await client.query("ROLLBACK");throw error;}
+      finally{client.release();}
     }
 
     const result = await pool.query(

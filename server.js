@@ -819,6 +819,7 @@ server.listen(
     });
 
     startTenantBillingEnforcement();
+    require("./services/attendanceAutoAlfaService").startAutoAlfa();
 
   }
 

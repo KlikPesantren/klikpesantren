@@ -27,6 +27,7 @@
     "wali-identity:apply": "node scripts/apply-wali-identity-resolution.js",
     "wali-identity:audit": "node scripts/audit-wali-identity-resolution.js",
     "test:attendance-v1-phase1": "node scripts/test-attendance-v1-phase1.js",
+    "test:absensi-rfid-final": "node scripts/test-absensi-rfid-final.js",
     "test:attendance-v1-phase2a": "node scripts/test-attendance-v1-phase2a.js",
     "test:attendance-hybrid-v1": "node scripts/test-attendance-hybrid-v1.js && node scripts/test-attendance-hybrid-host.js",
     "test": "echo \"Error: no test specified\" && exit 1",

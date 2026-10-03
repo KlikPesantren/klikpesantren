@@ -26,7 +26,7 @@ const serverSource = read("server.js");
 const migration = read("migrations/092_attendance_v1_foundation.sql");
 const walletController = read("controllers/rfidController.js");
 const attendanceCore = read("services/attendanceCoreService.js");
-const approvedEdc01Firmware = read("KasirRFID_V3 EDC01/KasirRFID_V3/KasirRFID_V3.ino");
+const approvedEdc01Firmware = read("archive/firmware/EDC01/KasirRFID_V3.ino.source.txt");
 const edc01Firmware = read("firmware/Absensi_RFID/Absensi_RFID.ino");
 
 const approvedEdc01Keypad = Object.freeze({
@@ -84,6 +84,9 @@ function createHarness(options = {}) {
     async query(sql, params) {
       const normalized = String(sql).replace(/\s+/g, " ").trim();
       if (normalized.includes("pg_advisory_xact_lock")) return { rows: [] };
+      if (normalized.startsWith("SELECT a.status FROM absensi a")) {
+        return {rows:options.legacyStatus ? [{status:options.legacyStatus}] : []};
+      }
       if (normalized.startsWith("SELECT * FROM attendance_events")) {
         const prior = state.events.get(params[1]);
         return { rows: prior ? [prior] : [] };
@@ -138,7 +141,7 @@ function createHarness(options = {}) {
     async applyAttendanceResult(input) {
       const occurrence = occurrences.find((item) => Number(item.id) === Number(input.occurrenceId));
       const decision = decideAttendanceTransition({
-        current: state.current,
+        current: options.legacyStatus ? {status:options.legacyStatus,source:"admin",protected_manual:true} : state.current,
         nextStatus: input.nextStatus,
         source: input.source,
         capturedAt: input.effectiveAt,
@@ -301,6 +304,11 @@ async function main() {
   pass("manual correction remains protected", async () => {
     const h = createHarness({ current: { status: "A", source: "manual", protected_manual: true, auto_generated: false } });
     assert.equal((await h.ingest()).body.code, "STATUS_PROTECTED");
+  });
+  for (const status of ["I","S"]) pass(`legacy ${status} cannot be shadowed by RFID`, async()=>{
+    const h=createHarness({legacyStatus:status});
+    assert.equal((await h.ingest()).body.code,"STATUS_PROTECTED");
+    assert.equal(h.state.applyCount,0);
   });
   pass("auto A reconciles to H", async () => {
     const h = createHarness({ current: { status: "A", source: "system", protected_manual: false, auto_generated: true } });

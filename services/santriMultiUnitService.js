@@ -116,18 +116,19 @@ async function getVisibleSantri({ tenantId, unitId = null, santriId }, client = 
 }
 
 async function findIdentityConflict(tenantId, { santriId = null, nis = null, uidRfid = null }, client = pool) {
+  const {canonicalAttendanceUid,attendanceUidSql}=require("../utils/attendanceRfidUid");
   const normalizedNis = String(nis || "").trim();
-  const normalizedUid = String(uidRfid || "").trim();
+  const normalizedUid = canonicalAttendanceUid(uidRfid);
   if (!santriId && !normalizedNis && !normalizedUid) return null;
   const { rows } = await client.query(
     `SELECT id
-     FROM santri
+     FROM santri s
      WHERE tenant_id = $1
        AND ($2::integer IS NULL OR id = $2)
        AND (
          $2::integer IS NOT NULL
          OR ($3::text <> '' AND TRIM(COALESCE(nis, '')) = $3)
-         OR ($4::text <> '' AND TRIM(COALESCE(uid_rfid, '')) = $4)
+         OR ($4::text <> '' AND (${attendanceUidSql("s.uid_rfid")}) = $4)
        )
      ORDER BY id
      LIMIT 1`,

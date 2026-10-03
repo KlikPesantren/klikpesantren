@@ -34,17 +34,31 @@ class AttendanceDualSlotStore {
     String active = prefs_.getString(pointerKey_, "a");
     String target = active == "b" ? "a" : "b";
     const char* path = target == "b" ? secondPath_ : firstPath_;
-    String serialized = sha256(payload) + "\n" + payload;
+    String header = sha256(payload) + "\n";
 
     File output = LittleFS.open(path, "w");
     if (!output) return false;
-    size_t written = output.print(serialized);
+    size_t written = output.print(header);
+    written += output.print(payload);
     output.flush();
     output.close();
-    if (written != serialized.length()) return false;
+    if (written != payload.length()+65) return false;
 
-    String verified;
-    if (!readSlot(path, verified) || verified != payload) return false;
+    // Verify every persisted byte without allocating another full queue copy.
+    File verification=LittleFS.open(path,"r");
+    if (!verification || verification.size()!=payload.length()+65) return false;
+    uint8_t block[256]; size_t offset=0; bool equal=true;
+    while(offset<verification.size()) {
+      size_t requested=min(sizeof(block),verification.size()-offset);
+      size_t read=verification.read(block,requested);
+      if(read!=requested){equal=false;break;}
+      for(size_t i=0;i<read;i++) {
+        char expected=offset+i<65 ? header[offset+i] : payload[offset+i-65];
+        if(block[i]!=static_cast<uint8_t>(expected)){equal=false;break;}
+      }
+      if(!equal)break; offset+=read;
+    }
+    verification.close(); if(!equal)return false;
     return prefs_.putString(pointerKey_, target) > 0;
   }
 
@@ -54,12 +68,13 @@ class AttendanceDualSlotStore {
       if (input) input.close();
       return false;
     }
-    String serialized = input.readString();
+    uint8_t header[65];
+    if(input.read(header,sizeof(header))!=sizeof(header) || header[64]!='\n') {input.close();return false;}
+    payload = input.readString();
     input.close();
-    if (serialized[64] != '\n') return false;
-    payload = serialized.substring(65);
     if (payload.length() == 0 || payload.length() > maximumBytes_) return false;
-    return constantTimeEqual(serialized.substring(0, 64), sha256(payload));
+    header[64]=0;
+    return constantTimeEqual(String(reinterpret_cast<char*>(header)), sha256(payload));
   }
 
   static String sha256(const String& value) {

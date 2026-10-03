@@ -8,6 +8,8 @@
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
 #include <Preferences.h>
+#include <WebServer.h>
+#include <DNSServer.h>
 #include <time.h>
 #include <esp_sntp.h>
 #include <atomic>
@@ -97,7 +99,7 @@ bool lastWifiConnected = false;
 unsigned long nextCacheAttemptAt = 0;
 unsigned long nextReplayAt = 0;
 unsigned long replayBackoffMs = 5000;
-enum class NetworkJob { NONE, SNAPSHOT, REPLAY, HEARTBEAT };
+enum class NetworkJob { NONE, SNAPSHOT, REPLAY, HEARTBEAT, PAIRING };
 NetworkJob networkJob = NetworkJob::NONE;
 TaskHandle_t networkTaskHandle = nullptr;
 SemaphoreHandle_t networkDone = nullptr;
@@ -134,6 +136,11 @@ String deviceId;
 String deviceSecret;
 String deviceMode;
 String hardwareProfile;
+bool setupMode = false;
+char setupKey=0;
+void startPhoneSetup();
+void updatePhoneSetup();
+void acceptPairingResponse(HttpResult& result);
 
 RuntimeState runtimeState = RuntimeState::BOOT;
 bool configDirty = true;
@@ -223,7 +230,6 @@ void refreshRuntimeConfigReady() {
   }
   runtimeConfigReady =
     wifiSsid.length() > 0 &&
-    wifiPassword.length() > 0 &&
     apiBaseUrl.startsWith("https://") &&
     tenantSlug.length() > 0 &&
     deviceId.length() > 0 &&
@@ -241,6 +247,19 @@ void loadRuntimeConfig() {
   deviceSecret = prefs.getString("device_secret", "");
   deviceMode = prefs.getString("device_mode", "");
   hardwareProfile = prefs.getString("hw_profile", "");
+  if (apiBaseUrl.length()==0) apiBaseUrl="https://api.klikpesantren.com";
+  if (hardwareProfile.length()==0) hardwareProfile="ESP32_RC522_16X2";
+  // Atomic identity bundle for phone provisioning; legacy NVS keys remain readable.
+  String identity=prefs.getString("att_identity", "");
+  if (identity.length()) {
+    AttendanceBoundedJsonDocument provision(8*1024);
+    if (!deserializeJson(provision,identity)) {
+      tenantSlug=provision["tenant_slug"].as<String>();
+      deviceId=provision["device_id"].as<String>();
+      deviceSecret=provision["device_secret"].as<String>();
+      deviceMode=provision["device_mode"].as<String>();
+    }
+  }
   refreshRuntimeConfigReady();
 }
 
@@ -502,9 +521,11 @@ HttpResult postAuthenticatedJson(
   http.setConnectTimeout(timeoutMs);
   http.setTimeout(timeoutMs);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Device-Id", networkDevice);
-  http.addHeader("X-Device-Secret", networkSecret);
-  http.addHeader("X-Tenant-Slug", networkTenant);
+  if (networkJob!=NetworkJob::PAIRING) {
+    http.addHeader("X-Device-Id", networkDevice);
+    http.addHeader("X-Device-Secret", networkSecret);
+    http.addHeader("X-Tenant-Slug", networkTenant);
+  }
 
   int status = networkJob == NetworkJob::SNAPSHOT ? http.GET() : http.POST(body);
   result.status = status;
@@ -650,7 +671,7 @@ void handleAttendanceResponse(
     return;
   }
 
-  DynamicJsonDocument response(1024);
+  AttendanceBoundedJsonDocument response(8*1024);
   DeserializationError error = deserializeJson(response, result.body);
   if (error) {
     if (result.status == 401) {
@@ -722,7 +743,7 @@ void prepareAttendanceRequest() {
     return;
   }
 
-  StaticJsonDocument<384> request;
+  AttendanceBoundedJsonDocument request(8*1024);
   request["event_id"] = pendingEventId;
   request["credential_type"] = "rfid";
   request["credential"] = pendingUid;
@@ -773,7 +794,7 @@ void queuePendingTap() {
     showAttendanceFeedback("DATA KADALUARSA", "SAMBUNG INTERNET", FeedbackTone::ERROR);
   } else {
     HttpResult local = {true, 200, ""};
-    StaticJsonDocument<128> response; response["code"] = decision;
+    AttendanceBoundedJsonDocument response(8*1024); response["code"] = decision;
     serializeJson(response, local.body);
     handleAttendanceResponse(local, pendingCapturedAt, pendingUid);
   }
@@ -786,13 +807,16 @@ void consumeNetworkResult() {
   networkBusy = false; networkJob = NetworkJob::NONE; networkBody = "";
   if (networkRevision != configRevision) { networkResult.body = ""; return; }
   HttpResult result = std::move(networkResult);
+  if (completed==NetworkJob::PAIRING) { acceptPairingResponse(result); return; }
   backendReachable = result.transportOk && result.status < 500;
   if (result.status == 401 || result.status == 403) attendanceAccessBlocked = true;
   if (completed == NetworkJob::SNAPSHOT) {
     String snapshot, checksum;
     {
-      DynamicJsonDocument response(64 * 1024);
-      if (result.status == 200 && !deserializeJson(response, result.body) &&
+      AttendanceBoundedJsonDocument response(40*1024);
+      // ArduinoJson 7 copies strings: enforce a real allocator bound, then release
+      // the envelope and HTTP buffer before candidate/cache persistence work.
+      if (result.status == 200 && !deserializeJson(response, result.body.begin()) &&
           response["code"] == "ATTENDANCE_SNAPSHOT_READY") {
         snapshot = response["snapshot_json"].as<String>(); checksum = response["checksum"].as<String>();
       }
@@ -801,7 +825,7 @@ void consumeNetworkResult() {
     if (hybrid.installCache(snapshot, checksum)) attendanceAccessBlocked = false;
     nextCacheAttemptAt = millis() + 60000;
   } else if (completed == NetworkJob::REPLAY) {
-    DynamicJsonDocument response(1024);
+    AttendanceBoundedJsonDocument response(8*1024);
     String code;
     if (!deserializeJson(response, result.body)) code = response["code"].as<String>();
     ReplayDisposition decision = attendanceReplayDisposition(result.transportOk, result.status, code.c_str());
@@ -879,7 +903,7 @@ void processRuntimeState() {
       hybrid.load(apiBaseUrl + "|" + tenantSlug + "|" + deviceId);
       printRuntimeConfigStatus();
       if (!runtimeConfigReady) {
-        showProvisioningRequired();
+        startPhoneSetup();
         break;
       }
       if (WiFi.status() == WL_CONNECTED) {
@@ -923,6 +947,8 @@ void processRuntimeState() {
   }
 }
 
+#include "AttendancePhoneSetup.h"
+
 void setup() {
   Serial.begin(115200);
   Serial.setTimeout(100);
@@ -942,11 +968,19 @@ void setup() {
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
   WiFi.mode(WIFI_STA);
+  keypad.setHoldTime(3000);
 
   runtimeState = RuntimeState::BOOT;
 }
 
 void loop() {
+  static bool setupHoldConsumed=false;
+  setupKey=keypad.getKey();
+  if (keypad.getState()==RELEASED || keypad.getState()==IDLE) setupHoldConsumed=false;
+  if (!setupMode && !networkBusy && !setupHoldConsumed && keypad.getState()==HOLD && keypad.key[0].kchar=='D') {
+    setupHoldConsumed=true; startPhoneSetup();
+  }
+  if (setupMode) { updatePhoneSetup(); consumeNetworkResult(); delay(1); return; }
   handleSerialProvisioning();
   bool connected = WiFi.status() == WL_CONNECTED;
   if (connected && !lastWifiConnected) {

@@ -170,6 +170,9 @@ int main() {
   for (unsigned i = 100; i < ATTENDANCE_QUEUE_ITEMS; i++) assert(full.append(request(std::to_string(i).c_str()), "different", NOW + i));
   assert(!full.append(request("overflow"), "different", NOW + 100));
   assert(full.count("pending") == ATTENDANCE_QUEUE_ITEMS);
+  assert(full.queueHeapPeak() <= 64*1024);
+  std::cout << "Bounded ArduinoJson 7 allocator: queue_peak_bytes=" << full.queueHeapPeak()
+    << " cache_peak_bytes=" << full.cacheHeapPeak() << " slots_bytes=" << hostFs.files["/att_queue_a"].size()+hostFs.files["/att_queue_b"].size() << "\n";
   assert(full.append(request("never"), "different", NOW + 700000) == false); // Never prune unsynced old items.
   reset(); hostFs.mounted = false; Preferences corruptFs;
   AttendanceHybridRuntime fsFailure(corruptFs); fsFailure.load("scope");
@@ -185,5 +188,22 @@ int main() {
   assert(attendanceReplayDisposition(true, 403, "FEATURE_DISABLED") == ReplayDisposition::ACCESS_BLOCKED);
   assert(attendanceReplayDisposition(true, 401, "DEVICE_AUTH_INVALID") == ReplayDisposition::ACCESS_BLOCKED);
   assert(!attendanceWindowActive(NOW + 3600, NOW, NOW + 3600, "active"));
+  {
+    AttendanceJsonAllocator bounded(128);
+    void* block=bounded.allocate(64);assert(block);
+    assert(!bounded.allocate(128));assert(!bounded.reallocate(block,256));
+    assert(bounded.used()<=128);bounded.deallocate(block);assert(bounded.used()==0);
+  }
+  reset();Preferences boundedPrefs;AttendanceHybridRuntime boundedQueue(boundedPrefs);boundedQueue.load("synthetic-size-bound");
+  for(unsigned i=0;i<128;i++){
+    JsonDocument r;r["event_id"]=std::string(52,'x')+std::to_string(i);
+    r["credential_type"]="rfid";r["credential"]=std::string(20,'a');
+    r["captured_at"]="2026-10-03T00:00:00Z";
+    std::string body;serializeJson(r,body);
+    assert(boundedQueue.append(String(body),String(std::string(31,'k')),NOW+i));
+  }
+  assert(boundedQueue.count("pending")==128);
+  std::cout<<"Maximum physical RC522 UID / generated-device counter fixture: 128 pending, queue_heap_peak_bytes="
+    <<boundedQueue.queueHeapPeak()<<" dual_slot_bytes="<<hostFs.files["/att_queue_a"].size()+hostFs.files["/att_queue_b"].size()<<"\n";
   std::cout << "PASS executable hybrid firmware: cache/time/eligibility/duplicate/reboot/write-failure/corruption/full/replay/isolation\n";
 }

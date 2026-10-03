@@ -1,67 +1,67 @@
-# Checkpoint Absensi RFID V1 — 3 Oktober 2026
+# Absensi RFID V1 — software verification, 3 Oktober 2026
 
-Status keseluruhan PARTIAL, bukan izin release/flash.
-Baseline protected main `c2f5e5b53d3f5e479a2ea2f71c3f8691a7fa3b7e`.
-Branch lokal `codex/absensi-rfid-v1-final`. Tidak ada push/PR/deploy/DB write.
+Canonical repository: `C:\Users\hi\Documents\0Aiki\Administrasi Santri Digital\klikpesantren`.
+Protected-main baseline: `c2f5e5b53d3f5e479a2ea2f71c3f8691a7fa3b7e`.
+Physical flash/acceptance is NOT performed by the software tests.
 
-## Selesai di checkpoint ini
+## Implemented
 
-- Repository canonical dipindahkan ke child `klikpesantren` pada project home asli.
-- Semua branch dari repo root dan temporary disimpan dalam refs archive; 232
-  commit reachable/reflog temporary terbukti tersedia dalam repo canonical.
-- Commit unik tooling `519b96f` dipreservasi, tidak dicampur ke feature branch.
-- Empat file dirty/untracked lama dari attendance-prod-deploy disalin secara
-  content-equivalent ke archive `.source.txt`; tidak ada secret pattern ditemukan.
-- Tiga checkout Attendance sementara dibuang setelah verifikasi preservasi.
-  Root historis dengan 161 perubahan lama dan worktree lain tetap tidak disentuh.
-- Hanya satu sketch aktif Attendance pada lokasi yang dicari: firmware/Absensi_RFID.
-- UID hex case dinormalisasi di firmware/cache/backend/snapshot serta input Admin
-  yang diedit; tidak ada mass update UID. Nonhex legacy tetap exact, collision
-  identitas tetap ambiguous/fail-closed.
-- Snapshot bounded menambah display_name; membership/tenant/unit tetap di SQL.
-- Tap selalu local cache → durable append → BERHASIL; tidak ada jalur TAP HTTP.
-- Lifetime LCD tidak memblokir scanner; sync tidak mengambil alih LCD.
-- Queue 128/48KiB, arena64KiB: host menerima 100 kartu berbeda saat network busy,
-  termasuk reboot/durable-write failure/duplicate/time-invalid checks.
-- Admin GET absensi, Wali dashboard ringkasan, Wali absensi ringkasan+riwayat
-  memakai proyeksi shared attendance_results + legacy yang tidak bersinggungan.
-  Tidak membuat row kedua. Canonical shadows legacy hanya tenant/person/session/
-  tanggal/unit yang sama. Semua child/unit guard API lama tetap ada.
-- PostgreSQL read-only rehearsal memverifikasi query aktual; synthetic SELECT-only
-  CTE membuktikan H, riwayat I, dedup, sibling/unit/tenant isolation tanpa DML.
+- Single active universal sketch `firmware/Absensi_RFID/Absensi_RFID.ino`;
+  old EDC01/EDC02 sources preserved byte-for-byte as non-uploadable archives.
+- Phone setup, masked operator-chosen WPA2 setup PIN, local captive portal,
+  bounded Wi-Fi/NTP failure recovery, existing-device Wi-Fi recovery via held D.
+- Hashed, expiring, one-time pairing; CSPRNG credential with bcrypt cost 12;
+  transactional exchange/recovery and explicit Admin device management/adoption.
+- Tenant/unit/permission authority remains server-side; no automatic legacy
+  device classification or credential/UID backfill.
+- Canonical lowercase hex UID across firmware, cache, registration and lookup;
+  nonhex legacy remains exact and ambiguous collisions fail closed.
+- Local-first durable tap; bounded cache/queue and actual ArduinoJson 7 heap
+  allocator; background refresh/replay never makes foreground HTTP requests.
+- Scheduled manual H/I/S, protected legacy/canonical correction bridge,
+  audit provenance, recurring multi-unit sessions, server-side idempotent auto-A,
+  overdue materialized occurrence recovery and isolated job failures.
+- Guru canonical manual/session/auto-A; guru RFID enrollment remains unavailable
+  rather than inventing a credential source.
+- Shared canonical + unmatched legacy Admin/Wali reads with existing child/unit
+  ownership guards. No second Attendance truth.
 
-## Evidence
+## Software evidence
 
-ESP32 core3.3.8 esp32:esp32:esp32 compile: flash1,182,619/1,310,720 (90%),
-RAM statis51,724/327,680 (15%). BUKAN bukti peak heap/LCD fisik.
-Host actual queuePendingTap (filesystem/LCD/network mock): median1.346ms,
-p95 3.017ms, next-ready100/100, pending100 saat networkBusy=true.
-Host append saja median0.945ms,p95 2.178ms,total96.653ms. BUKAN benchmark ESP32.
+- Final source/executable aggregator: 22 suites PASS.
+- Authenticated actual localhost routers against representative PostgreSQL branch:
+  Admin JWT/session/tenant/RBAC; Wali two children/three contexts A→B→A,
+  wrong-child/foreign-unit rejection, no-scope fail closed.
+- Real PostgreSQL pairing/replay/replacement, unit assignment, occurrence
+  uniqueness, santri/guru auto-A idempotency, late A→H, protected I/S, shared
+  history, authorized disposable tenant cascade and forced rollback PASS.
+  All fixtures, DDL and rehearsal grants rolled back. Production writes: zero.
+- Migration 093 UP → verify → DOWN → verify → second UP PASS in the guarded
+  non-production branch; existing device rows/columns preserved; outer rollback.
+- Runtime metadata rehearsal: pairing SELECT/INSERT/UPDATE + sequence USAGE only;
+  no pairing DELETE, elevated role flags or ownership.
+- ESP32 core 3.3.8 / esp32:esp32:esp32 compile PASS. Resource numbers are recorded
+  in the final report; compile does not prove physical peak heap or Wi-Fi/LCD UX.
+- Host actual foreground function: 100/100 next-ready while network busy.
+  Observed median 1.722 ms / p95 4.265 ms (mock filesystem/LCD, NOT ESP32 timing).
+- Worst physical UID/event fixture: 128 durable queue rows PASS; queue allocator
+  peak 52,789 bytes on 64-bit host; dual-slot files 74,315 bytes. Overflow,
+  corruption, reboot and write-failure handling tested.
+- Frontend multi-unit wiring/build and targeted ESLint PASS.
+- Established production READ-ONLY Buku Kas reconciliation: Rp0 mismatch.
+  Sahriyah canonical KPI reconciliation: Rp0 mismatch, financial snapshot unchanged.
+  Wallet running ledger/account balance mismatch: Rp0. Payment/Wallet row hashes
+  unchanged during the read-only safety check. Historical cache untouched.
 
-PASS: hybrid backend+host, UID boundary, shared read contract+real PostgreSQL CTE,
-Phase1, Phase2A44checks, sessions, multi-unit10, guru scope, Wallet separation,
-RFID policy, WaliJWT, device secret rotation, SahriyahKPI, frontend wiring,
-Vite build, backend syntax/diff checks. Targeted ESLint dijalankan dari frontend.
-Cash dashboard reconciliation belum PASS: percobaan awal memakai dummy env untuk
-suite isolated, tetapi test tersebut membutuhkan DB nyata; gagal autentikasi.
-Ini bukan bukti regresi finansial production. Production finance belum diuji ulang.
+## Release boundary
 
-## Urutan pekerjaan yang masih harus dilanjutkan (jangan mulai ulang)
+Production migration 093, grants, deploy and physical flash are not implied by
+these results. Before production migration, independently confirm canonical
+Neon production branch/endpoint and backup/recovery readiness using the established
+provider workflow. Do not fall back to raw DB_HOST hash, bypass migration ledger
+integrity, or run DOWN on production.
 
-1. Secure pairing one-time tenant/unit-scoped dan Admin device-management yang
-   memakai existing device secret hashing/rotation; AP/HP setup dan keypad recovery.
-2. Selesaikan canonical manual writes/protected I/S/admin corrections. Saat ini
-   Admin POST/batch masih legacy. JANGAN DEPLOY proyeksi read ini sebelum protection
-   bridge tersebut diuji: hasil canonical bisa shadow manual legacy di logical key sama.
-3. Jadwalkan auto-Alfa dengan existing closeOccurrence, recurring/multi-unit config,
-   cancellation, dan guru credential enrollment sesuai schema yang diaudit.
-4. Validasi peak heap/durable filesystem untuk target100 kartu, delayed replay dan
-   snapshot refresh; jumlah slot128 baru terbukti pada host, bukan device fisik.
-5. Full isolated integration/regression + migration UP/DOWN/UP jika pairing butuh
-   additive schema. Production health/financial reconciliation belum gate PASS.
-6. Review security/diff → protected PR/CI/merge → exact SHA deploy komponen berubah
-   → production-safe smoke → ONE manual physical acceptance. Tidak ada Android build.
-7. Selesaikan klasifikasi/arsip root historis sebelum menyatakan workspace fully closed.
-
-Tidak mengubah EDC02, firmware cashier reference, Wallet/POS/payment source,
-production UID, NVS provisioning, atau production schema/data/credentials.
+Use protected PR/check/merge workflow, deploy exact merged SHA only after release
+gates, and run production-safe smoke. Only then proceed to owner-operated physical
+acceptance. Phone/AP behavior, target peak heap/TLS coexistence and actual LCD/tap
+timing remain physical acceptance metrics, not invented software PASS claims.

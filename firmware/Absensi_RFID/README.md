@@ -1,4 +1,4 @@
-# Absensi RFID universal — implementasi belum final
+# Absensi RFID universal
 
 Satu sketch untuk perangkat ESP32/RC522 dengan profil hardware yang sama:
 `C:\Users\hi\Documents\0Aiki\Administrasi Santri Digital\klikpesantren\firmware\Absensi_RFID\Absensi_RFID.ino`.
@@ -44,13 +44,26 @@ boleh dipangkas. Uji filesystem host bukan benchmark flash ESP32.
 Kapasitas dan peak heap pada hardware ESP32 masih wajib diverifikasi; RAM statis
 hasil compile tidak menghitung arena JSON, TLS, atau buffer heap dinamis.
 
-## Belum tersedia — jangan menganggap sudah selesai
+## Setup HP, Admin dan recovery
 
-Setup Wi-Fi dari HP/AP, pairing one-time Admin, perubahan unit dari UI, telemetry
-review, serta prosedur recovery keypad belum diimplementasikan. Provisioning
-Serial lama masih tersedia dan tidak meng-echo nilainya. Jangan mengirim secret
-melalui chat. Jangan menambah EDC dengan mengedit source.
+Panduan operasional lengkap: [Setup mesin Absensi RFID](../../docs/absensi-rfid-setup.md).
+Mesin kosong meminta PIN lokal 8–12 digit lewat keypad (dimask), lalu membuka AP
+WPA2 menggunakan PIN itu. Tidak ada secret dicetak di LCD. Admin menerbitkan
+pairing sekali pakai/15 menit; tenant/device/unit ditentukan server. Tahan D tiga
+detik untuk mengganti Wi-Fi tanpa menghapus identity/queue. Jangan mengedit source
+untuk menambah EDC02. Arsip firmware tidak dapat dipilih sebagai sketch upload.
 
-Selesaikan flow HP/Admin tersebut beserta integrasi canonical manual attendance
-dan auto-Alfa, lalu regression/PR/release sebelum physical acceptance. EDC02
-dan firmware legacy tetap sebagai referensi, tidak di-flash/dimodifikasi.
+ArduinoJson **7.4.3** menggunakan allocator berbatas nyata, bukan asumsi kapasitas
+constructor deprecated. Queue/cache masing-masing maksimal 64KiB alokasi JSON;
+snapshot envelope 40KiB, validasi candidate 64KiB, dokumen kecil 8KiB. Buffer HTTP
+dan envelope dilepas sebelum install cache. Penulisan dual-slot diverifikasi byte
+per byte tanpa menduplikasi seluruh queue file. Pengujian host fixture UID fisik
+maksimal/counter panjang memuat 128 event: peak JSON queue 52.789 byte pada host
+64-bit dan dual-slot 74.315 byte. Angka ini bukan peak total heap ESP32; TLS/Wi-Fi,
+fragmentasi dan latency flash tetap diukur saat physical acceptance. Worker stack
+12.288 byte; partisi LittleFS default 1.441.792 byte.
+
+Serial provisioning lama tersedia tetapi tidak meng-echo nilai. Setelah pairing,
+bundle `att_identity` authoritative; gunakan recovery HP/Admin untuk credential.
+Jangan flash sebelum software release gate selesai. Tidak ada physical PASS
+hanya berdasarkan compile atau uji host.

@@ -12,6 +12,9 @@ async function createOneTimeDeviceSecret() {
   return { plaintext, hash };
 }
 
+// Shared credential issuer, not an HTTP handler. Pairing uses identical hashing.
+exports.createOneTimeDeviceSecret = createOneTimeDeviceSecret;
+
 exports.registerDisabled = (req, res) => res.status(410).json({
   success: false,
   code: "DEVICE_ADMIN_PROVISIONING_REQUIRED",

@@ -2,6 +2,7 @@
 #include <ArduinoJson.h>
 #include "AttendanceHybridStore.h"
 #include "AttendanceHybridPolicy.h"
+#include "AttendanceJsonAllocator.h"
 #include <esp_partition.h>
 
 inline bool mountAttendanceStorage() {
@@ -43,17 +44,21 @@ inline String canonicalAttendanceUid(String uid) {
 }
 
 class AttendanceHybridRuntime {
+ private:
+  AttendanceJsonAllocator cacheAllocator{64*1024},queueAllocator{64*1024};
  public:
   AttendanceHybridRuntime(Preferences& prefs)
     : cacheStore(prefs, "att_cache_slot", "/att_cache_a", "/att_cache_b", ATTENDANCE_CACHE_BYTES + 65),
       queueStore(prefs, "att_queue_slot", "/att_queue_a", "/att_queue_b", ATTENDANCE_QUEUE_BYTES),
-      cache(64 * 1024), queue(64 * 1024) {}
+      cache(&cacheAllocator), queue(&queueAllocator) {}
   bool healthy = false;
   bool hasCache = false;
   String context;
   String version;
-  DynamicJsonDocument cache;
-  DynamicJsonDocument queue;
+  JsonDocument cache;
+  JsonDocument queue;
+  size_t cacheHeapPeak() const {return cacheAllocator.peak();}
+  size_t queueHeapPeak() const {return queueAllocator.peak();}
 
   void load(const String& scope) {
     context = AttendanceDualSlotStore::sha256(scope);
@@ -83,7 +88,8 @@ class AttendanceHybridRuntime {
 
   bool validSnapshot(const String& raw) {
     if (raw.length() == 0 || raw.length() > ATTENDANCE_CACHE_BYTES) return false;
-    DynamicJsonDocument candidate(64 * 1024);
+    AttendanceJsonAllocator allocator(64*1024);
+    JsonDocument candidate(&allocator);
     if (deserializeJson(candidate, raw) || candidate["schema_version"] != 1 ||
         !candidate["authorized_unit_id"].is<int>() || candidate["authorized_unit_id"].as<int>() <= 0 ||
         !candidate["timezone"].is<const char*>() || !candidate["sessions"].is<JsonArray>() ||
@@ -164,7 +170,8 @@ class AttendanceHybridRuntime {
         events.remove(i);
     }
     if (events.size() >= ATTENDANCE_QUEUE_ITEMS) return false;
-    DynamicJsonDocument request(768);
+    AttendanceJsonAllocator allocator(8*1024);
+    JsonDocument request(&allocator);
     if (deserializeJson(request, body)) return false;
     JsonObject e = events.createNestedObject();
     e["request"] = request.as<JsonObject>(); e["occurrence"] = occurrence;

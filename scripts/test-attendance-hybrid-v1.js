@@ -107,7 +107,7 @@ async function main() {
   assert(firmware.includes('attendanceUnknownUid.substring('));
   assert(firmware.includes('start + UNKNOWN_UID_PAGE_CHARS'));
   assert(route.includes('"/device/snapshot"'));
-  assert.equal((route.match(/requireTenantFeature\("pendidikan"\)/g)||[]).length, 2);
+  assert.equal((route.match(/requireTenantFeature\("pendidikan"\)/g)||[]).length, 3);
   assert.equal((route.match(/requireTenantFeature\("rfid"\)/g)||[]).length, 2);
   assert(firmware.includes("sntp_set_time_sync_notification_cb(onTimeSync)"));
   assert(/case RuntimeState::WIFI_CONNECTING:[\s\S]*?updateWifiConnecting\(\);\s*if \(WiFi.status\(\) != WL_CONNECTED\) showReady\(\);/.test(firmware));

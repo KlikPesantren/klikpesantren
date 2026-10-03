@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import api from "../services/api";
 import AppShell from "../layouts/AppShell";
+import AttendanceScheduleControls from "../components/AttendanceScheduleControls";
 import Card from "../components/ui/Card";
 import SectionHeading from "../components/ui/SectionHeading";
 import StatusBadge from "../components/ui/StatusBadge";
@@ -184,7 +185,7 @@ function absensiStatusLabel(status) {
 }
 
 function AbsensiPage() {
-  const { activeUnitId, activeUnit, allUnitsAllowed } = useActiveUnit();
+  const { activeUnitId, activeUnit, allUnitsAllowed, units } = useActiveUnit();
   const scopeParams = buildUnitScopeParams({ activeUnitId, allUnitsAllowed });
   const [kelas, setKelas] = useState([]);
   const [kelasId, setKelasId] = useState("");
@@ -578,9 +579,10 @@ function AbsensiPage() {
                       />
                       Aktif
                     </label>
-                    <Button className="absensi-session-action" type="button" size="sm" onClick={() => saveSession(session)} disabled={sessionSaving}>
+                    <Button className="absensi-session-action" type="button" size="sm" onClick={() => saveSession(session)} disabled={sessionSaving || session.can_configure===false}>
                       Simpan
                     </Button>
+                    <AttendanceScheduleControls key={`${session.id}:${activeUnitId}`} session={session} unitId={activeUnitId} units={units} onSaved={getSessions}/>
                   </div>
                 ))}
 

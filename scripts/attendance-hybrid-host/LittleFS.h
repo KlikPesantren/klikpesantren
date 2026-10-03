@@ -12,12 +12,17 @@ class File {
  public:
   std::string path;
   bool valid = false;
+  size_t cursor=0;
   explicit operator bool() const { return valid; }
   size_t size() const { return hostFs.files[path].size(); }
-  String readString() { return hostFs.files[path]; }
+  String readString() {String value=hostFs.files[path].substring(cursor);cursor=hostFs.files[path].size();return value;}
+  size_t read(uint8_t* output,size_t length) {
+    size_t count=std::min(length,hostFs.files[path].size()-cursor);
+    memcpy(output,hostFs.files[path].data()+cursor,count);cursor+=count;return count;
+  }
   size_t print(const String& value) {
     size_t written = hostFs.shortWrite ? value.size() / 2 : value.size();
-    hostFs.files[path] = value.substr(0, written); return written;
+    hostFs.files[path].append(value.substr(0,written));cursor+=written;return written;
   }
   void flush() {}
   void close() {}

@@ -1,0 +1,22 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { attendanceReadSql } = require("../services/attendanceReadSql");
+const sql = attendanceReadSql("$2");
+assert.throws(() => attendanceReadSql("1 OR true"));
+assert(sql.includes("r.tenant_id=$2") && sql.includes("a.tenant_id=$2"));
+assert(sql.includes("r.person_type='santri'") && sql.includes("o.state<>'cancelled'"));
+assert(sql.includes("su.unit_id=ou.unit_id") && sql.includes("ou.tenant_id=o.tenant_id"));
+for (const key of ["c.santri_id=a.santri_id", "c.unit_id=a.unit_id", "c.session_id=a.session_id", "c.tanggal=a.tanggal::date"])
+  assert(sql.includes(key));
+assert(sql.includes("UNION ALL") && sql.includes("NOT EXISTS"));
+assert(!/INSERT|UPDATE|DELETE|wallet|pembayaran/i.test(sql));
+assert(sql.includes("su.left_at>=o.occurrence_date") && sql.includes("e.end_date>=o.occurrence_date"));
+const read = p => fs.readFileSync(path.join(__dirname,"..",p),"utf8");
+const wali = read("routes/waliAppRoutes.js");
+const history = wali.slice(wali.indexOf('// GET /wali-app/absensi'));
+assert.equal((history.match(/attendanceReadSql\("\$2"\)/g)||[]).length,2);
+assert(history.includes('waliSantriGuard') && history.includes('requireWaliUnitFeature("absensi")'));
+assert.equal((history.match(/\[santriId, req.tenantId, req.waliUnit.unit_id, bulan, tahun\]/g)||[]).length,2);
+assert(read("routes/absensiRoutes.js").includes("FROM (${attendanceReadSql()}) a"));
+console.log("PASS shared Attendance read contract: canonical+legacy history, no second ledger, scope/date/session dedupe, child/unit guards retained (static; PostgreSQL separately required)");

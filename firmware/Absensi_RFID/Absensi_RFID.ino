@@ -8,6 +8,8 @@
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
 #include <Preferences.h>
+#include <WebServer.h>
+#include <DNSServer.h>
 #include <time.h>
 #include <esp_sntp.h>
 #include <atomic>
@@ -22,7 +24,7 @@ const unsigned long WIFI_CONNECT_TIMEOUT_MS = 12000;
 const unsigned long WIFI_RETRY_BACKOFF_MS = 5000;
 const unsigned long NTP_RETRY_INTERVAL_MS = 30000;
 const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
-const unsigned long RFID_DEBOUNCE_MS = 800;
+const unsigned long RFID_DEBOUNCE_MS = 100;
 const unsigned long FEEDBACK_DURATION_MS = 3000;
 const unsigned long UNKNOWN_UID_DIRECT_DURATION_MS = 6000;
 const unsigned long UNKNOWN_UID_PAGE_DURATION_MS = 3000;
@@ -97,7 +99,7 @@ bool lastWifiConnected = false;
 unsigned long nextCacheAttemptAt = 0;
 unsigned long nextReplayAt = 0;
 unsigned long replayBackoffMs = 5000;
-enum class NetworkJob { NONE, TAP, SNAPSHOT, REPLAY, HEARTBEAT };
+enum class NetworkJob { NONE, SNAPSHOT, REPLAY, HEARTBEAT, PAIRING };
 NetworkJob networkJob = NetworkJob::NONE;
 TaskHandle_t networkTaskHandle = nullptr;
 SemaphoreHandle_t networkDone = nullptr;
@@ -134,6 +136,11 @@ String deviceId;
 String deviceSecret;
 String deviceMode;
 String hardwareProfile;
+bool setupMode = false;
+char setupKey=0;
+void startPhoneSetup();
+void updatePhoneSetup();
+void acceptPairingResponse(HttpResult& result);
 
 RuntimeState runtimeState = RuntimeState::BOOT;
 bool configDirty = true;
@@ -205,7 +212,8 @@ bool isAttendanceMode() {
 }
 
 bool isEdc01Profile() {
-  return hardwareProfile == "EDC01";
+  // EDC01 is an existing NVS profile alias, not a device identity restriction.
+  return hardwareProfile == "EDC01" || hardwareProfile == "ESP32_RC522_16X2";
 }
 
 void refreshRuntimeConfigReady() {
@@ -222,7 +230,6 @@ void refreshRuntimeConfigReady() {
   }
   runtimeConfigReady =
     wifiSsid.length() > 0 &&
-    wifiPassword.length() > 0 &&
     apiBaseUrl.startsWith("https://") &&
     tenantSlug.length() > 0 &&
     deviceId.length() > 0 &&
@@ -240,6 +247,19 @@ void loadRuntimeConfig() {
   deviceSecret = prefs.getString("device_secret", "");
   deviceMode = prefs.getString("device_mode", "");
   hardwareProfile = prefs.getString("hw_profile", "");
+  if (apiBaseUrl.length()==0) apiBaseUrl="https://api.klikpesantren.com";
+  if (hardwareProfile.length()==0) hardwareProfile="ESP32_RC522_16X2";
+  // Atomic identity bundle for phone provisioning; legacy NVS keys remain readable.
+  String identity=prefs.getString("att_identity", "");
+  if (identity.length()) {
+    AttendanceBoundedJsonDocument provision(8*1024);
+    if (!deserializeJson(provision,identity)) {
+      tenantSlug=provision["tenant_slug"].as<String>();
+      deviceId=provision["device_id"].as<String>();
+      deviceSecret=provision["device_secret"].as<String>();
+      deviceMode=provision["device_mode"].as<String>();
+    }
+  }
   refreshRuntimeConfigReady();
 }
 
@@ -291,7 +311,7 @@ bool storeProvisionedField(const String& field, String value) {
     bytesWritten = prefs.putString("device_mode", value);
   } else if (field == "hardware_profile") {
     value.toUpperCase();
-    if (value != "EDC01") return false;
+    if (value != "EDC01" && value != "ESP32_RC522_16X2") return false;
     bytesWritten = prefs.putString("hw_profile", value);
   } else {
     return false;
@@ -307,6 +327,7 @@ void showProvisioningRequired() {
 }
 
 void showReady() {
+  if (feedbackActive) return; // LCD lifetime never blocks acquisition of the next card.
   if (attendanceAccessBlocked) { showScreen("AKSES DITOLAK", "HUBUNGI ADMIN"); return; }
   if (!attendanceClockValid()) { showScreen("WAKTU TDK VALID", "BUTUH INTERNET"); return; }
   if (!hybrid.healthy) { showScreen("QUEUE BERMASALAH", "HUBUNGI ADMIN"); return; }
@@ -315,7 +336,7 @@ void showReady() {
     if (!hybrid.fresh(true, time(nullptr))) { showScreen("DATA KADALUARSA", "SAMBUNG INTERNET"); return; }
   }
   String status = WiFi.status() == WL_CONNECTED && backendReachable ? "ONLINE" : "OFFLINE";
-  showScreen("SIAP ABSENSI", status + " Q:" + String(hybrid.count("pending")) +
+  showScreen("ABSENSI SIAP", status + " Q:" + String(hybrid.count("pending")) +
     (hybrid.count("quarantined") ? " R:" + String(hybrid.count("quarantined")) : ""));
 }
 
@@ -500,9 +521,11 @@ HttpResult postAuthenticatedJson(
   http.setConnectTimeout(timeoutMs);
   http.setTimeout(timeoutMs);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Device-Id", networkDevice);
-  http.addHeader("X-Device-Secret", networkSecret);
-  http.addHeader("X-Tenant-Slug", networkTenant);
+  if (networkJob!=NetworkJob::PAIRING) {
+    http.addHeader("X-Device-Id", networkDevice);
+    http.addHeader("X-Device-Secret", networkSecret);
+    http.addHeader("X-Tenant-Slug", networkTenant);
+  }
 
   int status = networkJob == NetworkJob::SNAPSHOT ? http.GET() : http.POST(body);
   result.status = status;
@@ -648,7 +671,7 @@ void handleAttendanceResponse(
     return;
   }
 
-  DynamicJsonDocument response(1024);
+  AttendanceBoundedJsonDocument response(8*1024);
   DeserializationError error = deserializeJson(response, result.body);
   if (error) {
     if (result.status == 401) {
@@ -720,7 +743,7 @@ void prepareAttendanceRequest() {
     return;
   }
 
-  StaticJsonDocument<384> request;
+  AttendanceBoundedJsonDocument request(8*1024);
   request["event_id"] = pendingEventId;
   request["credential_type"] = "rfid";
   request["credential"] = pendingUid;
@@ -728,24 +751,9 @@ void prepareAttendanceRequest() {
   pendingRequestBody = "";
   serializeJson(request, pendingRequestBody);
   pendingQueued = false;
-  String occurrence;
-  String decision = hybrid.validate(pendingUid, attendanceClockValid(), time(nullptr), occurrence);
-  if (decision == "LOCAL_DUPLICATE") {
-    showAttendanceFeedback("SUDAH TERSIMPAN", "", FeedbackTone::INFO);
-    clearPendingTap(); return;
-  }
-  // Cache-valid taps are persisted before HTTP, closing timeout/reboot loss windows.
-  if (decision == "VALID") {
-    pendingQueued = hybrid.append(pendingRequestBody, occurrence, time(nullptr));
-    if (!pendingQueued) {
-      if (WiFi.status() != WL_CONNECTED || !backendReachable || networkBusy) {
-        showAttendanceFeedback("QUEUE PENUH", "BELUM TERSIMPAN", FeedbackTone::ERROR);
-        clearPendingTap(); return;
-      }
-      // Immediate online authority remains usable; a failed send cannot claim offline success.
-    }
-  }
-  transitionTo(RuntimeState::SENDING);
+  // ALL taps use the same cache/queue path. No online HTTP escape hatch, including
+  // queue-full and write failure. BERHASIL means durable local acceptance only.
+  queuePendingTap();
 }
 
 void clearPendingTap() {
@@ -754,7 +762,7 @@ void clearPendingTap() {
   pendingEventId = "";
   pendingCapturedAt = "";
   pendingUid = "";
-  transitionTo(RuntimeState::RESULT);
+  transitionTo(RuntimeState::READY);
 }
 
 void queuePendingTap() {
@@ -762,20 +770,22 @@ void queuePendingTap() {
     showAttendanceFeedback("AKSES DITOLAK", "HUBUNGI ADMIN", FeedbackTone::ERROR);
     clearPendingTap(); return;
   }
-  if (pendingQueued) {
-    showAttendanceFeedback("ABSEN TERSIMPAN", "OFFLINE", FeedbackTone::SUCCESS);
-    clearPendingTap(); return;
-  }
+  String name = hybrid.displayName(pendingUid);
+  if (name.length() == 0) name = "ABSENSI";
   String occurrence;
   String decision = hybrid.validate(pendingUid, attendanceClockValid(), time(nullptr), occurrence);
   if (decision == "VALID") {
     if (hybrid.append(pendingRequestBody, occurrence, time(nullptr))) {
-      showAttendanceFeedback("ABSEN TERSIMPAN", "OFFLINE", FeedbackTone::SUCCESS);
+      showAttendanceFeedback(name, "BERHASIL", FeedbackTone::SUCCESS);
     } else {
       showAttendanceFeedback(hybrid.healthy ? "QUEUE PENUH" : "QUEUE RUSAK", "BELUM TERSIMPAN", FeedbackTone::ERROR);
     }
   } else if (decision == "LOCAL_DUPLICATE") {
-    showAttendanceFeedback("SUDAH TERSIMPAN", "", FeedbackTone::INFO);
+    showAttendanceFeedback(name, "SUDAH ABSEN", FeedbackTone::INFO);
+  } else if (decision == "NOT_ELIGIBLE") {
+    showAttendanceFeedback(name, "BUKAN PESERTA", FeedbackTone::ERROR);
+  } else if (decision == "NO_ACTIVE_SESSION") {
+    showAttendanceFeedback(name, "TIDAK ADA SESI", FeedbackTone::ERROR);
   } else if (decision == "TIME_INVALID") {
     showAttendanceFeedback("WAKTU TDK VALID", "BUTUH INTERNET", FeedbackTone::ERROR);
   } else if (decision == "NO_CACHE") {
@@ -784,20 +794,11 @@ void queuePendingTap() {
     showAttendanceFeedback("DATA KADALUARSA", "SAMBUNG INTERNET", FeedbackTone::ERROR);
   } else {
     HttpResult local = {true, 200, ""};
-    StaticJsonDocument<128> response; response["code"] = decision;
+    AttendanceBoundedJsonDocument response(8*1024); response["code"] = decision;
     serializeJson(response, local.body);
     handleAttendanceResponse(local, pendingCapturedAt, pendingUid);
   }
   clearPendingTap();
-}
-
-void sendPendingAttendance() {
-  if (networkBusy && networkJob == NetworkJob::TAP) return;
-  if (backendReachable && !attendanceAccessBlocked && startNetworkJob(NetworkJob::TAP, "/attendance/events", pendingRequestBody)) {
-    showScreen("MENGIRIM", "ABSENSI");
-  } else {
-    queuePendingTap();
-  }
 }
 
 void consumeNetworkResult() {
@@ -806,27 +807,16 @@ void consumeNetworkResult() {
   networkBusy = false; networkJob = NetworkJob::NONE; networkBody = "";
   if (networkRevision != configRevision) { networkResult.body = ""; return; }
   HttpResult result = std::move(networkResult);
+  if (completed==NetworkJob::PAIRING) { acceptPairingResponse(result); return; }
   backendReachable = result.transportOk && result.status < 500;
   if (result.status == 401 || result.status == 403) attendanceAccessBlocked = true;
-  if (completed == NetworkJob::TAP) {
-    if (!result.transportOk || result.status >= 500 || result.status == 408 || result.status == 429) {
-      queuePendingTap(); // Same original event_id and captured_at, including timeout-after-commit.
-    } else {
-      DynamicJsonDocument response(1024);
-      if (pendingQueued && !deserializeJson(response, result.body)) {
-        String code = response["code"].as<String>();
-        ReplayDisposition decision = attendanceReplayDisposition(true, result.status, code.c_str());
-        if (decision == ReplayDisposition::RECONCILED) hybrid.finish(pendingEventId, "reconciled", code);
-        else if (decision == ReplayDisposition::QUARANTINE) hybrid.finish(pendingEventId, "quarantined", code);
-      }
-      handleAttendanceResponse(result, pendingCapturedAt, pendingUid);
-      clearPendingTap();
-    }
-  } else if (completed == NetworkJob::SNAPSHOT) {
+  if (completed == NetworkJob::SNAPSHOT) {
     String snapshot, checksum;
     {
-      DynamicJsonDocument response(64 * 1024);
-      if (result.status == 200 && !deserializeJson(response, result.body) &&
+      AttendanceBoundedJsonDocument response(40*1024);
+      // ArduinoJson 7 copies strings: enforce a real allocator bound, then release
+      // the envelope and HTTP buffer before candidate/cache persistence work.
+      if (result.status == 200 && !deserializeJson(response, result.body.begin()) &&
           response["code"] == "ATTENDANCE_SNAPSHOT_READY") {
         snapshot = response["snapshot_json"].as<String>(); checksum = response["checksum"].as<String>();
       }
@@ -835,7 +825,7 @@ void consumeNetworkResult() {
     if (hybrid.installCache(snapshot, checksum)) attendanceAccessBlocked = false;
     nextCacheAttemptAt = millis() + 60000;
   } else if (completed == NetworkJob::REPLAY) {
-    DynamicJsonDocument response(1024);
+    AttendanceBoundedJsonDocument response(8*1024);
     String code;
     if (!deserializeJson(response, result.body)) code = response["code"].as<String>();
     ReplayDisposition decision = attendanceReplayDisposition(result.transportOk, result.status, code.c_str());
@@ -844,12 +834,7 @@ void consumeNetworkResult() {
     else if (decision == ReplayDisposition::QUARANTINE) saved = hybrid.finish(replayEventId, "quarantined", code);
     if (saved) {
       replayBackoffMs = 5000; nextReplayAt = millis() + 1000;
-      if (hybrid.count("pending") == 0 && runtimeState == RuntimeState::READY) {
-        if (hybrid.count("quarantined")) showAttendanceFeedback("DATA PERLU CEK",
-          "REVIEW:" + String(hybrid.count("quarantined")), FeedbackTone::ERROR);
-        else showAttendanceFeedback("SYNC SELESAI", "SISA:0", FeedbackTone::INFO);
-        transitionTo(RuntimeState::RESULT);
-      }
+      // Standby Q/R counters carry sync status; background never owns the LCD.
     } else {
       nextReplayAt = millis() + replayBackoffMs;
       replayBackoffMs = min(replayBackoffMs * 2, 300000UL);
@@ -867,15 +852,14 @@ void scheduleBackgroundNetwork() {
   }
   if (!attendanceAccessBlocked && backendReachable && hybrid.healthy && millis() >= nextReplayAt && (replayIndex = hybrid.oldestPending()) >= 0) {
     replayEventId = hybrid.eventId(replayIndex);
-    if (startNetworkJob(NetworkJob::REPLAY, "/attendance/events", hybrid.replayBody(replayIndex))) {
-      showScreen("SINKRONISASI", "SISA:" + String(hybrid.count("pending")));
-    }
+    startNetworkJob(NetworkJob::REPLAY, "/attendance/events", hybrid.replayBody(replayIndex));
     return;
   }
   sendHeartbeatIfDue();
 }
 
 void updateReady() {
+  updateResultFeedback();
   if (WiFi.status() != WL_CONNECTED) {
     if (!wifiAttemptActive) beginWifiAttempt();
     else if (millis() - wifiAttemptStartedAt >= WIFI_CONNECT_TIMEOUT_MS) {
@@ -919,7 +903,7 @@ void processRuntimeState() {
       hybrid.load(apiBaseUrl + "|" + tenantSlug + "|" + deviceId);
       printRuntimeConfigStatus();
       if (!runtimeConfigReady) {
-        showProvisioningRequired();
+        startPhoneSetup();
         break;
       }
       if (WiFi.status() == WL_CONNECTED) {
@@ -950,7 +934,8 @@ void processRuntimeState() {
       break;
 
     case RuntimeState::SENDING:
-      sendPendingAttendance();
+      // Legacy state is never entered by the local-first tap path.
+      transitionTo(RuntimeState::READY);
       break;
 
     case RuntimeState::RESULT:
@@ -961,6 +946,8 @@ void processRuntimeState() {
       break;
   }
 }
+
+#include "AttendancePhoneSetup.h"
 
 void setup() {
   Serial.begin(115200);
@@ -981,11 +968,19 @@ void setup() {
   WiFi.persistent(false);
   WiFi.setAutoReconnect(false);
   WiFi.mode(WIFI_STA);
+  keypad.setHoldTime(3000);
 
   runtimeState = RuntimeState::BOOT;
 }
 
 void loop() {
+  static bool setupHoldConsumed=false;
+  setupKey=keypad.getKey();
+  if (keypad.getState()==RELEASED || keypad.getState()==IDLE) setupHoldConsumed=false;
+  if (!setupMode && !networkBusy && !setupHoldConsumed && keypad.getState()==HOLD && keypad.key[0].kchar=='D') {
+    setupHoldConsumed=true; startPhoneSetup();
+  }
+  if (setupMode) { updatePhoneSetup(); consumeNetworkResult(); delay(1); return; }
   handleSerialProvisioning();
   bool connected = WiFi.status() == WL_CONNECTED;
   if (connected && !lastWifiConnected) {

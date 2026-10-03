@@ -623,6 +623,15 @@
       "notes": "additive attendance occurrence, result, event, multi-unit and device-security foundation",
       "recommended_action": "APPLY_ORIGINAL",
       "execution_order": 220
+    },
+    {
+      "filename": "093_attendance_device_pairing.sql",
+      "checksum": "b7852c4741dbf99322d8dc45ce56bc63fa685d5a6e84611334ef4ec96030bf28",
+      "status": "NOT_APPLIED",
+      "evidence": "guarded non-production UP/DOWN/UP and real PostgreSQL fixture/rollback lifecycle tests",
+      "notes": "nullable device attendance mode and hashed one-time pairing only; no historical backfill",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 230
     }
   ]
 }

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import api from "../services/api";
 
 import AppShell from "../layouts/AppShell";
+import GuruSessionAttendance from "../components/GuruSessionAttendance";
 import { useActiveUnit } from "../context/ActiveUnitContext";
 
 import Card from "../components/ui/Card";
@@ -150,8 +151,9 @@ function AbsensiGuruPage() {
   }, [activeUnitId, bulan, tahun]);
 
   useEffect(() => {
-    loadScopedAttendance();
-    return () => { requestIdRef.current += 1; };
+    let cancelled=false;
+    queueMicrotask(()=>{if(!cancelled)loadScopedAttendance();});
+    return () => {cancelled=true; requestIdRef.current += 1;};
   }, [loadScopedAttendance]);
 
 
@@ -214,6 +216,7 @@ function AbsensiGuruPage() {
   return (
 
     <AppShell title="Absensi Guru" breadcrumb="Akademik / Absensi Guru">
+      {activeUnitId && <GuruSessionAttendance key={`${activeUnitId}:${bulan}:${tahun}`} unitId={activeUnitId} month={bulan} year={tahun} guru={guru}/>}
 
       <AkademikResponsiveStyles />
 

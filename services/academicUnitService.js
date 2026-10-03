@@ -189,7 +189,7 @@ async function getAttendanceSessionInUnit(
   tenantId,
   sessionId,
   unitId,
-  { requireActive = true } = {},
+  { requireActive = true, allowParticipantUnit = false } = {},
   client = pool,
 ) {
   const parsedSessionId = Number(sessionId);
@@ -205,7 +205,11 @@ async function getAttendanceSessionInUnit(
     [tenantId, parsedSessionId],
   );
   const session = rows[0];
-  if (!session || Number(session.unit_id) !== Number(unitId)) {
+  const participant = session && allowParticipantUnit && (await client.query(
+    "SELECT 1 FROM attendance_session_units WHERE tenant_id=$1 AND session_id=$2 AND unit_id=$3",
+    [tenantId,parsedSessionId,unitId],
+  )).rows.length>0;
+  if (!session || (Number(session.unit_id) !== Number(unitId) && !participant)) {
     throw academicError(
       "Sesi absensi tidak berada pada unit aktif",
       403,

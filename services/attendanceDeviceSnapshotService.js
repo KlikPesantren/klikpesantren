@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const pool = require("../db");
+const { canonicalAttendanceUid, attendanceUidSql } = require("../utils/attendanceRfidUid");
 
 const SNAPSHOT_SCHEMA_VERSION = 1;
 const SNAPSHOT_REFRESH_SECONDS = 15 * 60;
@@ -84,15 +85,17 @@ async function querySnapshotSource(db, tenantId, unitId, generatedAt) {
     [tenantId, unitId, generatedAt, SNAPSHOT_VALIDITY_DAYS],
   );
   const credentials = await db.query(
-    "SELECT s.uid_rfid AS value,(SELECT COUNT(*)::int FROM santri other " +
-    "WHERE other.tenant_id=s.tenant_id AND other.uid_rfid=s.uid_rfid) AS identity_count," +
+    "WITH identities AS (SELECT s.id,s.tenant_id,s.nama,s.status," + attendanceUidSql("s.uid_rfid") +
+    " AS value FROM santri s WHERE s.tenant_id=$1 AND s.uid_rfid IS NOT NULL AND BTRIM(s.uid_rfid)<>'') " +
+    "SELECT s.value,MIN(s.nama) AS display_name,(SELECT COUNT(*)::int FROM identities other " +
+    "WHERE other.tenant_id=s.tenant_id AND other.value=s.value) AS identity_count," +
     "BOOL_OR(su.status='active' AND su.left_at IS NULL " +
     "AND LOWER(TRIM(COALESCE(s.status,'aktif'))) IN('aktif','active','') AND EXISTS(" +
     "SELECT 1 FROM santri_kelas_enrollments e WHERE e.tenant_id=su.tenant_id " +
     "AND e.santri_unit_id=su.id AND e.status='active' AND e.end_date IS NULL)) AS eligible " +
-    "FROM santri s JOIN santri_units su ON su.tenant_id=s.tenant_id AND su.santri_id=s.id " +
-    "WHERE s.tenant_id=$1 AND su.unit_id=$2 AND s.uid_rfid IS NOT NULL AND BTRIM(s.uid_rfid)<>'' " +
-    "GROUP BY s.tenant_id,s.uid_rfid ORDER BY s.uid_rfid LIMIT 201",
+    "FROM identities s JOIN santri_units su ON su.tenant_id=s.tenant_id AND su.santri_id=s.id " +
+    "WHERE s.tenant_id=$1 AND su.unit_id=$2 " +
+    "GROUP BY s.tenant_id,s.value ORDER BY value LIMIT 201",
     [tenantId, unitId],
   );
   return {
@@ -128,7 +131,8 @@ function buildAttendanceSnapshot(source, context, generatedAt = new Date()) {
       end_epoch: Math.floor(new Date(row.window_end).getTime() / 1000),
     })),
     credentials: source.credentials.map((row) => ({
-      type: "rfid", person_type: "santri", value: row.value,
+      type: "rfid", person_type: "santri", value: canonicalAttendanceUid(row.value),
+      display_name: Number(row.identity_count) === 1 ? String(row.display_name || "").slice(0, 80) : "",
       status: Number(row.identity_count) === 1 ? "valid" : "ambiguous",
       eligible: Number(row.identity_count) === 1 && row.eligible === true,
     })),

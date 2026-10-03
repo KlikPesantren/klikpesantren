@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { canonicalAttendanceUid } from "../utils/attendanceRfidUid";
 import api from "../services/api";
 import AppShell from "../layouts/AppShell";
 import Card from "../components/ui/Card";
@@ -187,7 +188,7 @@ function SantriPage() {
     setSubmitMessage(null);
     setForm({
       ...form,
-      [e.target.name]: e.target.value,
+      [e.target.name]: e.target.name === "uid_rfid" ? canonicalAttendanceUid(e.target.value) : e.target.value,
     });
   };
 

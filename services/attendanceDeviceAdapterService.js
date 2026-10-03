@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const pool = require("../db");
 const {
   applyAttendanceResult,
+  getProtectedLegacyResult,
   assertParticipantEligible,
   recordAttendanceEvent,
   resolveOccurrence,
@@ -120,7 +121,7 @@ async function inTransaction(work, client = null) {
   }
 }
 
-async function findCandidateSessions(client, tenantId, capturedAt) {
+async function findCandidateSessions(client, tenantId, capturedAt, deviceUnitId) {
   const { rows } = await client.query(
     `WITH tenant_clock AS (
        SELECT attendance_timezone,
@@ -131,6 +132,8 @@ async function findCandidateSessions(client, tenantId, capturedAt) {
      FROM attendance_sessions s
      CROSS JOIN tenant_clock clock
      WHERE s.tenant_id=$1 AND s.active=true
+       AND (s.unit_id=$3 OR EXISTS(SELECT 1 FROM attendance_session_units su
+         WHERE su.tenant_id=s.tenant_id AND su.session_id=s.id AND su.unit_id=$3))
        AND s.start_time IS NOT NULL AND s.end_time IS NOT NULL AND s.start_time<s.end_time
        AND $2::timestamptz >= ((clock.local_date+s.start_time) AT TIME ZONE clock.attendance_timezone)
        AND $2::timestamptz < ((clock.local_date+s.end_time) AT TIME ZONE clock.attendance_timezone)
@@ -142,7 +145,7 @@ async function findCandidateSessions(client, tenantId, capturedAt) {
              AND w.day_of_week=EXTRACT(DOW FROM clock.local_date)::int)
        )
      ORDER BY s.id`,
-    [tenantId, capturedAt],
+    [tenantId, capturedAt, deviceUnitId],
   );
   return rows;
 }
@@ -272,7 +275,7 @@ async function ingestOnlineRfidAttendance(
       return rejectAndRecord(db, context, "UNKNOWN_CREDENTIAL", "Kartu RFID tidak dikenal", "rejected_unknown_credential", 200, recordEvent);
     }
 
-    const sessionCandidates = await findSessions(db, parsedTenantId, input.capturedAt);
+    const sessionCandidates = await findSessions(db, parsedTenantId, input.capturedAt, Number(device.unit_id));
     const occurrences = [];
     try {
       for (const session of sessionCandidates) {
@@ -329,8 +332,10 @@ async function ingestOnlineRfidAttendance(
        FOR UPDATE`,
       [parsedTenantId, context.occurrence.id, context.person.type, context.person.id],
     );
+    const protectedLegacy = context.person.type === "santri"
+      ? await getProtectedLegacyResult(db,parsedTenantId,context.person.id,context.occurrence) : null;
     const decision = decideTransition({
-      current: currentResult.rows[0] || null,
+      current: protectedLegacy || currentResult.rows[0] || null,
       nextStatus: "H",
       source: "device",
       capturedAt: input.capturedAt,
@@ -346,7 +351,7 @@ async function ingestOnlineRfidAttendance(
       ok: mapped.ok,
       person: context.person,
       session: context.occurrence,
-      status: decision.changed ? "H" : currentResult.rows[0]?.status || "H",
+      status: decision.changed ? "H" : protectedLegacy?.status || currentResult.rows[0]?.status || "H",
       capturedAt: input.capturedAt,
     });
     const recorded = await recordAdapterEvent(db, context, response, mapped.outcome, recordEvent);

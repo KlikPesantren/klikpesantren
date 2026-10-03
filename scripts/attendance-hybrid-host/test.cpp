@@ -8,8 +8,12 @@ template <> struct Converter<String> {
 };
 }
 #include "AttendanceHybridRuntime.h"
+#include "tap-handler.h"
 #include <cassert>
 #include <iostream>
+#include <chrono>
+#include <vector>
+#include <algorithm>
 
 const int64_t NOW = 1800000000;
 String snapshot() {
@@ -33,6 +37,39 @@ int main() {
   // Synthetic bytes prove case, leading-zero and byte-order compatibility.
   const String canonicalUid = readRfidUid();
   assert(canonicalUid == "0ab102ff");
+  reset(); foreground.load("foreground-test");
+  JsonDocument foregroundCache; deserializeJson(foregroundCache, snapshot());
+  foregroundCache["credentials"].to<JsonArray>();
+  for (int i=0;i<100;i++) {
+    char uid[9]; snprintf(uid,sizeof(uid),"%08x",i);
+    auto c=foregroundCache["credentials"].as<JsonArray>().add<JsonObject>();
+    c["type"]="rfid"; c["person_type"]="santri"; c["value"]=uid;
+    c["status"]="valid"; c["eligible"]=true; c["display_name"]="PESERTA UJI";
+  }
+  std::string foregroundSnapshot; serializeJson(foregroundCache,foregroundSnapshot);
+  assert(foreground.installCache(foregroundSnapshot,AttendanceDualSlotStore::sha256(foregroundSnapshot)));
+  std::vector<double> foregroundMs;
+  for(int i=0;i<100;i++) {
+    char uid[9]; snprintf(uid,sizeof(uid),"%08x",i); pendingUid=uid;
+    JsonDocument body; deserializeJson(body,request(std::to_string(i).c_str())); body["credential"]=pendingUid;
+    std::string rawBody; serializeJson(body,rawBody); pendingRequestBody=rawBody;
+    hostReady=false;
+    auto started=std::chrono::steady_clock::now(); queuePendingTap();
+    foregroundMs.push_back(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count());
+    assert(hostReady && networkBusy && hostLine1=="PESERTA UJI" && hostLine2=="BERHASIL");
+    assert(foreground.count("pending")==static_cast<unsigned>(i+1));
+  }
+  AttendanceHybridRuntime foregroundReboot(foregroundPrefs); foregroundReboot.load("foreground-test");
+  assert(foregroundReboot.healthy && foregroundReboot.count("pending")==100);
+  std::sort(foregroundMs.begin(),foregroundMs.end());
+  std::cout << "HOST actual queuePendingTap handler, mocked flash/LCD/network: 100 cards median_ms="
+    << foregroundMs[50] << " p95_ms=" << foregroundMs[94] << " network_busy=true next_ready=100/100 pending=100\n";
+  pendingUid="00000000"; hostLine2=""; queuePendingTap(); assert(hostLine2=="SUDAH ABSEN");
+  hostTrusted=false; queuePendingTap(); assert(hostLine2=="BUTUH INTERNET"); hostTrusted=true;
+  pendingUid="00000100";
+  foreground.cache["credentials"][0]["value"]=pendingUid;
+  hostFs.shortWrite=true; hostLine2=""; queuePendingTap();
+  assert(hostLine2!="BERHASIL" && foreground.count("pending")==100); hostFs.shortWrite=false;
   reset(); Preferences uidPrefs; AttendanceHybridRuntime uidRuntime(uidPrefs); uidRuntime.load("uid-test");
   JsonDocument uidCache; deserializeJson(uidCache, snapshot());
   uidCache["credentials"][0]["value"] = canonicalUid;
@@ -40,7 +77,9 @@ int main() {
   assert(uidRuntime.installCache(uidSnapshot, AttendanceDualSlotStore::sha256(uidSnapshot)));
   String uidOccurrence;
   assert(uidRuntime.validate(canonicalUid, true, NOW, uidOccurrence) == "VALID");
-  assert(uidRuntime.validate("0AB102FF", true, NOW, uidOccurrence) == "UNKNOWN_CREDENTIAL");
+  assert(uidRuntime.validate("0AB102FF", true, NOW, uidOccurrence) == "VALID");
+  assert(canonicalAttendanceUid(" 0AB102FF ") == canonicalUid);
+  assert(canonicalAttendanceUid("TEST-CARD") == "TEST-CARD");
   JsonDocument uidRequest; deserializeJson(uidRequest, request("uid-event"));
   uidRequest["credential"] = canonicalUid;
   std::string uidBody; serializeJson(uidRequest, uidBody);
@@ -114,9 +153,26 @@ int main() {
   hostFs.files[active == "a" ? "/att_queue_a" : "/att_queue_b"] += "corrupt";
   AttendanceHybridRuntime corrupt(p); corrupt.load("scope-a"); assert(!corrupt.healthy);
   reset(); Preferences fullPrefs; AttendanceHybridRuntime full(fullPrefs); full.load("full");
-  for (unsigned i = 0; i < ATTENDANCE_QUEUE_ITEMS; i++) assert(full.append(request(std::to_string(i).c_str()), "different", NOW + i));
+  std::vector<double> durableMs;
+  auto totalStart = std::chrono::steady_clock::now();
+  for (unsigned i = 0; i < 100; i++) {
+    auto started = std::chrono::steady_clock::now();
+    assert(full.append(request(std::to_string(i).c_str()), "different", NOW + i));
+    durableMs.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-started).count());
+  }
+  double totalMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-totalStart).count();
+  assert(full.count("pending") == 100);
+  AttendanceHybridRuntime hundredReboot(fullPrefs); hundredReboot.load("full");
+  assert(hundredReboot.healthy && hundredReboot.count("pending") == 100);
+  std::sort(durableMs.begin(), durableMs.end());
+  std::cout << "HOST in-memory filesystem ONLY (not ESP32 flash/LCD timings): 100 durable appends median_ms="
+    << durableMs[50] << " p95_ms=" << durableMs[94] << " total_ms=" << totalMs << " pending=100 capacity=" << ATTENDANCE_QUEUE_ITEMS << "\n";
+  for (unsigned i = 100; i < ATTENDANCE_QUEUE_ITEMS; i++) assert(full.append(request(std::to_string(i).c_str()), "different", NOW + i));
   assert(!full.append(request("overflow"), "different", NOW + 100));
   assert(full.count("pending") == ATTENDANCE_QUEUE_ITEMS);
+  assert(full.queueHeapPeak() <= 64*1024);
+  std::cout << "Bounded ArduinoJson 7 allocator: queue_peak_bytes=" << full.queueHeapPeak()
+    << " cache_peak_bytes=" << full.cacheHeapPeak() << " slots_bytes=" << hostFs.files["/att_queue_a"].size()+hostFs.files["/att_queue_b"].size() << "\n";
   assert(full.append(request("never"), "different", NOW + 700000) == false); // Never prune unsynced old items.
   reset(); hostFs.mounted = false; Preferences corruptFs;
   AttendanceHybridRuntime fsFailure(corruptFs); fsFailure.load("scope");
@@ -132,5 +188,22 @@ int main() {
   assert(attendanceReplayDisposition(true, 403, "FEATURE_DISABLED") == ReplayDisposition::ACCESS_BLOCKED);
   assert(attendanceReplayDisposition(true, 401, "DEVICE_AUTH_INVALID") == ReplayDisposition::ACCESS_BLOCKED);
   assert(!attendanceWindowActive(NOW + 3600, NOW, NOW + 3600, "active"));
+  {
+    AttendanceJsonAllocator bounded(128);
+    void* block=bounded.allocate(64);assert(block);
+    assert(!bounded.allocate(128));assert(!bounded.reallocate(block,256));
+    assert(bounded.used()<=128);bounded.deallocate(block);assert(bounded.used()==0);
+  }
+  reset();Preferences boundedPrefs;AttendanceHybridRuntime boundedQueue(boundedPrefs);boundedQueue.load("synthetic-size-bound");
+  for(unsigned i=0;i<128;i++){
+    JsonDocument r;r["event_id"]=std::string(52,'x')+std::to_string(i);
+    r["credential_type"]="rfid";r["credential"]=std::string(20,'a');
+    r["captured_at"]="2026-10-03T00:00:00Z";
+    std::string body;serializeJson(r,body);
+    assert(boundedQueue.append(String(body),String(std::string(31,'k')),NOW+i));
+  }
+  assert(boundedQueue.count("pending")==128);
+  std::cout<<"Maximum physical RC522 UID / generated-device counter fixture: 128 pending, queue_heap_peak_bytes="
+    <<boundedQueue.queueHeapPeak()<<" dual_slot_bytes="<<hostFs.files["/att_queue_a"].size()+hostFs.files["/att_queue_b"].size()<<"\n";
   std::cout << "PASS executable hybrid firmware: cache/time/eligibility/duplicate/reboot/write-failure/corruption/full/replay/isolation\n";
 }

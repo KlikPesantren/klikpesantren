@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {useActiveUnit} from "../context/ActiveUnitContext";
+import AttendanceDeviceControls from "../components/AttendanceDeviceControls";
 import AppShell from "../layouts/AppShell";
 import api from "../services/api";
 import KpiCard from "../components/ui/KpiCard";
@@ -12,33 +14,46 @@ import StatusBadge from "../components/ui/StatusBadge";
 import { Table, TableScroll, TablePagination, useClientPagination } from "../components/ui/table";
 
 function RFIDDevicePage() {  const [devices, setDevices] = useState([]);
+  const {activeUnitId,units}=useActiveUnit();
+  const requestId=useRef(0);
+  const unitRef=useRef(activeUnitId);
+  useLayoutEffect(()=>{unitRef.current=activeUnitId;},[activeUnitId]);
+  const [deviceUnitId,setDeviceUnitId]=useState(null);
+  const scopedDevices=deviceUnitId===activeUnitId ? devices : [];
+  const [loadError,setLoadError]=useState("");
   const [tableSearch, setTableSearch] = useState("");
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    if(unitRef.current!==activeUnitId)return;
+    const id=++requestId.current;
+    if(!activeUnitId){setDevices([]);return;}
     try {
-      const res = await api.get("/devices");
-      setDevices(res.data.data || []);
+      const res = await api.get("/rfid/device/attendance",{params:{unit_id:activeUnitId}});
+      if(id===requestId.current && unitRef.current===activeUnitId){setDeviceUnitId(activeUnitId);setDevices(res.data.data || []);setLoadError("");}
     } catch (err) {
-      console.error(err);
+      if(id===requestId.current){setDevices([]);setLoadError(err.response?.data?.error || "Gagal memuat perangkat");}
     }
-  };
+  },[activeUnitId]);
 
   useEffect(() => {
-    loadData();
+    queueMicrotask(loadData);
 
     const interval = setInterval(loadData, 10000);
 
-    return () => clearInterval(interval);
-  }, []);
+    // Epoch invalidation intentionally happens on cleanup, not a captured request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {requestId.current++;clearInterval(interval);};
+  }, [loadData]);
 
   const filteredDevices = useMemo(() => {
     const q = tableSearch.trim().toLowerCase();
-    if (!q) return devices;
-    return devices.filter((d) =>
+    const current=deviceUnitId===activeUnitId ? devices : [];
+    if (!q) return current;
+    return current.filter((d) =>
       [d.id, d.device_id, d.status, d.ip_address, d.firmware_version]
         .some((field) => String(field || "").toLowerCase().includes(q)),
     );
-  }, [devices, tableSearch]);
+  }, [devices, tableSearch,deviceUnitId,activeUnitId]);
 
   const { page, setPage, paginatedItems, totalItems, pageSize } = useClientPagination(filteredDevices);
 
@@ -46,18 +61,21 @@ function RFIDDevicePage() {  const [devices, setDevices] = useState([]);
     setPage(1);
   }, [tableSearch, setPage]);
 
-  const online = devices.filter((d) => d.status === "online").length;
-  const offline = devices.filter((d) => d.status !== "online").length;
-  const synced = devices.filter((d) => d.last_sync).length;
+  const online = scopedDevices.filter((d) => d.status === "online").length;
+  const offline = scopedDevices.filter((d) => d.status !== "online").length;
+  const synced = scopedDevices.filter((d) => d.last_sync).length;
 
   return (
     <AppShell
-      title="RFID Devices"
-      description="Monitoring seluruh RFID EDC"
-      breadcrumb="Keamanan / RFID Devices"
+      title="Perangkat EDC"
+      description="Monitoring dan pengelolaan perangkat pada unit aktif"
+      breadcrumb="RFID / Perangkat EDC"
     >
+      {!activeUnitId && <p>Pilih satu unit untuk memuat dan mengelola perangkat.</p>}
+      {loadError && <p role="alert">{loadError}</p>}
+      <AttendanceDeviceControls key={activeUnitId || "none"} unitId={activeUnitId} units={units} devices={scopedDevices} onSaved={loadData}/>
       <KpiGrid>
-        <KpiCard label="Total Device" value={formatNumber(devices.length)} accent="primary" />
+        <KpiCard label="Total Device" value={formatNumber(scopedDevices.length)} accent="primary" />
         <KpiCard label="Device Online" value={formatNumber(online)} accent="success" />
         <KpiCard label="Device Offline" value={formatNumber(offline)} accent="danger" />
         <KpiCard label="Sync" value={formatNumber(synced)} accent="info" />
@@ -111,7 +129,7 @@ function RFIDDevicePage() {  const [devices, setDevices] = useState([]);
                   {paginatedItems.map((d) => (
                     <tr key={d.id}>
                       <td>{d.id}</td>
-                      <td className="table-v3__cell--strong">{d.device_id}</td>
+                      <td className="table-v3__cell--strong">{d.nama_device || d.device_id}<br/>{d.attendance_mode || "Legacy / mode belum ditentukan"}</td>
                       <td>
                         <StatusBadge status={d.status} />
                       </td>

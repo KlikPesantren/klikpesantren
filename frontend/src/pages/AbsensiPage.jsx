@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import api from "../services/api";
 import AppShell from "../layouts/AppShell";
-import AttendanceScheduleControls from "../components/AttendanceScheduleControls";
-import AttendanceEffectiveScopeChoice from "../components/AttendanceEffectiveScopeChoice";
+import AttendanceSessionEditor from "../components/AttendanceSessionEditor";
 import Card from "../components/ui/Card";
 import SectionHeading from "../components/ui/SectionHeading";
 import StatusBadge from "../components/ui/StatusBadge";
@@ -533,61 +532,10 @@ function AbsensiPage() {
             {sessionSettingsOpen ? (
               <div className="absensi-session-settings">
                 {sessions.map((session) => (
-                  <div
-                    key={session.id}
-                    className="absensi-session-row"
-                    style={{ opacity: session.active ? 1 : 0.65 }}
-                  >
-                    <label className="absensi-session-field absensi-session-field--name">
-                      <small>Nama sesi</small>
-                      <input
-                        className="form-control-v3"
-                        value={session.display_name}
-                        onChange={(event) => updateSessionDraft(session.id, "display_name", event.target.value)}
-                      />
-                    </label>
-                    <label className="absensi-session-field">
-                      <small>Mulai</small>
-                      <input
-                        className="form-control-v3"
-                        type="time"
-                        value={session.start_time || ""}
-                        onChange={(event) => updateSessionDraft(session.id, "start_time", event.target.value)}
-                      />
-                    </label>
-                    <label className="absensi-session-field">
-                      <small>Selesai</small>
-                      <input
-                        className="form-control-v3"
-                        type="time"
-                        value={session.end_time || ""}
-                        onChange={(event) => updateSessionDraft(session.id, "end_time", event.target.value)}
-                      />
-                    </label>
-                    <label className="absensi-session-field">
-                      <small>Urutan</small>
-                      <input
-                        className="form-control-v3"
-                        type="number"
-                        value={session.sort_order}
-                        onChange={(event) => updateSessionDraft(session.id, "sort_order", event.target.value)}
-                      />
-                    </label>
-                    <label className="absensi-session-active">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(session.active)}
-                        onChange={(event) => updateSessionDraft(session.id, "active", event.target.checked)}
-                      />
-                      Aktif
-                    </label>
-                    {session.today_exists&&<AttendanceEffectiveScopeChoice value={session.effective_scope}
-                      onChange={value=>updateSessionDraft(session.id,'effective_scope',value)} disabled={sessionSaving}/>}
-                    <Button className="absensi-session-action" type="button" size="sm" onClick={() => saveSession(session)} disabled={sessionSaving || session.can_configure===false || (session.today_exists&&!session.effective_scope)}>
-                      Simpan
-                    </Button>
-                    <AttendanceScheduleControls key={`${session.id}:${activeUnitId}`} session={session} unitId={activeUnitId} units={units} onSaved={getSessions}/>
-                  </div>
+                  <AttendanceSessionEditor key={`${session.id}:${activeUnitId}`} session={session}
+                    unitId={activeUnitId} units={units} saving={sessionSaving}
+                    onChange={(field,value)=>updateSessionDraft(session.id,field,value)}
+                    onSave={()=>saveSession(session)} onScheduleSaved={getSessions}/>
                 ))}
 
                 <div className="absensi-session-row absensi-session-row--new">

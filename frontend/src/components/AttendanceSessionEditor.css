@@ -1,0 +1,42 @@
+.attendance-session-editor { min-width:0; padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-lg); background:var(--surface); container-type:inline-size; }
+.attendance-session-editor h3 { margin:0 0 var(--space-3); font-size:1rem; color:var(--text-primary); }
+.attendance-session-editor__fields { display:grid; grid-template-columns:minmax(220px,2fr) repeat(2,minmax(120px,1fr)) minmax(80px,.6fr) auto; gap:var(--space-3); align-items:end; }
+.attendance-session-editor__fields > * { min-width:0; }
+.attendance-session-editor .absensi-session-field { display:grid; gap:var(--space-1); min-width:0; }
+.attendance-session-editor .absensi-session-field > small { color:var(--text-secondary); }
+.attendance-session-editor .absensi-session-active { display:flex; align-items:center; gap:var(--space-2); min-height:38px; }
+.attendance-session-editor .form-control-v3 { width:100%; min-width:0; box-sizing:border-box; }
+.attendance-session-editor__fields small { white-space:nowrap; }
+.attendance-schedule-section { margin:var(--space-4) 0 0; padding:0; border:0; min-width:0; }
+.attendance-schedule-section legend { font-weight:600; color:var(--text-primary); }
+.attendance-schedule-helper { margin:var(--space-1) 0 var(--space-3); color:var(--text-secondary); font-size:.875rem; }
+.attendance-schedule-days { display:flex; flex-wrap:wrap; gap:var(--space-2); }
+.attendance-schedule-units { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--space-2); }
+.attendance-schedule-option { display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) var(--space-3); border:1px solid var(--border); border-radius:var(--radius-md); color:var(--text-primary); cursor:pointer; min-width:0; }
+.attendance-schedule-option:has(input:checked) { border-color:var(--primary); background:var(--neutral-subtle); }
+.attendance-schedule-option input { flex:0 0 auto; width:auto; accent-color:var(--primary); }
+.attendance-schedule-option span { overflow-wrap:anywhere; }
+.attendance-schedule-days .attendance-schedule-option { white-space:nowrap; }
+.attendance-effective-choice { display:grid; gap:var(--space-2); margin-top:var(--space-4); padding:var(--space-3); border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface-muted); }
+.attendance-effective-choice label { display:grid; gap:var(--space-2); color:var(--text-primary); }
+.attendance-effective-choice small { color:var(--text-secondary); }
+.attendance-session-editor__footer { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:var(--space-2); margin-top:var(--space-4); }
+@media(max-width:1023px) {
+  .attendance-session-editor__fields { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .attendance-session-editor__name { grid-column:1 / -1; }
+  .attendance-schedule-units { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media(max-width:639px) {
+  .attendance-session-editor { padding:var(--space-3); }
+  .attendance-session-editor__fields { grid-template-columns:minmax(0,1fr); }
+  .attendance-session-editor__footer > button { width:100%; }
+}
+@container(max-width:760px) {
+  .attendance-session-editor__fields { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .attendance-session-editor__name { grid-column:1 / -1; }
+  .attendance-schedule-units { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@container(max-width:420px) {
+  .attendance-session-editor__fields { grid-template-columns:minmax(0,1fr); }
+  .attendance-session-editor__footer > button { width:100%; }
+}

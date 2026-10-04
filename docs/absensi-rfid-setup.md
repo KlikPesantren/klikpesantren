@@ -47,7 +47,7 @@ otomatis. Kehilangan Wi-Fi biasa tidak otomatis membuka AP.
 - Superadmin tenant: pilih unit asal → RFID → Perangkat EDC → Edit / Pindah Unit
   → pilih unit tujuan → Simpan. Operator hanya boleh unit yang diotorisasi server.
 - Tidak perlu Arduino/reflash. Snapshot diperbarui otomatis saat online, maksimal
-  interval refresh normal 15 menit; jangan pakai mesin di unit baru sebelum cache
+  interval refresh normal 60 detik; jangan pakai mesin di unit baru sebelum cache
   barunya tersedia. Event antrean tetap direkonsiliasi server, bukan dipindah datanya.
 - Perangkat lama belum punya mode: pilih **Perangkat lama belum diklasifikasikan →
   Tetapkan Mode Absensi**, hanya jika benar menjalankan firmware Absensi. Device
@@ -81,6 +81,17 @@ Cold boot offline tanpa RTC **tidak menerima absensi baru**. Queue lama tetap
 tersimpan dan boleh replay setelah waktu/jaringan kembali valid.
 
 ## Aturan absensi dan larangan
+
+Saat jadwal hari ini sudah terbentuk, pilih **Berlaku Hari Ini** atau **Mulai
+Jadwal Berikutnya** secara eksplisit. Hari Ini menyesuaikan window sesi yang sama;
+sesi yang ditutup auto-Alfa dibuka kembali jika saat ini masuk window baru.
+H/I/S dan koreksi manual tetap utuh. Alfa otomatis lama bersifat sementara selama
+sesi dibuka dan difinalisasi lagi pada akhir baru. Berikutnya tidak mengubah sesi
+atau hasil hari ini. Pembatalan tidak dibuka diam-diam; penghapusan unit hari ini
+ditolak untuk menjaga histori, gunakan jadwal berikutnya.
+Refresh berjalan di background; tap tidak menunggu HTTP. Device dengan cache lama
+900 detik akan menerima interval baru setelah refresh yang sudah dijadwalkan;
+tidak perlu reflash/reboot. Kegagalan jaringan mempertahankan cache sah terakhir.
 
 H hanya dalam window; tanpa scan → auto-A server. Admin mengisi I/S/manual H;
 device tidak menimpa koreksi terlindungi. Event offline sah dapat mengoreksi

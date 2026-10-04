@@ -55,7 +55,7 @@ async function main() {
   const result = JSON.parse(payload.snapshot_json);
   assert.equal(result.authorized_unit_id, 2);
   assert.equal(result.valid_until_epoch - result.generated_epoch, 604800);
-  assert.equal(result.refresh_after_epoch - result.generated_epoch, 900);
+  assert.equal(result.refresh_after_epoch - result.generated_epoch, 60);
   assert.equal(result.windows[0].state, "cancelled");
   assert.equal(result.credentials[0].eligible, true);
   assert.deepEqual(Object.keys(result.credentials[0]).sort(), ["display_name","eligible","person_type","status","type","value"]);

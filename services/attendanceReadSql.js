@@ -26,6 +26,8 @@ function attendanceReadSql(tenantParameter = "$1") {
       ORDER BY e.id DESC LIMIT 1
     ) enrollment ON true
     WHERE r.tenant_id=${tenantParameter} AND r.person_type='santri' AND o.state<>'cancelled'
+      AND NOT (o.state='active' AND r.status='A' AND r.source='system' AND r.auto_generated
+        AND r.provenance ? 'pending_schedule_edit_event_id')
   ) SELECT * FROM canonical
   UNION ALL
   SELECT a.id::bigint,a.tenant_id,a.santri_id::bigint,a.session_id::bigint,

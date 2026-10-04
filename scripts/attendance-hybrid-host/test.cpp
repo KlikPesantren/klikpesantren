@@ -34,6 +34,22 @@ String request(const char* id) {
 }
 void reset() { hostFs = HostFs(); hostPartitionErased = false; }
 int main() {
+  // Online background installs a changed schedule; scanner never waits for HTTP.
+  reset(); Preferences editPrefs; AttendanceHybridRuntime edited(editPrefs); edited.load("schedule-edit");
+  JsonDocument oldSchedule; deserializeJson(oldSchedule,snapshot());
+  oldSchedule["windows"][0]["state"]="closed";
+  std::string oldRaw; serializeJson(oldSchedule,oldRaw);
+  assert(edited.installCache(oldRaw,AttendanceDualSlotStore::sha256(oldRaw)));
+  String selected;
+  assert(edited.validate("TEST-CARD",true,NOW,selected)=="NO_ACTIVE_SESSION");
+  oldSchedule["windows"][0]["state"]="active";
+  oldSchedule["refresh_after_epoch"]=NOW+60;
+  std::string freshRaw; serializeJson(oldSchedule,freshRaw);
+  assert(edited.installCache(freshRaw,AttendanceDualSlotStore::sha256(freshRaw)));
+  assert(edited.validate("TEST-CARD",true,NOW,selected)=="VALID");
+  assert(!edited.refreshDue(NOW+59)&&edited.refreshDue(NOW+60));
+  assert(!edited.installCache("invalid","invalid"));
+  assert(edited.validate("TEST-CARD",true,NOW,selected)=="VALID");
   // Synthetic bytes prove case, leading-zero and byte-order compatibility.
   const String canonicalUid = readRfidUid();
   assert(canonicalUid == "0ab102ff");

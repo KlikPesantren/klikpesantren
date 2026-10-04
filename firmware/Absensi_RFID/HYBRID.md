@@ -23,7 +23,7 @@ balances, payments or device credentials are exported.
 
 Limits: 200 credentials, 16 sessions, 128 windows, 24 KiB JSON. Requests beyond
 these limits fail explicitly rather than returning a truncated authoritative cache.
-Refresh is every 15 minutes and after reconnect; failed refresh retries after one
+Refresh is every 60 seconds (server metadata) and after reconnect; failed refresh retries after one
 minute and preserves the valid previous cache. Expiry is at most seven days.
 UTC windows are computed server-side from the tenant timezone, avoiding ad hoc
 timezone/DST conversion in firmware. Offline status is candidate HADIR only.

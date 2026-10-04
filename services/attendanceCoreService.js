@@ -92,6 +92,8 @@ async function resolveOccurrence({ tenantId, sessionId, occurrenceDate }, client
     const sid = requireId(sessionId, "INVALID_SESSION");
     const date = requireDate(occurrenceDate);
     await db.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`attendance-occurrence:${tenantId}:${date}`]);
+    const materialized=await db.query('SELECT * FROM attendance_occurrences WHERE tenant_id=$1 AND session_id=$2 AND occurrence_date=$3',[tenantId,sid,date]);
+    if(materialized.rows[0])return materialized.rows[0];
     const { rows } = await db.query(
       `SELECT s.id,s.unit_id,s.start_time,s.end_time,s.active,t.attendance_timezone,
               COUNT(w.day_of_week)::int AS weekday_count,
@@ -317,6 +319,10 @@ async function closeOccurrence({ tenantId, occurrenceId, now = new Date() }, cli
       [tenantId,oid],
     );
     await db.query("UPDATE attendance_occurrences SET state='closed',closed_at=$3 WHERE tenant_id=$1 AND id=$2", [tenantId,oid,now]);
+    await db.query(`UPDATE attendance_results SET provenance=(provenance-'pending_schedule_edit_event_id')||
+      jsonb_build_object('finalized_schedule_edit_event_id',provenance->'pending_schedule_edit_event_id'),updated_at=NOW()
+      WHERE tenant_id=$1 AND occurrence_id=$2 AND status='A' AND source='system' AND auto_generated=true
+        AND protected_manual=false AND provenance ? 'pending_schedule_edit_event_id'`,[tenantId,oid]);
     return { changed:true, code:"OCCURRENCE_CLOSED", inserted:inserted.rowCount };
   }, client);
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import api from "../services/api";
 import AppShell from "../layouts/AppShell";
 import AttendanceScheduleControls from "../components/AttendanceScheduleControls";
+import AttendanceEffectiveScopeChoice from "../components/AttendanceEffectiveScopeChoice";
 import Card from "../components/ui/Card";
 import SectionHeading from "../components/ui/SectionHeading";
 import StatusBadge from "../components/ui/StatusBadge";
@@ -326,6 +327,7 @@ function AbsensiPage() {
         sort_order: Number(session.sort_order),
         active: Boolean(session.active),
         unit_id: activeUnitId,
+        effective_scope: session.effective_scope||undefined,
       });
       await getSessions();
       await getAbsensi(bulan, tahun);
@@ -579,7 +581,9 @@ function AbsensiPage() {
                       />
                       Aktif
                     </label>
-                    <Button className="absensi-session-action" type="button" size="sm" onClick={() => saveSession(session)} disabled={sessionSaving || session.can_configure===false}>
+                    {session.today_exists&&<AttendanceEffectiveScopeChoice value={session.effective_scope}
+                      onChange={value=>updateSessionDraft(session.id,'effective_scope',value)} disabled={sessionSaving}/>}
+                    <Button className="absensi-session-action" type="button" size="sm" onClick={() => saveSession(session)} disabled={sessionSaving || session.can_configure===false || (session.today_exists&&!session.effective_scope)}>
                       Simpan
                     </Button>
                     <AttendanceScheduleControls key={`${session.id}:${activeUnitId}`} session={session} unitId={activeUnitId} units={units} onSaved={getSessions}/>

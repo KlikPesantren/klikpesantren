@@ -1,0 +1,56 @@
+// Fresh disposable fixtures on the guarded non-production branch; outer rollback.
+const fs=require('node:fs'),assert=require('node:assert/strict'),crypto=require('node:crypto');
+const {Client}=require('pg'),env=require('dotenv').parse(fs.readFileSync(process.env.ATTENDANCE_REHEARSAL_ENV));
+const endpoint=h=>h.match(/^(ep-[a-z0-9-]+?)(?:-pooler)?\./)?.[1];
+async function main(){assert.equal(endpoint(new URL(env.DATABASE_URL).hostname),env.EXPECTED_REHEARSAL_ENDPOINT_ID);
+assert.notEqual(endpoint(new URL(env.DATABASE_URL).hostname),endpoint(process.env.DB_HOST));
+const db=new Client({connectionString:env.DATABASE_URL,ssl:{rejectUnauthorized:false}});await db.connect();
+const id=async(sql,p)=>(await db.query(sql,p)).rows[0].id;
+const core=require('../services/attendanceCoreService'),edit=require('../services/attendanceScheduleEditService');
+const {attendanceReadSql}=require('../services/attendanceReadSql');
+try{await db.query('BEGIN');await db.query('SET LOCAL statement_timeout=20000');
+const suffix=crypto.randomBytes(8).toString('hex');
+const tenant=await id("INSERT INTO tenants(slug,nama,status) VALUES($1,'SYNTHETIC SCHEDULE','active') RETURNING id",[`schedule-${suffix}`]);
+const unit=await id("INSERT INTO unit_pendidikan(tenant_id,kode,nama,unit_type,preset_key) VALUES($1,'TEST','SYNTHETIC','CUSTOM','custom') RETURNING id",[tenant]);
+const unitB=await id("INSERT INTO unit_pendidikan(tenant_id,kode,nama,unit_type,preset_key) VALUES($1,'TESTB','SYNTHETIC B','CUSTOM','custom') RETURNING id",[tenant]);
+const actor=await id("INSERT INTO users(tenant_id,username,role,status) VALUES($1,$2,'superadmin','Aktif') RETURNING id",[tenant,`schedule-${suffix}`]);
+const session=await id("INSERT INTO attendance_sessions(tenant_id,unit_id,code,display_name,start_time,end_time) VALUES($1,$2,'TEST','SYNTHETIC','11:00','13:00') RETURNING id",[tenant,unit]);
+await core.setSessionAdditionalUnits({tenantId:tenant,sessionId:session,unitIds:[unitB]},db);
+const date=(await db.query("SELECT TO_CHAR(NOW() AT TIME ZONE 'Asia/Jakarta','YYYY-MM-DD') d")).rows[0].d;
+const occurrence=await core.resolveOccurrence({tenantId:tenant,sessionId:session,occurrenceDate:date},db);
+const people=[];const klass=await id("INSERT INTO kelas(tenant_id,unit_id,nama_kelas) VALUES($1,$2,'SYNTHETIC') RETURNING id",[tenant,unit]);
+for(let i=0;i<5;i++){const person=await id("INSERT INTO santri(tenant_id,nama,status) VALUES($1,'SYNTHETIC','aktif') RETURNING id",[tenant]);people.push(person);
+const member=await id('INSERT INTO santri_units(tenant_id,santri_id,unit_id) VALUES($1,$2,$3) RETURNING id',[tenant,person,unit]);
+await db.query('INSERT INTO santri_kelas_enrollments(tenant_id,santri_unit_id,kelas_id) VALUES($1,$2,$3)',[tenant,member,klass]);}
+for(let i=0;i<4;i++)await core.applyAttendanceResult({tenantId:tenant,occurrenceId:occurrence.id,personType:'santri',personId:people[i],nextStatus:['H','I','S','H'][i],source:i===0?'device':'admin',adminExplicit:true,actorUserId:actor,effectiveAt:occurrence.window_start},db);
+await core.closeOccurrence({tenantId:tenant,occurrenceId:occurrence.id,now:occurrence.window_end},db);
+const prior=(await db.query("SELECT * FROM attendance_results WHERE tenant_id=$1 AND (protected_manual OR status='H') ORDER BY id",[tenant])).rows;
+await db.query('SAVEPOINT future');const old=await edit.loadTodayForEdit(db,tenant,session,'NEXT');
+await db.query("UPDATE attendance_sessions SET start_time='12:00',end_time='14:30' WHERE tenant_id=$1 AND id=$2",[tenant,session]);
+await edit.reconcileToday(db,{tenantId:tenant,sessionId:session,actorUserId:actor,effectiveScope:'NEXT',before:old});
+assert.deepEqual((await db.query('SELECT * FROM attendance_occurrences WHERE id=$1',[occurrence.id])).rows[0],occurrence.state==='active'?{...occurrence,state:'closed',closed_at:new Date(occurrence.window_end)}:occurrence);
+await db.query('ROLLBACK TO SAVEPOINT future');
+await assert.rejects(()=>edit.loadTodayForEdit(db,tenant,session,undefined),e=>e.code==='SCHEDULE_EFFECTIVE_SCOPE_REQUIRED');
+const before=await edit.loadTodayForEdit(db,tenant,session,'TODAY');
+await db.query("UPDATE attendance_sessions SET start_time='12:00',end_time='14:30' WHERE tenant_id=$1 AND id=$2",[tenant,session]);
+const at=await db.query("SELECT ($1::date+TIME '13:05') AT TIME ZONE 'Asia/Jakarta' now",[date]);
+const changed=await edit.reconcileToday(db,{tenantId:tenant,sessionId:session,actorUserId:actor,effectiveScope:'TODAY',before,now:at.rows[0].now});assert(changed.reopened);
+const payload=await require('../services/attendanceDeviceSnapshotService').buildSnapshotPayload({tenantId:tenant,
+  device:{tenant_id:tenant,unit_id:unit,enabled:true},now:at.rows[0].now},db);
+const snapshot=JSON.parse(payload.snapshot_json);assert.equal(snapshot.refresh_after_epoch-snapshot.generated_epoch,60);
+assert(snapshot.windows.some(w=>w.session_id===Number(session)&&w.state==='active'&&w.start_epoch<=snapshot.generated_epoch&&snapshot.generated_epoch<w.end_epoch));
+const candidates=await require('../services/attendanceDeviceAdapterService').findCandidateSessions(db,tenant,at.rows[0].now,unitB);
+assert.equal(candidates.length,1);assert.equal(Number(candidates[0].id),Number(session));
+assert.equal((await require('../services/attendanceDeviceAdapterService').findCandidateSessions(db,tenant,at.rows[0].now,unitB+999999)).length,0);
+assert.deepEqual((await db.query("SELECT * FROM attendance_results WHERE tenant_id=$1 AND (protected_manual OR status='H') ORDER BY id",[tenant])).rows,prior);
+const reopened=(await core.resolveOccurrence({tenantId:tenant,sessionId:session,occurrenceDate:date},db));assert.equal(reopened.id,occurrence.id);assert.equal(reopened.state,'active');
+assert.equal((await db.query(`SELECT * FROM (${attendanceReadSql()}) a WHERE a.santri_id=$2`,[tenant,people[4]])).rows.length,0);
+const late=await core.applyAttendanceResult({tenantId:tenant,occurrenceId:occurrence.id,personType:'santri',personId:people[4],nextStatus:'H',source:'device',effectiveAt:at.rows[0].now,receivedAt:at.rows[0].now},db);assert.equal(late.result.status,'H');
+await core.closeOccurrence({tenantId:tenant,occurrenceId:occurrence.id,now:reopened.window_end},db);
+assert.equal((await core.closeOccurrence({tenantId:tenant,occurrenceId:occurrence.id,now:reopened.window_end},db)).changed,false);
+assert.equal((await db.query('SELECT COUNT(*)::int n FROM attendance_results WHERE tenant_id=$1',[tenant])).rows[0].n,5);
+assert.equal((await db.query('SELECT COUNT(*)::int n FROM attendance_occurrences WHERE tenant_id=$1',[tenant])).rows[0].n,1);
+assert.equal((await core.getSessionUnits(db,tenant,session)).length,2);
+console.log('PASS PostgreSQL: explicit TODAY/NEXT, same occurrence identity, reopen 13:05, protected H/I/S untouched, provisional A hidden/reconciled H, final closure idempotent, multi-unit and no duplicates; fixtures rolled back');
+await db.query('ROLLBACK');}finally{await db.query('ROLLBACK').catch(()=>{});await db.end();}}
+main().catch(e=>{console.error({status:'FAIL',code:e.code||e.name,sql_diagnostic:['42883','42P08','42601'].includes(e.code)?e.message:undefined,sql_detail:e.code==='42P08'?e.detail:undefined,assertion:e.name==='AssertionError'?e.operator:undefined});process.exitCode=1});

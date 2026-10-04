@@ -132,6 +132,8 @@ async function findCandidateSessions(client, tenantId, capturedAt, deviceUnitId)
      FROM attendance_sessions s
      CROSS JOIN tenant_clock clock
      WHERE s.tenant_id=$1 AND s.active=true
+       AND NOT EXISTS(SELECT 1 FROM attendance_occurrences existing WHERE existing.tenant_id=s.tenant_id
+         AND existing.session_id=s.id AND existing.occurrence_date=clock.local_date)
        AND (s.unit_id=$3 OR EXISTS(SELECT 1 FROM attendance_session_units su
          WHERE su.tenant_id=s.tenant_id AND su.session_id=s.id AND su.unit_id=$3))
        AND s.start_time IS NOT NULL AND s.end_time IS NOT NULL AND s.start_time<s.end_time
@@ -144,7 +146,13 @@ async function findCandidateSessions(client, tenantId, capturedAt, deviceUnitId)
            WHERE w.tenant_id=s.tenant_id AND w.session_id=s.id
              AND w.day_of_week=EXTRACT(DOW FROM clock.local_date)::int)
        )
-     ORDER BY s.id`,
+     UNION
+     SELECT o.session_id AS id,TO_CHAR(o.occurrence_date,'YYYY-MM-DD') AS occurrence_date
+     FROM attendance_occurrences o
+     WHERE o.tenant_id=$1 AND o.state<>'cancelled' AND $2::timestamptz>=o.window_start
+       AND $2::timestamptz<o.window_end AND EXISTS(SELECT 1 FROM attendance_occurrence_units u
+         WHERE u.tenant_id=o.tenant_id AND u.occurrence_id=o.id AND u.unit_id=$3)
+     ORDER BY id`,
     [tenantId, capturedAt, deviceUnitId],
   );
   return rows;

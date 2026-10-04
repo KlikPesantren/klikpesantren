@@ -20,6 +20,8 @@ router.get("/guru/results",permission("absensi_guru.view"),async(req,res)=>{
       JOIN attendance_occurrence_units ou ON ou.tenant_id=o.tenant_id AND ou.occurrence_id=o.id
       JOIN guru g ON g.tenant_id=r.tenant_id AND g.id=r.person_id
       WHERE r.tenant_id=$1 AND ou.unit_id=$2 AND r.person_type='guru' AND o.state<>'cancelled'
+      AND NOT (o.state='active' AND r.status='A' AND r.source='system' AND r.auto_generated
+        AND r.provenance ? 'pending_schedule_edit_event_id')
       AND o.occurrence_date>=make_date($4,$3,1) AND o.occurrence_date<make_date($4,$3,1)+INTERVAL '1 month'
       AND EXISTS(SELECT 1 FROM guru_units gu WHERE gu.tenant_id=r.tenant_id AND gu.guru_id=r.person_id
         AND gu.unit_id=ou.unit_id AND (gu.joined_at IS NULL OR gu.joined_at<=o.occurrence_date)

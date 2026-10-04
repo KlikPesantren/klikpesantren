@@ -3,7 +3,7 @@ const pool = require("../db");
 const { canonicalAttendanceUid, attendanceUidSql } = require("../utils/attendanceRfidUid");
 
 const SNAPSHOT_SCHEMA_VERSION = 1;
-const SNAPSHOT_REFRESH_SECONDS = 15 * 60;
+const SNAPSHOT_REFRESH_SECONDS = 60;
 const SNAPSHOT_VALIDITY_DAYS = 7;
 const MAX_CREDENTIALS = 200;
 const MAX_SESSIONS = 16;
@@ -56,12 +56,15 @@ async function querySnapshotSource(db, tenantId, unitId, generatedAt) {
     "FILTER (WHERE w.day_of_week IS NOT NULL),'{}') AS weekdays " +
     "FROM attendance_sessions s " +
     "LEFT JOIN attendance_session_weekdays w ON w.tenant_id=s.tenant_id AND w.session_id=s.id " +
-    "WHERE s.tenant_id=$1 AND s.active=true AND s.start_time IS NOT NULL " +
+    "WHERE s.tenant_id=$1 AND ((s.active=true AND s.start_time IS NOT NULL " +
     "AND s.end_time IS NOT NULL AND s.start_time<s.end_time " +
     "AND (s.unit_id=$2 OR EXISTS(SELECT 1 FROM attendance_session_units su " +
-    "WHERE su.tenant_id=s.tenant_id AND su.session_id=s.id AND su.unit_id=$2)) " +
+    "WHERE su.tenant_id=s.tenant_id AND su.session_id=s.id AND su.unit_id=$2))) OR EXISTS(" +
+    "SELECT 1 FROM attendance_occurrences o JOIN attendance_occurrence_units ou ON ou.tenant_id=o.tenant_id AND ou.occurrence_id=o.id " +
+    "WHERE o.tenant_id=s.tenant_id AND o.session_id=s.id AND ou.unit_id=$2 " +
+    "AND o.occurrence_date=($3::timestamptz AT TIME ZONE o.timezone)::date)) " +
     "GROUP BY s.id,s.code,s.display_name,s.start_time,s.end_time,s.active ORDER BY s.id LIMIT 17",
-    [tenantId, unitId],
+    [tenantId, unitId, generatedAt],
   );
   const windows = await db.query(
     "WITH clock AS ( SELECT attendance_timezone,($3::timestamptz AT TIME ZONE attendance_timezone)::date AS today " +
@@ -76,12 +79,15 @@ async function querySnapshotSource(db, tenantId, unitId, generatedAt) {
     "COALESCE(o.window_end,(d.local_date+s.end_time) AT TIME ZONE d.attendance_timezone) AS window_end," +
     "COALESCE(o.state,'active') AS state FROM scoped s CROSS JOIN days d " +
     "LEFT JOIN attendance_occurrences o ON o.tenant_id=s.tenant_id AND o.session_id=s.id " +
-    "AND o.occurrence_date=d.local_date WHERE (o.id IS NULL OR EXISTS(" +
-    "SELECT 1 FROM attendance_occurrence_units ou WHERE ou.tenant_id=o.tenant_id " +
-    "AND ou.occurrence_id=o.id AND ou.unit_id=$2)) AND (NOT EXISTS(SELECT 1 FROM attendance_session_weekdays w " +
+    "AND o.occurrence_date=d.local_date WHERE o.id IS NULL AND (NOT EXISTS(SELECT 1 FROM attendance_session_weekdays w " +
     "WHERE w.tenant_id=s.tenant_id AND w.session_id=s.id) OR EXISTS(SELECT 1 FROM attendance_session_weekdays w " +
     "WHERE w.tenant_id=s.tenant_id AND w.session_id=s.id " +
-    "AND w.day_of_week=EXTRACT(DOW FROM d.local_date)::int)) ORDER BY window_start,s.id LIMIT 129",
+    "AND w.day_of_week=EXTRACT(DOW FROM d.local_date)::int)) UNION ALL " +
+    "SELECT o.session_id,TO_CHAR(o.occurrence_date,'YYYY-MM-DD'),o.timezone,o.window_start,o.window_end,o.state " +
+    "FROM attendance_occurrences o JOIN clock c ON true WHERE o.tenant_id=$1 " +
+    "AND o.occurrence_date BETWEEN c.today AND c.today+$4::int AND EXISTS(" +
+    "SELECT 1 FROM attendance_occurrence_units ou WHERE ou.tenant_id=o.tenant_id AND ou.occurrence_id=o.id AND ou.unit_id=$2) " +
+    "ORDER BY window_start,session_id LIMIT 129",
     [tenantId, unitId, generatedAt, SNAPSHOT_VALIDITY_DAYS],
   );
   const credentials = await db.query(

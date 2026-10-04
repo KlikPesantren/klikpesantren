@@ -14,6 +14,7 @@
 #include <esp_sntp.h>
 #include <atomic>
 #include "AttendanceHybridRuntime.h"
+#include "AttendanceMaintenanceUi.h"
 
 #define RFID_SS_PIN 5
 #define RFID_RST_PIN 4
@@ -137,6 +138,9 @@ String deviceSecret;
 String deviceMode;
 String hardwareProfile;
 bool setupMode = false;
+AttendanceMaintenanceUi maintenanceUi;
+bool manualRefreshPending=false, manualRefreshActive=false;
+const char* ATTENDANCE_BUILD = "UX-V1.1";
 char setupKey=0;
 void startPhoneSetup();
 void updatePhoneSetup();
@@ -822,7 +826,13 @@ void consumeNetworkResult() {
       }
     }
     result.body = String(); // Release response before cache write/verification to bound peak heap.
-    if (hybrid.installCache(snapshot, checksum)) attendanceAccessBlocked = false;
+    bool installed = hybrid.installCache(snapshot, checksum);
+    if (installed) attendanceAccessBlocked = false;
+    if (manualRefreshActive) {
+      manualRefreshActive=false;
+      if(!manualRefreshPending && !maintenanceUi.syncRequested) maintenanceUi.synced(installed,millis());
+      nextReplayAt=0;
+    }
     nextCacheAttemptAt = millis() + 60000;
   } else if (completed == NetworkJob::REPLAY) {
     AttendanceBoundedJsonDocument response(8*1024);
@@ -846,9 +856,12 @@ void consumeNetworkResult() {
 
 void scheduleBackgroundNetwork() {
   if (networkBusy || runtimeState != RuntimeState::READY || WiFi.status() != WL_CONNECTED || !attendanceClockValid()) return;
-  if (millis() >= nextCacheAttemptAt && (attendanceAccessBlocked || !backendReachable || hybrid.refreshDue(time(nullptr)))) {
+  if (manualRefreshPending || (millis() >= nextCacheAttemptAt && (attendanceAccessBlocked || !backendReachable || hybrid.refreshDue(time(nullptr))))) {
     nextCacheAttemptAt = millis() + 60000;
-    startNetworkJob(NetworkJob::SNAPSHOT, "/attendance/device/snapshot", ""); return;
+    if (startNetworkJob(NetworkJob::SNAPSHOT, "/attendance/device/snapshot", "") && manualRefreshPending) {
+      manualRefreshPending=false; manualRefreshActive=true;
+    }
+    return;
   }
   if (!attendanceAccessBlocked && backendReachable && hybrid.healthy && millis() >= nextReplayAt && (replayIndex = hybrid.oldestPending()) >= 0) {
     replayEventId = hybrid.eventId(replayIndex);
@@ -859,7 +872,7 @@ void scheduleBackgroundNetwork() {
 }
 
 void updateReady() {
-  updateResultFeedback();
+  if (maintenanceUi.scanningAllowed()) updateResultFeedback();
   if (WiFi.status() != WL_CONNECTED) {
     if (!wifiAttemptActive) beginWifiAttempt();
     else if (millis() - wifiAttemptStartedAt >= WIFI_CONNECT_TIMEOUT_MS) {
@@ -873,6 +886,7 @@ void updateReady() {
     return;
   }
 
+  if (!maintenanceUi.scanningAllowed()) { scheduleBackgroundNetwork(); return; }
   showReady();
   if (attendanceAccessBlocked) { scheduleBackgroundNetwork(); return; }
   if (millis() - lastRfidReadAt < RFID_DEBOUNCE_MS) return;
@@ -903,9 +917,10 @@ void processRuntimeState() {
       hybrid.load(apiBaseUrl + "|" + tenantSlug + "|" + deviceId);
       printRuntimeConfigStatus();
       if (!runtimeConfigReady) {
-        startPhoneSetup();
+        if(maintenanceUi.view!=AttendanceView::SETUP_REQUIRED) startPhoneSetup();
         break;
       }
+      if(maintenanceUi.view==AttendanceView::SETUP_REQUIRED) maintenanceUi.open(AttendanceView::STANDBY,millis());
       if (WiFi.status() == WL_CONNECTED) {
         ntpRequested = false;
         transitionTo(RuntimeState::TIME_SYNC);
@@ -949,6 +964,40 @@ void processRuntimeState() {
 
 #include "AttendancePhoneSetup.h"
 
+void updateMaintenanceUi() {
+  maintenanceUi.tick(millis());
+  if (maintenanceUi.wifiRequested && !networkBusy) {
+    maintenanceUi.wifiRequested=false; startPhoneSetup(); return;
+  }
+  if (maintenanceUi.syncRequested) {
+    maintenanceUi.syncRequested=false; manualRefreshPending=true; nextCacheAttemptAt=0; nextReplayAt=0;
+  }
+  if (maintenanceUi.view==AttendanceView::SYNC_VIEW && !maintenanceUi.syncFinished &&
+      millis()-maintenanceUi.touched>=15000) {
+    // The worker may finish later; never discard its queue/cache result.
+    maintenanceUi.synced(false,millis());
+  }
+  switch(maintenanceUi.view) {
+    case AttendanceView::MAIN_MENU: showScreen("1.STATUS  2.WIFI","3.SYNC    4.INFO"); break;
+    case AttendanceView::STATUS_VIEW:
+      if(maintenanceUi.page%2==0) showScreen(WiFi.status()==WL_CONNECTED && backendReachable ? "ONLINE" : "OFFLINE", "Q:"+String(hybrid.count("pending")));
+      else showScreen(!hybrid.hasCache ? "CACHE: TIDAK ADA" : hybrid.fresh(attendanceClockValid(),time(nullptr)) ? "CACHE: FRESH" : "CACHE: STALE", attendanceClockValid() ? "WAKTU: VALID" : "WAKTU: INVALID");
+      break;
+    case AttendanceView::INFO_VIEW:
+      if(maintenanceUi.page%3==0) showScreen(deviceId,"MODE: ABSENSI");
+      else if(maintenanceUi.page%3==1) showScreen("UNIT",hybrid.hasCache ? String(hybrid.cache["authorized_unit_id"].as<int>()) : "BELUM ADA CACHE");
+      else showScreen("FIRMWARE",ATTENDANCE_BUILD);
+      break;
+    case AttendanceView::SYNC_VIEW:
+      if(!maintenanceUi.syncFinished) showScreen("SINKRONISASI...","MOHON TUNGGU");
+      else showScreen(maintenanceUi.syncOk ? "SYNC SELESAI" : "SYNC GAGAL", maintenanceUi.syncOk ? "Q:"+String(hybrid.count("pending")) : "COBA LAGI");
+      break;
+    case AttendanceView::WIFI_SETUP: showScreen("SETUP MENUNGGU","D=BATAL"); break;
+    case AttendanceView::SETUP_REQUIRED: showScreen("SETUP DIPERLUKAN","#=SETUP HP"); break;
+    default: break;
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.setTimeout(100);
@@ -975,12 +1024,21 @@ void setup() {
 
 void loop() {
   static bool setupHoldConsumed=false;
+  static bool setupHoldArmed=false;
+  // Recovery remains accessible while waiting for Wi-Fi/NTP after cold boot.
+  const bool maintenanceIdle=runtimeConfigReady && (runtimeState==RuntimeState::READY ||
+    runtimeState==RuntimeState::WIFI_CONNECTING || runtimeState==RuntimeState::TIME_SYNC);
   setupKey=keypad.getKey();
-  if (keypad.getState()==RELEASED || keypad.getState()==IDLE) setupHoldConsumed=false;
-  if (!setupMode && !networkBusy && !setupHoldConsumed && keypad.getState()==HOLD && keypad.key[0].kchar=='D') {
-    setupHoldConsumed=true; startPhoneSetup();
+  if (keypad.getState()==RELEASED || keypad.getState()==IDLE) { setupHoldConsumed=false; setupHoldArmed=false; }
+  if(setupKey=='D' && maintenanceUi.scanningAllowed() && maintenanceIdle) setupHoldArmed=true;
+  if (!setupMode && maintenanceIdle && setupHoldArmed && !setupHoldConsumed && keypad.getState()==HOLD && keypad.key[0].kchar=='D') {
+    setupHoldConsumed=true; maintenanceUi.holdD(millis());
   }
   if (setupMode) { updatePhoneSetup(); consumeNetworkResult(); delay(1); return; }
+  if (maintenanceIdle || maintenanceUi.view==AttendanceView::SETUP_REQUIRED) {
+    if (maintenanceUi.view==AttendanceView::WIFI_SETUP && setupKey=='D') maintenanceUi.cancelled(runtimeConfigReady,millis());
+    else maintenanceUi.key(setupKey,millis());
+  }
   handleSerialProvisioning();
   bool connected = WiFi.status() == WL_CONNECTED;
   if (connected && !lastWifiConnected) {
@@ -993,5 +1051,6 @@ void loop() {
   lastWifiConnected = connected;
   consumeNetworkResult();
   processRuntimeState();
+  updateMaintenanceUi();
   delay(1);
 }

@@ -15,7 +15,8 @@ izin atau bukti pengujian fisik. Jangan memakai source arsip.
 5. Mesin belum diprovision meminta **PIN SETUP 8-12**. Pilih 8–12 angka sendiri
    pada keypad lalu tekan **#**; **\*** mengulang input. Angka dimask, tidak
    ditampilkan/disimpan sebagai secret permanen. AP lalu masuk `SETUP HP AKTIF`. SSID berbeda per perangkat:
-   `KlikPesantren-Setup-XXXX`. Empat karakter terakhir tampak di LCD.
+   `KlikPesantren-Setup-XXXX`. LCD menggilir nama lengkap dalam dua bagian
+   lalu alamat `192.168.4.1`.
 6. Hubungkan HP ke SSID tersebut menggunakan PIN yang baru Anda pilih sebagai
    password WPA2 sementara. PIN tidak ditampilkan di LCD/Serial/server dan bukan
    password Wi-Fi tujuan ataupun secret device.
@@ -36,11 +37,50 @@ izin atau bukti pengujian fisik. Jangan memakai source arsip.
 
 ## Ganti Wi-Fi tanpa Arduino
 
-Tahan tombol fisik **D selama 3 detik**, kemudian lepaskan. Bila worker jaringan
-sedang sibuk, tunggu selesai dan tahan D lagi. Buka AP/192.168.4.1 seperti di atas.
+Tahan tombol fisik **D selama 3 detik dari standby**, kemudian lepaskan, atau
+tekan **# → 2**. Bila worker sibuk, layar menunggu sampai worker selesai tanpa
+menghapus pekerjaan. Buka AP/192.168.4.1 seperti di atas.
 Isi Wi-Fi baru; **biarkan kode pairing kosong** bila credential masih valid.
 Identitas, secret, counter, cache dan queue tidak dihapus. Tidak ada factory reset
 otomatis. Kehilangan Wi-Fi biasa tidak otomatis membuka AP.
+Menu/# dan hold D juga tersedia saat konfigurasi valid tetapi mesin masih
+menunggu koneksi Wi-Fi/NTP; ini jalur recovery, bukan izin tap tanpa waktu sah.
+
+**Batal setup:** D pendek membatalkan input PIN maupun AP. AP/DNS/HTTP ditutup,
+Wi-Fi lama dihubungkan kembali otomatis; tidak perlu power-cycle. Identity,
+secret, unit, counter, cache dan queue tetap. Wi-Fi kandidat tidak ditulis NVS
+sebelum setup berhasil. Mesin kosong kembali `SETUP DIPERLUKAN / #=SETUP HP`.
+Jika exchange pairing sudah berlangsung, pembatalan menunggu hasilnya selesai;
+identity yang telah diterbitkan tetap disimpan, bukan dibuang/diulang.
+
+## Harian, keypad dan menu
+
+Harian: nyalakan → `ABSENSI SIAP / ONLINE Q:n` (atau OFFLINE) → tap.
+Layout **123A / 456B / 789C / *0#D** tidak berubah.
+
+- **#**: menu/OK/halaman berikutnya.
+- **D pendek**: kembali/batal; di standby tidak mengubah konfigurasi.
+- **D tahan 3 detik terus-menerus**: setup HP, hanya dari standby.
+- **\***: ulang/hapus input PIN; **0–9**: input/pilih menu.
+- **A/B/C**: reserved, tidak ada aksi V1.
+
+Menu **1 STATUS / 2 WIFI / 3 SYNC / 4 INFO**. STATUS dan INFO hanya membaca:
+koneksi, Q pending, cache, validitas waktu; identity device, mode ABSENSI, unit
+dari snapshot dan versi firmware. # ganti halaman, D kembali. Setelah 30 detik
+tanpa input, menu/status/info kembali standby. RFID berhenti sementara selama
+maintenance; setelah keluar kembali aktif otomatis. Background replay/refresh
+tidak bergantung browser/menu. Tidak ada factory reset/unpair/hapus data keypad.
+
+**SYNC:** setelah Admin mengubah sesi/peserta/RFID, # → 3 meminta refresh worker
+sekarang. `SYNC SELESAI / Q:n` membuktikan cache berhasil diperbarui; pending Q
+belum tentu semuanya selesai replay. `SYNC GAGAL / COBA LAGI` tidak menghapus
+queue/cache terakhir; coba lagi saat online. Timeout 15 detik, feedback 3 detik
+kembali menu; D kembali tanpa membuang pekerjaan. Tap tetap local-first, tidak
+menunggu HTTP. Nama/BERHASIL adalah event durable lokal; SUDAH ABSEN duplicate,
+BUKAN PESERTA tidak eligible, TIDAK ADA SESI window tidak aktif. Kartu asing:
+UID lengkap berpaginasi/BELUM TERDAFTAR (hanya LCD). WAKTU TDK VALID/BUTUH
+INTERNET: jangan tap sampai waktu valid. Offline saat masih menyala memakai
+waktu tepercaya; cold boot offline tanpa RTC tidak menerima event baru.
 
 ## Pindah unit / perangkat lama / recovery credential
 

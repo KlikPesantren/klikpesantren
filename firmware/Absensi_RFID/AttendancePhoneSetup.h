@@ -9,6 +9,23 @@ String setupNonce, setupPairing, setupStatus, setupApName, setupApPassword;
 unsigned long setupStartedAt=0, setupLastConnect=0;
 bool setupSubmitted=false, setupPairedRequest=false, setupRoutesRegistered=false;
 bool setupApStarted=false;
+String setupPreviousSsid, setupPreviousPassword;
+bool setupCancelRequested=false;
+
+void cancelPhoneSetup() {
+  // An in-flight one-time pairing must settle; never discard a consumed identity.
+  if(networkBusy && networkJob==NetworkJob::PAIRING) { setupCancelRequested=true; return; }
+  wifiSsid=setupPreviousSsid; wifiPassword=setupPreviousPassword;
+  setupHttp.stop(); setupDns.stop(); WiFi.softAPdisconnect(true); WiFi.mode(WIFI_STA);
+  WiFi.disconnect(false,false); // Leave a submitted candidate network; reconnect persisted Wi-Fi.
+  setupMode=false; setupApStarted=false; setupSubmitted=false; setupPairedRequest=false;
+  setupPairing=""; setupApPassword=""; setupNonce=""; setupPreviousSsid=""; setupPreviousPassword="";
+  setupCancelRequested=false;
+  refreshRuntimeConfigReady();
+  maintenanceUi.cancelled(runtimeConfigReady,millis());
+  wifiAttemptActive=false; nextWifiAttemptAt=millis();
+  configDirty=true; transitionTo(RuntimeState::LOAD_CONFIG);
+}
 
 String setupRandom() {
   uint8_t bytes[16]; esp_fill_random(bytes,sizeof(bytes));
@@ -33,6 +50,8 @@ void setupPage() {
 
 void startPhoneSetup() {
   if (setupMode || networkBusy) return;
+  setupPreviousSsid=wifiSsid; setupPreviousPassword=wifiPassword; setupCancelRequested=false;
+  maintenanceUi.open(AttendanceView::WIFI_SETUP,millis());
   setupMode=true; setupSubmitted=false; setupPairedRequest=false;
   setupPairing=""; setupStatus="Menunggu konfigurasi"; setupNonce=setupRandom();
   setupApPassword=""; setupApStarted=false;
@@ -68,10 +87,13 @@ bool saveSetupWifi() {
 }
 
 void finishPhoneSetup() {
+  if(setupCancelRequested) { cancelPhoneSetup(); return; }
   if (!saveSetupWifi()) { setupStatus="Penyimpanan gagal. Coba kembali."; return; }
   setupPairing=""; setupApPassword=""; setupNonce="";
   setupHttp.stop(); setupDns.stop(); WiFi.softAPdisconnect(true); WiFi.mode(WIFI_STA);
   setupMode=false; configDirty=true; transitionTo(RuntimeState::LOAD_CONFIG);
+  setupPreviousSsid=""; setupPreviousPassword="";
+  maintenanceUi.open(AttendanceView::STANDBY,millis());
 }
 
 void acceptPairingResponse(HttpResult& result) {
@@ -87,12 +109,15 @@ void acceptPairingResponse(HttpResult& result) {
     }
   }
   result.body=""; response.clear(); setupPairing="";
+  if(setupCancelRequested) { cancelPhoneSetup(); return; }
   setupSubmitted=false; setupPairedRequest=false; setupNonce=setupRandom();
   setupStatus="Pairing gagal/tidak pasti. Generate kode baru di Admin, lalu kirim formulir kembali.";
   // Never automatically retry an exchange that could already have consumed its token.
 }
 
 void updatePhoneSetup() {
+  if(setupKey=='D') { cancelPhoneSetup(); return; }
+  if(setupCancelRequested) { showScreen("BATAL MENUNGGU","PAIRING SELESAI"); return; }
   if(!setupApStarted) {
     if(setupKey>='0' && setupKey<='9' && setupApPassword.length()<12) setupApPassword+=setupKey;
     if(setupKey=='*')setupApPassword="";
@@ -109,8 +134,9 @@ void updatePhoneSetup() {
     }
   }
   setupDns.processNextRequest(); setupHttp.handleClient();
-  unsigned page=(millis()-setupStartedAt)/4000%2;
-  if (page==0) showScreen("SETUP HP AKTIF",setupApName.substring(setupApName.length()-4));
+  unsigned page=(millis()-setupStartedAt)/4000%3;
+  if (page==0) showScreen("SETUP HP AKTIF",setupApName.substring(0,16));
+  else if(page==1) showScreen("SSID LANJUTAN",setupApName.substring(16));
   else showScreen("BUKA DI HP","192.168.4.1");
   if (!setupSubmitted) return;
   if (WiFi.status()!=WL_CONNECTED) {

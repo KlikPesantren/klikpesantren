@@ -44,6 +44,11 @@ router.post(
 
 router.get("/", ...adminDevice, deviceController.list);
 
+const manageDevice = [authMiddleware,tenantMiddleware,
+  requireTenantFeature("rfid"),requirePermission("rfid.manage")];
+router.patch("/:deviceId/name", ...manageDevice, pairing.rename);
+router.delete("/:deviceId", ...manageDevice, pairing.remove);
+
 // Device-authenticated routes (tenant from device credentials)
 router.post("/register", deviceController.registerDisabled);
 router.put(

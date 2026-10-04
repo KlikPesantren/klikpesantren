@@ -30,3 +30,7 @@ exports.edit=handler(service.edit);
 exports.adopt=handler(service.adopt);
 exports.reissue=handler(service.reissue);
 exports.redeem=handler(req=>service.redeem(req.body?.pairing_code));
+
+const management = require('../services/deviceManagementService');
+exports.rename=handler(management.rename);
+exports.remove=handler(management.remove);

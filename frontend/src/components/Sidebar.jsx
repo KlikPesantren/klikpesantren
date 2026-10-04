@@ -65,7 +65,7 @@ const MENU = [
   { name: "Mutasi", path: "/rfid-mutasi", perm: ["wallet.view", "rfid.view"], feature: null, unitFeature: "wallet", icon: <FaMoneyBill /> },
   { name: "Transaksi", path: "/rfid-transactions", perm: ["wallet.view", "rfid.view"], feature: null, unitFeature: "wallet", icon: <FaMoneyBill /> },
   { name: "RFID Monitoring", path: "/rfid-monitor", perm: "rfid.view", feature: "rfid", unitFeature: "rfid", icon: <FaWifi /> },
-  { name: "Device", path: "/rfid-devices", perm: "rfid.view", feature: "rfid", unitFeature: "rfid", icon: <FaMicrochip /> },
+  { name: "Perangkat", path: "/rfid-devices", perm: "rfid.view", feature: "rfid", unitFeature: "rfid", icon: <FaMicrochip /> },
   { name: "Merchant", path: "/rfid-merchant", perm: "rfid.view", feature: "rfid", unitFeature: "rfid", icon: <FaWifi /> },
   { name: "Refund", path: "/rfid-refund", perm: "rfid.view", feature: "rfid", unitFeature: "rfid", icon: <FaWifi /> },
   { name: "Perizinan", path: "/perizinan", perm: "perizinan.view", feature: "perizinan", unitFeature: "perizinan", icon: <FaClipboardList /> },
@@ -115,7 +115,6 @@ const MENU_GROUPS = [
       "Mutasi",
       "Transaksi",
       "RFID Monitoring",
-      "Device",
       "Merchant",
       "Refund",
     ],
@@ -130,7 +129,7 @@ const MENU_GROUPS = [
     id: "sistem",
     title: "Sistem",
     collapsible: true,
-    items: ["Unit Pendidikan", "Users", "Roles", "Audit", "Info dari KlikPesantren", "Tentang KlikPesantren"],
+    items: ["Unit Pendidikan", "Users", "Roles", "Audit", "Perangkat", "Info dari KlikPesantren", "Tentang KlikPesantren"],
   },
 ];
 

@@ -14,6 +14,40 @@ diterima; profil generik bernama `ESP32_RC522_16X2`.
 - NVS `offline` serta seluruh kunci provisioning lama dipertahankan.
 - Jangan menghapus LittleFS, cache, queue, atau mengganti credential untuk coba-coba.
 
+## Operasi harian dan menu maintenance (UX-V1.1)
+
+Nyalakan → tunggu `ABSENSI SIAP` → tap. Menu tidak diperlukan untuk absensi.
+Layout tetap `123A / 456B / 789C / *0#D`, dengan pin hardware di atas.
+`#` membuka menu/OK; `D` kembali/batal; tahan D terus 3 detik **dari standby**
+untuk setup HP; angka memilih menu/input; `*` mengulang input PIN;
+`A/B/C` reserved. Short D/angka/* di standby tidak mengubah konfigurasi.
+
+Menu: `1.STATUS  2.WIFI / 3.SYNC    4.INFO`. STATUS dan INFO read-only;
+`#` ganti halaman, D kembali. STATUS: online/queue, cache fresh/stale/missing,
+waktu valid/invalid. INFO: device ID, ABSENSI, unit dari cache, build UX-V1.1.
+Menu/status/info kembali otomatis ke standby setelah 30 detik tanpa input.
+RFID foreground berhenti selama menu/setup/sync, lalu otomatis aktif setelah
+keluar/timeout. Worker replay/refresh tetap berjalan saat maintenance menu.
+
+WIFI memakai setup HP yang sama, PIN masked 8–12 digit dan WPA2 sementara.
+LCD menggilir SSID lengkap dalam dua halaman serta alamat `192.168.4.1`.
+D membatalkan dari input PIN maupun AP: AP/DNS/HTTP berhenti, Wi-Fi lama
+dipakai lagi, identity/credential/unit/counter/cache/queue tetap. Mesin kosong
+menampilkan `SETUP DIPERLUKAN / #=SETUP HP`, bukan standby palsu. Jika exchange
+pairing sudah terkirim, D menunggu hasil sekali-pakai itu selesai; identity
+yang berhasil diterbitkan tidak dibuang. Tidak ada retry pairing otomatis.
+
+SYNC meminta snapshot baru dan replay pending melalui worker yang sudah ada.
+`SINKRONISASI... / MOHON TUNGGU` lalu `SYNC SELESAI / Q:n` berarti refresh
+cache berhasil, **bukan semua event sudah diterima server**. Queue tetap replay
+berurutan/idempotent di background. Gagal/offline/timeout 15 detik menampilkan
+`SYNC GAGAL / COBA LAGI`; cache terakhir dan pending tetap tersimpan. Feedback
+3 detik kembali menu. D dapat keluar tanpa membatalkan pekerjaan durable.
+Tidak ada factory reset, unpair atau hapus queue dari keypad.
+
+Pengujian host: `node scripts/test-attendance-maintenance-ui.js` dan suite
+hybrid. Hasil compile/host bukan klaim tombol/AP/LCD sudah diuji fisik.
+
 ## Arti layar dan waktu
 
 `ABSENSI SIAP / ONLINE Q:n` atau `OFFLINE Q:n`: jumlah event menunggu replay.

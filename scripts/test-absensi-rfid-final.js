@@ -3,6 +3,7 @@ const path=require('node:path');
 const tests=[
   'test-attendance-v1-phase1','test-attendance-v1-phase2a','test-attendance-hybrid-v1',
   'test-attendance-hybrid-host','test-attendance-pairing','test-attendance-phone-setup',
+  'test-attendance-maintenance-ui',
   'test-attendance-auto-alfa','test-attendance-read-contract','test-attendance-uid-boundary',
   'test-attendance-sessions','test-multi-unit-foundation','test-multi-unit-santri-kelas',
   'test-guru-unit-scope','test-academic-multi-unit','test-absensi-batch-save',

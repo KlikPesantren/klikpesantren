@@ -692,6 +692,8 @@ app.use(
   rfidRoutes
 );
 
+app.use('/pos', require('./routes/posRoutes'));
+
 app.use(
   "/rfid/merchant",
   rfidMerchantRoutes

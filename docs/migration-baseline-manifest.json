@@ -632,6 +632,15 @@
       "notes": "nullable device attendance mode and hashed one-time pairing only; no historical backfill",
       "recommended_action": "APPLY_ORIGINAL",
       "execution_order": 230
+    },
+    {
+      "filename": "094_pos_v1_foundation.sql",
+      "checksum": "0605eef6c75d82d076269aa12aac4f52aede96b74add5a48a7188f886fb30e51",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated local PostgreSQL UP/DOWN/UP and domain, concurrent wallet debit, rollback and least-privilege fixture tests",
+      "notes": "additive POS domain only; no legacy ownership assignment, balance backfill or production grants",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 240
     }
   ]
 }

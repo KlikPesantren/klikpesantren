@@ -1,4 +1,7 @@
 const mode = process.env.POS_ENV || "development";
+const review = process.env.POS_REVIEW === "1";
+if (review && mode !== "development")
+  throw new Error("POS review is development-only");
 const api =
   process.env.EXPO_PUBLIC_POS_API_URL ||
   (mode === "production"
@@ -32,7 +35,7 @@ module.exports = {
       ],
     },
     plugins: ["expo-secure-store"],
-    extra: { posEnvironment: mode, apiUrl: api },
+    extra: { posEnvironment: mode, apiUrl: api, posReview: review },
     web: { bundler: "metro" },
   },
 };

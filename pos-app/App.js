@@ -36,8 +36,17 @@ const {
 } = require("./src/domain.cjs");
 // Browser preview uses volatile memory ONLY. Native Android uses SecureStore.
 const previewMemory = new Map();
+// Release DCE removes this dependency; config also refuses POS_REVIEW outside development.
+const reviewAdapter =
+  __DEV__ &&
+  Constants.expoConfig.extra.posEnvironment === "development" &&
+  Constants.expoConfig.extra.posReview === true
+    ? require("./src/reviewFixtures.cjs").createReviewAdapter()
+    : null;
+const makeClient = (token, onConnection) =>
+  reviewAdapter ? reviewAdapter.api : makeApi(token, onConnection);
 const storage =
-  Platform.OS === "web"
+  reviewAdapter || Platform.OS === "web"
     ? {
         getItemAsync: async (k) => previewMemory.get(k) || null,
         setItemAsync: async (k, v) => {
@@ -179,7 +188,7 @@ function CashierApp() {
     credential = useRef(null),
     lock = useRef(false),
     generation = useRef(0);
-  const api = useMemo(() => makeApi(session?.token, setOnline), [session]);
+  const api = useMemo(() => makeClient(session?.token, setOnline), [session]);
   useEffect(() => {
     apiRef.current = api;
   }, [api]);
@@ -240,7 +249,7 @@ function CashierApp() {
   }, []);
   const acceptSession = useCallback(
     async (saved) => {
-      const client = makeApi(saved.token, setOnline),
+      const client = makeClient(saved.token, setOnline),
         data = await client("/pos/mobile/context");
       apiRef.current = client;
       const flow = new CheckoutCoordinator({
@@ -284,7 +293,9 @@ function CashierApp() {
     let alive = true;
     (async () => {
       try {
-        const saved = await vault.read("session");
+        const saved = reviewAdapter
+          ? { token: "local-visual-review-only" }
+          : await vault.read("session");
         if (saved && alive) await acceptSession(saved);
       } catch (e) {
         if (alive) setError(errorText(e));
@@ -355,7 +366,7 @@ function CashierApp() {
   }, [session, selected, tab, historyPage, historySearch, historyMethod]);
   async function login() {
     await run(async () => {
-      const result = await makeApi(null, setOnline)("/auth/login", {
+      const result = await makeClient(null, setOnline)("/auth/login", {
         method: "POST",
         body: {
           tenant_slug: tenant.trim(),
@@ -544,6 +555,76 @@ function CashierApp() {
     ),
     terminal = context?.terminals.find((t) => t.id === selected?.terminal_id);
   const contextReady = !!selectedMerchant && !!terminal;
+  async function reviewState(name) {
+    reviewAdapter.setState(name);
+    coordinator.current.reset();
+    setSheet(null);
+    setCorrection(null);
+    setWalletPreview(null);
+    credential.current = null;
+    setTestInput("");
+    setCart([]);
+    setDiscount("0");
+    setNotice(
+      "SINTETIS: review UI saja; checkout/refund tidak dapat dijalankan.",
+    );
+    setOnline(name !== "offline");
+    setContext({ ...context, shift: reviewAdapter.summary().shift });
+    setSummary(reviewAdapter.summary());
+    setError(
+      name === "error"
+        ? "Contoh error: produk tidak tersedia."
+        : name === "insufficient balance"
+          ? "Saldo tidak cukup."
+          : "",
+    );
+    if (["normal", "loading", "empty"].includes(name)) {
+      setCatalog(await api("/pos/mobile/catalog"));
+      setHistory(await api("/pos/mobile/transactions"));
+    }
+    if (name === "empty cart") setSheet("cart");
+    if (
+      [
+        "cart populated",
+        "payment success",
+        "QRIS pending",
+        "RFID preview",
+        "large amounts",
+      ].includes(name)
+    ) {
+      setCart(reviewAdapter.products.filter((p) => p.available).slice(0, 3));
+      setTender("50000");
+      if (name === "cart populated" || name === "large amounts") {
+        if (name === "large amounts")
+          setCart([
+            {
+              ...reviewAdapter.products[0],
+              price: "9007199254740993",
+              quantity: 1,
+            },
+          ]);
+        setSheet("cart");
+      } else {
+        setSheet("payment");
+        if (name === "RFID preview") {
+          setMethod("RFID");
+          setWalletPreview(reviewAdapter.wallet);
+        } else
+          setPaymentState({
+            state: name === "QRIS pending" ? "PENDING" : "SUCCESS",
+            pending: false,
+            result: reviewAdapter.receipt(
+              name === "QRIS pending" ? "TRANSFER_QRIS" : "CASH",
+              name === "QRIS pending" ? "PENDING" : "CONFIRMED",
+            ),
+          });
+      }
+    }
+    if (name === "unknown/checking") {
+      setPaymentState({ state: "UNKNOWN", pending: true, result: null });
+      setSheet("payment");
+    }
+  }
   if (boot)
     return (
       <SafeAreaView style={s.root}>
@@ -601,6 +682,25 @@ function CashierApp() {
     );
   return (
     <SafeAreaView style={s.root}>
+      {reviewAdapter && (
+        <View style={s.feedback}>
+          <Text style={s.error}>
+            LOCAL REVIEW · DATA SINTETIS · FINANCIAL WRITE DISABLED
+          </Text>
+          {busy && <ActivityIndicator color={colors.green} />}
+          <ScrollView horizontal>
+            {reviewAdapter.states.map((name) => (
+              <Button
+                key={name}
+                title={name}
+                secondary
+                disabled={busy}
+                onPress={() => run(() => reviewState(name))}
+              />
+            ))}
+          </ScrollView>
+        </View>
+      )}
       <View style={s.header}>
         <View style={s.flex}>
           <Text style={s.brand}>POS KlikPesantren</Text>
@@ -721,7 +821,14 @@ function CashierApp() {
             </Card>
             {summary?.shift && (
               <Card title="Ringkasan Shift">
-                <Text style={s.money}>{rupiah(summary.sales)}</Text>
+                <Text
+                  style={s.money}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.5}
+                >
+                  {rupiah(summary.sales)}
+                </Text>
                 <Row label="Transaksi terkonfirmasi" value={summary.count} />
                 {summary.payments.map((p) => (
                   <Row
@@ -978,6 +1085,17 @@ function CashierApp() {
         }}
       >
         <SafeAreaView style={s.root}>
+          {reviewAdapter && (
+            <View style={s.feedback}>
+              <Text style={s.error}>LOCAL REVIEW · RESET STATE</Text>
+              <Button
+                title="Reset review"
+                secondary
+                disabled={busy}
+                onPress={() => run(() => reviewState("normal"))}
+              />
+            </View>
+          )}
           <KeyboardAvoidingView
             style={s.flex}
             behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -1138,7 +1256,12 @@ function CashierApp() {
                       />
                     </>
                   )}
-                  <Text style={s.money}>
+                  <Text
+                    style={s.money}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.5}
+                  >
                     {total ? rupiah(total) : "Nominal tidak valid"}
                   </Text>
                   <Text style={s.muted}>
@@ -1214,7 +1337,14 @@ function CashierApp() {
                     </>
                   ) : (
                     <>
-                      <Text style={s.money}>{total ? rupiah(total) : "—"}</Text>
+                      <Text
+                        style={s.money}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.5}
+                      >
+                        {total ? rupiah(total) : "—"}
+                      </Text>
                       {["RFID", "CASH", "TRANSFER_QRIS"].map((m) => (
                         <Button
                           key={m}
@@ -1524,7 +1654,14 @@ function Receipt({ result, onNew, onDetail }) {
           value={rupiah(i.total)}
         />
       ))}
-      <Text style={s.money}>{rupiah(sale.grand_total)}</Text>
+      <Text
+        style={s.money}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.5}
+      >
+        {rupiah(sale.grand_total)}
+      </Text>
       <Row label="Metode" value={payment.method} />
       {payment.method === "CASH" && (
         <>

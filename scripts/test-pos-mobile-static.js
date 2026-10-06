@@ -88,7 +88,11 @@ for (const [file, expected] of [
 const config = read("pos-app/app.config.js");
 assert.ok(config.includes("com.klikpesantren.pos"));
 assert.ok(!config.includes("com.klikpesantren.wali"));
-assert.ok(!config.includes("projectId"));
+assert.ok(config.includes('28970813-9740-42d8-a81d-e762ca36d66c'));
+const acceptanceProfile=JSON.parse(read('pos-app/eas.json')).build;
+assert.deepEqual(Object.keys(acceptanceProfile),['acceptance']);
+assert.equal(acceptanceProfile.acceptance.android.buildType,'apk');
+assert.equal(acceptanceProfile.acceptance.env.EXPO_PUBLIC_POS_API_URL,'https://pos-acceptance.invalid');
 console.log(
   "PASS mobile identity, native Text contract, scoped read-only APIs, secure journal, reader gate, frozen migrations, no UID/secret logging",
 );

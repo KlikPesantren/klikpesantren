@@ -48,11 +48,13 @@ const {
 } = require("./src/domain.cjs");
 // Browser preview uses volatile memory ONLY. Native Android uses SecureStore.
 const previewMemory = new Map();
-// Release DCE removes this dependency; config also refuses POS_REVIEW outside development.
+// Explicit isolated acceptance bundle may include synthetic UI; production DCE excludes it.
 const reviewAdapter =
-  __DEV__ &&
-  Constants.expoConfig.extra.posEnvironment === "development" &&
-  Constants.expoConfig.extra.posReview === true
+  (process.env.EXPO_PUBLIC_POS_ACCEPTANCE === "1" &&
+    Constants.expoConfig.extra.posEnvironment === "acceptance") ||
+  (__DEV__ &&
+    Constants.expoConfig.extra.posEnvironment === "development" &&
+    Constants.expoConfig.extra.posReview === true)
     ? require("./src/reviewFixtures.cjs").createReviewAdapter()
     : null;
 const makeClient = (token, onConnection) =>
@@ -800,6 +802,18 @@ function CashierApp() {
                 disabled={busy}
                 onPress={login}
               />
+              {reviewAdapter && (
+                <Button
+                  title="Masuk review sintetis"
+                  secondary
+                  disabled={busy}
+                  onPress={() =>
+                    run(() =>
+                      acceptSession({ token: "local-visual-review-only" }),
+                    )
+                  }
+                />
+              )}
             </Card>
             <Text style={s.muted}>
               Lingkungan: {Constants.expoConfig.extra.posEnvironment}

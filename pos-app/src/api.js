@@ -2,6 +2,12 @@ import Constants from "expo-constants";
 const base = Constants.expoConfig.extra.apiUrl.replace(/\/$/, "");
 export function makeApi(token, onConnection = () => {}) {
   return async (path, { method = "GET", body, query } = {}) => {
+    // Defense in depth: acceptance never sends even a read/auth request to any API.
+    if (Constants.expoConfig.extra.posEnvironment === "acceptance")
+      throw Object.assign(Error("REVIEW_NETWORK_DISABLED"), {
+        code: "REVIEW_NETWORK_DISABLED",
+        status: 403,
+      });
     const controller = new AbortController(),
       timer = setTimeout(() => controller.abort(), 15000);
     try {

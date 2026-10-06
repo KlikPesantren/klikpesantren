@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "test:pos-mobile": "node scripts/test-pos-mobile-static.js && npm --prefix pos-app test && node scripts/test-pos-mobile-db.js",
     "start": "node server.js",
     "migrate": "node migrate.js up",
     "migration:status": "node migrate.js status",

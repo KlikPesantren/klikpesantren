@@ -1,0 +1,30 @@
+{
+  "name": "klikpesantren-pos",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "web": "expo start --web",
+    "lint": "eslint .",
+    "test": "node --test tests/*.test.cjs",
+    "export:android": "expo export --platform android",
+    "export:web": "expo export --platform web"
+  },
+  "dependencies": {
+    "expo": "~56.0.15",
+    "expo-crypto": "~56.0.4",
+    "expo-secure-store": "~56.0.4",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-web": "^0.21.0",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.1",
+    "eslint-config-expo": "~56.0.4",
+    "babel-preset-expo": "^56.0.14"
+  }
+}

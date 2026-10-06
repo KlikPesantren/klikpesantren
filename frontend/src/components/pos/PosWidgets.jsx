@@ -1,0 +1,15 @@
+import {rupiah} from '../../utils/posMoney.mjs';
+import {useState} from 'react';
+import {usePosResource} from '../../hooks/usePosResource';
+export function Feedback({loading,error,message}){return <>{loading&&<p role="status">Memuat POS…</p>}{error&&<p className="pos-alert" role="alert">{error}</p>}{message&&<p role="status" className="pos-success">{message}</p>}</>;}
+export function PosTable({rows=[],columns=[],action}){return <div className="pos-table"><table><thead><tr>{columns.map(c=><th key={c.key}>{c.label}</th>)}{action&&<th>Aksi</th>}</tr></thead><tbody>{rows.map((row,i)=><tr key={`${row.id??i}:${row.merchant_id??''}`}>{columns.map(c=><td key={c.key}>{c.render?c.render(row):c.money?rupiah(row[c.key]):String(row[c.key]??'—')}</td>)}{action&&<td>{action(row)}</td>}</tr>)}</tbody></table>{!rows.length&&<p>Belum ada data pada filter ini.</p>}</div>;}
+export function Pager({data,page,setPage}){return <div className="pos-toolbar"><button type="button" disabled={page<=1} onClick={()=>setPage(page-1)}>Sebelumnya</button><span>Halaman {page} · {data?.total??0} data</span><button type="button" disabled={!data||BigInt(page*data.page_size)>=BigInt(data.total)} onClick={()=>setPage(page+1)}>Berikutnya</button></div>;}
+export function Field({label,children}){return <label className="pos-field"><span>{label}</span>{children}</label>;}
+export function Choice({label,value,onChange,options,required=false,disabled=false}){return <Field label={label}><select value={value??''} required={required} disabled={disabled} onChange={e=>onChange(e.target.value)}><option value="">{required?'Pilih…':'Semua'}</option>{value&&!options.some(o=>String(o.id)===String(value))&&<option value={value}>ID {value} (pilihan tersimpan)</option>}{options.map(o=><option key={o.id} value={o.id}>{o.name??o.nama??o.nama_merchant??o.label??o.id}</option>)}</select></Field>;}
+export function Lookup({label,value,onChange,kind,scope,merchantId,required=false,disabled=false}){
+ const [search,setSearch]=useState(''),[page,setPage]=useState(1);
+ const state=usePosResource(`/pos/admin/management/${kind}`,{...scope,merchant_id:merchantId||undefined,search,page,page_size:25});
+ return <div><Choice label={label} value={value} onChange={onChange} required={required} disabled={disabled} options={state.data?.rows||[]}/>{!disabled&&<><input aria-label={`Cari ${label}`} placeholder={`Cari ${label}`} value={search} onKeyDown={e=>{if(e.key==='Enter')e.preventDefault();}} onChange={e=>{setSearch(e.target.value);setPage(1);}}/><Pager data={state.data} page={page} setPage={setPage}/></>}<Feedback {...state}/></div>;
+}
+export function Text({label,value,onChange,type='text',required=false}){return <Field label={label}><input type={type} value={value??''} required={required} onChange={e=>onChange(e.target.value)}/></Field>;}
+export function Check({label,value,onChange}){return <label className="pos-check"><input type="checkbox" checked={Boolean(value)} onChange={e=>onChange(e.target.checked)}/>{label}</label>;}

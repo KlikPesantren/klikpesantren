@@ -37,6 +37,7 @@ const SIDEBAR = {
 };
 
 const MENU = [
+  ...[['dashboard','Dashboard'],['transactions','Transaksi'],['products','Produk'],['categories','Kategori'],['merchants','Merchant'],['cashiers','Kasir'],['shifts','Shift'],['refunds','Refund / Void'],['reconciliation','Rekonsiliasi'],['settings','Pengaturan']].map(([path,label])=>({name:`POS ${label}`,path:`/pos/${path}`,perm:path==='reconciliation'?'pos.reconcile':'pos.view',feature:null,icon:<FaMoneyBill/>})),
   { name: "Dashboard", path: "/dashboard", perm: "dashboard.view", feature: "dashboard", icon: <FaHome /> },
   { name: "Santri", path: "/santri", perm: "santri.view", feature: "santri", icon: <FaUsers /> },
   { name: "Alumni", path: "/alumni", perm: "alumni.view", feature: "santri", icon: <FaUsers /> },
@@ -65,7 +66,7 @@ const MENU = [
   { name: "Mutasi", path: "/rfid-mutasi", perm: ["wallet.view", "rfid.view"], feature: null, unitFeature: "wallet", icon: <FaMoneyBill /> },
   { name: "Transaksi", path: "/rfid-transactions", perm: ["wallet.view", "rfid.view"], feature: null, unitFeature: "wallet", icon: <FaMoneyBill /> },
   { name: "RFID Monitoring", path: "/rfid-monitor", perm: "rfid.view", feature: "rfid", unitFeature: "rfid", icon: <FaWifi /> },
-  { name: "Perangkat", path: "/rfid-devices", perm: "rfid.view", feature: "rfid", unitFeature: "rfid", icon: <FaMicrochip /> },
+  { name: "Perangkat", path: "/rfid-devices", perm: ["rfid.view", "pos.view"], feature: null, icon: <FaMicrochip /> },
   { name: "Merchant", path: "/rfid-merchant", perm: "rfid.view", feature: "rfid", unitFeature: "rfid", icon: <FaWifi /> },
   { name: "Refund", path: "/rfid-refund", perm: "rfid.view", feature: "rfid", unitFeature: "rfid", icon: <FaWifi /> },
   { name: "Perizinan", path: "/perizinan", perm: "perizinan.view", feature: "perizinan", unitFeature: "perizinan", icon: <FaClipboardList /> },
@@ -80,6 +81,10 @@ const MENU = [
 ];
 
 const MENU_GROUPS = [
+  {
+    id: 'pos-kantin', title: 'POS KANTIN', collapsible: true,
+    items: ['POS Dashboard','POS Transaksi','POS Produk','POS Kategori','POS Merchant','POS Kasir','POS Shift','POS Refund / Void','POS Rekonsiliasi','POS Pengaturan'],
+  },
   {
     id: "dashboard",
     title: "Dashboard",

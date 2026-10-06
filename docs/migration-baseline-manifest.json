@@ -641,6 +641,15 @@
       "notes": "additive POS domain only; no legacy ownership assignment, balance backfill or production grants",
       "recommended_action": "APPLY_ORIGINAL",
       "execution_order": 240
+    },
+    {
+      "filename": "095_pos_admin_control_center.sql",
+      "checksum": "8cd8d6e2ff84b4bf1bd83613d2b872dfbc6ab68f4667e1349184d35dee2e3f10",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated POS Admin PostgreSQL rehearsal and generated scoped reporting fixtures; never production",
+      "notes": "additive reporting indexes and pos.reconcile only; 094 unchanged",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 250
     }
   ]
 }

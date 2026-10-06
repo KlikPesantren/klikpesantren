@@ -22,6 +22,7 @@ const RFIDTopupPage = lazy(() => import("./pages/RFIDTopupPage"));
 const WalletWithdrawalPage = lazy(() => import("./pages/WalletWithdrawalPage"));
 const RFIDMerchantPage = lazy(() => import("./pages/RFIDMerchantPage"));
 const RFIDDevicePage = lazy(() => import("./pages/RFIDDevicePage"));
+const PosAdminPage = lazy(() => import("./pages/PosAdminPage"));
 const RFIDMutasiPage = lazy(() => import("./pages/RFIDMutasiPage"));
 const RFIDRefundPage = lazy(() => import("./pages/RFIDRefundPage"));
 
@@ -299,6 +300,8 @@ function App() {
         />
 
         <Route path="/alumni" element={<ProtectedRoute><AlumniPage /></ProtectedRoute>} />
+        <Route path="/pos" element={<Navigate to="/pos/dashboard" replace/>}/>
+        <Route path="/pos/:section" element={<ProtectedRoute><LazyPage><PosAdminPage/></LazyPage></ProtectedRoute>}/>
 
         <Route
           path="/kelas"

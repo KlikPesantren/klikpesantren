@@ -7,6 +7,7 @@ const service = require('../services/posService');
 function createPosRouter({ pos = service, authenticate = auth, tenantContext = tenant } = {}) {
   const router = express.Router();
   router.use(authenticate, tenantContext);
+  router.use('/admin',require('./posAdminRoutes').createPosAdminRouter());
   const handle = operation => async (req,res) => {
     try { res.json({success:true,data:await pos[operation](req)}); }
     catch (e) {

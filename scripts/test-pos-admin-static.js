@@ -1,0 +1,16 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const {readMigration,loadMigrationPolicy,checksumMatches}=require('../utils/migrationLedger');
+const read=f=>fs.readFileSync(path.join(__dirname,'..',f),'utf8');
+const admin=read('services/posAdminService.js'),route=read('routes/posAdminRoutes.js'),page=read('frontend/src/pages/PosAdminPage.jsx'),hooks=read('frontend/src/hooks/usePosResource.js');
+assert(checksumMatches(readMigration('095_pos_admin_control_center.sql').sql,loadMigrationPolicy().get('095_pos_admin_control_center.sql').checksum));
+assert.equal(readMigration('094_pos_v1_foundation.sql').checksum,'0605eef6c75d82d076269aa12aac4f52aede96b74add5a48a7188f886fb30e51');
+for(const name of ['dashboard','transactions','products','categories','merchants','cashiers','shifts','refunds','reconciliation','settings'])assert(page.includes(name));
+assert(admin.includes('REPEATABLE READ READ ONLY'));assert(admin.includes("run(req,'pos.reconcile'"));assert(admin.includes('page_size'));assert(admin.includes('a.units'));
+assert(admin.includes('resolveActiveUnit(req,c)'));assert(!admin.includes('resolveActiveUnit({...req'));
+assert(!/router\.delete|wallet_accounts\s+SET|wallet_transactions\s+SET|santri\.saldo|uid_rfid|device_secret/i.test(admin+route));
+assert(admin.includes('ATTENDANCE_TERMINAL_FROZEN'));assert(admin.includes('TERMINAL_HISTORY_PROTECTED'));assert(admin.includes('MERCHANT_UNIT_CHANGE_FORBIDDEN'));
+assert(!/\/rfid\/(payment|refund)|checkout|stock_quantity/.test(page));
+assert(hooks.includes('AbortController'));assert(hooks.includes('controller.signal.aborted'));assert(hooks.includes('lock.current'));assert(hooks.includes('retry.current.key'));assert(hooks.indexOf("setMessage('Berhasil disimpan.')")<hooks.indexOf('onSaved?.()'));
+assert(page.includes('key={`${section}:${activeUnitId'));assert(page.includes('body.reference=form.external_reference'));assert(page.includes('reference,confirmed:true'));
+assert(read('frontend/src/components/pos/PosTerminalControls.jsx').includes('r.attendance_mode'));assert(read('frontend/src/components/Sidebar.jsx').includes("title: 'POS KANTIN'"));
+(async()=>{const {moneyInput,rupiah}=await import('../frontend/src/utils/posMoney.mjs');assert.equal(moneyInput('9007199254740993'),'9007199254740993');assert(rupiah('9007199254740993').includes('9.007.199.254.740.993'));assert.throws(()=>moneyInput('1.5'));assert.throws(()=>moneyInput('9223372036854775808'));console.log('PASS Admin navigation, immutable 094, scoped reads, safe retry/stale controls, frozen Attendance, no legacy financial handler, BIGINT Rupiah');})();

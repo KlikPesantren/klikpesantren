@@ -1,0 +1,10 @@
+BEGIN;
+DROP INDEX pos_sales_admin_date;
+DROP INDEX pos_sales_admin_merchant;
+DROP INDEX pos_shifts_admin_date;
+DROP INDEX pos_refunds_admin_date;
+DROP INDEX pos_products_admin_merchant;
+DELETE FROM tenant_role_permissions WHERE permission_id IN(SELECT id FROM permissions WHERE key='pos.reconcile');
+DELETE FROM role_permissions WHERE permission_id IN(SELECT id FROM permissions WHERE key='pos.reconcile');
+DELETE FROM permissions WHERE key='pos.reconcile';
+COMMIT;

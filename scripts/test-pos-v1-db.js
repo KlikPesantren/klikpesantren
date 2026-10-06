@@ -54,6 +54,7 @@ async function setup() {
   assert.equal((await db.query(`SELECT to_regclass('public.pos_sales') AS pos`)).rows[0].pos,null);
   assert.deepEqual((await db.query(`SELECT (SELECT count(*) FROM wallet_accounts)::text AS accounts,(SELECT count(*) FROM tenants)::text AS tenants`)).rows[0],before);
   await db.query(readMigration('094_pos_v1_foundation.sql').sql);
+  await db.query(readMigration('096_pos_product_image_url.sql').sql);
   console.log('PASS isolated migration UP/DOWN/second UP, legacy baseline preserved');
   require.cache[require.resolve('../db')]={id:require.resolve('../db'),filename:require.resolve('../db'),loaded:true,exports:db};
   const rbac=require('../middleware/requirePermission');

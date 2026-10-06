@@ -188,7 +188,7 @@ function createPosMobileService({
       ).rows;
       const r = (
         await c.query(
-          `SELECT coalesce(sum(r.amount),0)::text AS total,coalesce(sum(r.amount) FILTER(WHERE p.method='CASH' AND r.shift_id=$1),0)::text AS cash
+          `SELECT coalesce(sum(r.amount) FILTER(WHERE s.shift_id=$1),0)::text AS total,coalesce(sum(r.amount) FILTER(WHERE p.method='CASH' AND r.shift_id=$1),0)::text AS cash
       FROM pos_refunds r JOIN pos_payments p ON p.id=r.payment_id JOIN pos_sales s ON s.id=p.sale_id
       WHERE r.status='CONFIRMED' AND (s.shift_id=$1 OR r.shift_id=$1)`,
           [shift.id],
@@ -224,7 +224,7 @@ function createPosMobileService({
       const where = `tenant_id=$1 AND unit_id=$2 AND merchant_id=$3 AND active AND ($4='' OR name ILIKE '%'||$4||'%' OR sku ILIKE '%'||$4||'%') AND ($5::uuid IS NULL OR category_id=$5)`;
       const products = (
         await c.query(
-          `SELECT id,category_id,sku,name,price,available FROM pos_products WHERE ${where} ORDER BY name,id LIMIT $6 OFFSET $7`,
+          `SELECT id,category_id,sku,name,price,available,image_url FROM pos_products WHERE ${where} ORDER BY name,id LIMIT $6 OFFSET $7`,
           [...values, limit, (page - 1) * limit],
         )
       ).rows;

@@ -12,6 +12,7 @@ const shift = {
   id: "90000000-0000-4000-8000-000000000001",
   status: "OPEN",
   opening_cash: "100000",
+  opened_at: "2026-10-06T05:00:00Z",
 };
 const products = [
   ["Mie Nyemek", 18000],
@@ -177,13 +178,8 @@ function createReviewAdapter() {
         limit: 30,
       };
     }
-    if (path === "/pos/mobile/transactions")
-      return {
-        rows:
-          state === "empty"
-            ? []
-            : ["CASH", "RFID", "TRANSFER_QRIS"]
-                .filter((m) => !query.method || m === query.method)
+    if (path === "/pos/mobile/transactions") {
+      const rows = state === "empty" ? [] : ["CASH", "RFID", "TRANSFER_QRIS"]
                 .map((m, i) => ({
                   id: `review-${i}`,
                   receipt: `REVIEW-ONLY-000${i + 1}`,
@@ -193,11 +189,14 @@ function createReviewAdapter() {
                   status: i === 2 ? "DRAFT" : "PAID",
                   payment_status: i === 2 ? "PENDING" : "CONFIRMED",
                 }))
-                .filter((r) => r.receipt.includes(query.search || "")),
+                .filter((r) => (!query.method || r.method === query.method) && (!query.status || r.status === query.status) && r.receipt.includes(query.search || ""));
+      return {
+        rows,
         page: 1,
-        total: state === "empty" ? 0 : 3,
+        total: rows.length,
         limit: 30,
       };
+    }
     if (path.startsWith("/pos/mobile/transactions/"))
       return receipt(
         path.endsWith("review-2") ? "TRANSFER_QRIS" : "CASH",

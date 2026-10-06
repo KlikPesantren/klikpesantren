@@ -650,6 +650,15 @@
       "notes": "additive reporting indexes and pos.reconcile only; 094 unchanged",
       "recommended_action": "APPLY_ORIGINAL",
       "execution_order": 250
+    },
+    {
+      "filename": "096_pos_product_image_url.sql",
+      "checksum": "a6b7f48a79a3a6776b797cc4de5cd7c81fc700f8517408b31b5e777d755f93a2",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated local PostgreSQL image URL rehearsal; never production",
+      "notes": "nullable public URL only; no inventory, money or ownership change",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 260
     }
   ]
 }

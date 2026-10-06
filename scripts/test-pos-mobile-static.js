@@ -28,6 +28,11 @@ function visit(n, parent) {
   }
 }
 visit(ast, null);
+visit(require("../pos-app/node_modules/@babel/parser").parse(read("pos-app/src/ui.js"), {sourceType:"module",plugins:["jsx"]}), null);
+assert.ok(app.includes('status: historyStatus'));
+assert.ok(app.includes('setCart([])'));
+assert.ok(app.includes('paymentBlock('));
+assert.ok(app.includes('correctionBlock('));
 for (const tab of ["BERANDA", "KASIR", "TRANSAKSI", "PRODUK", "LAINNYA"])
   assert.ok(compactApp.includes(`'${tab}'`));
 for (const endpoint of [

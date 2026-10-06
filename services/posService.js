@@ -344,14 +344,15 @@ function createPosService({ db = pool, permissionList = permissions.getPermissio
       const a=await scope(req,c,'pos.products.manage'), b=req.body, m=await merchant(c,a,b.merchant_id);
       const values=[a.tenantId,a.unitId,m.id,b.category_id==null?null:uuid(b.category_id),text(b.sku,80),text(b.name,160),
         integer(b.price,'PRICE',true).toString(),bool(b.active,true),bool(b.available,true)];
+      const imageUrl=require('../utils/posProductImage').productImageUrl(b.image_url);
       if (req.params?.id) {
-        const result=await c.query(`UPDATE pos_products SET category_id=$4,sku=$5,name=$6,price=$7,active=$8,available=$9,updated_at=now()
-          WHERE tenant_id=$1 AND unit_id=$2 AND merchant_id=$3 AND id=$10 RETURNING *`,[...values,uuid(req.params.id)]);
+        const result=await c.query(`UPDATE pos_products SET category_id=$4,sku=$5,name=$6,price=$7,active=$8,available=$9,image_url=CASE WHEN $12 THEN $10 ELSE image_url END,updated_at=now()
+          WHERE tenant_id=$1 AND unit_id=$2 AND merchant_id=$3 AND id=$11 RETURNING *`,[...values,imageUrl,uuid(req.params.id),Object.hasOwn(b,'image_url')]);
         if (!result.rowCount) fail('PRODUCT_NOT_FOUND',404);
         return result.rows[0];
       }
-      return (await c.query(`INSERT INTO pos_products(tenant_id,unit_id,merchant_id,category_id,sku,name,price,active,available,id)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,[...values,crypto.randomUUID()])).rows[0];
+      return (await c.query(`INSERT INTO pos_products(tenant_id,unit_id,merchant_id,category_id,sku,name,price,active,available,image_url,id)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,[...values,imageUrl,crypto.randomUUID()])).rows[0];
     });
   }
   async function catalog(req) {

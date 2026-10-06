@@ -120,7 +120,7 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
  // Management collections are bounded and scoped; no secrets/UIDs projected.
  async function management(req){return run(req,'pos.view',false,async(c,a)=>{
   const kind=req.params.kind,pg=page(req),q=req.query||{},v=[a.tenantId,a.units];
-  const sources={products:`SELECT p.id,p.unit_id,p.merchant_id,p.category_id,p.sku,p.name,p.price,p.active,p.available,m.nama_merchant merchant FROM pos_products p JOIN merchant_rfid m ON m.id=p.merchant_id`,
+  const sources={products:`SELECT p.id,p.unit_id,p.merchant_id,p.category_id,p.sku,p.name,p.price,p.active,p.available,p.image_url,m.nama_merchant merchant FROM pos_products p JOIN merchant_rfid m ON m.id=p.merchant_id`,
    categories:`SELECT p.id,p.unit_id,p.merchant_id,p.name,p.active,m.nama_merchant merchant FROM pos_categories p JOIN merchant_rfid m ON m.id=p.merchant_id`,
    merchants:`SELECT p.id,p.unit_id,p.nama_merchant name,p.status AS active,p.pos_enabled,p.location_resolution_status,
     coalesce(d.terminals,0) terminals,coalesce(c.cashiers,0) cashiers FROM merchant_rfid p

@@ -69,6 +69,111 @@ const reject = (fn, code) => assert.rejects(fn, (e) => e.code === code);
     db,
     featureEnabled: async () => true,
   });
+  await test("096 DOWN/UP/second UP preserves financial rows; Admin image reaches scoped mobile catalog", async () => {
+    const fs = require("node:fs");
+    const tables = [
+      "pos_sales",
+      "pos_sale_items",
+      "pos_payments",
+      "pos_refunds",
+      "pos_shifts",
+      "wallet_accounts",
+      "wallet_transactions",
+    ];
+    const fingerprint = async () => {
+      const result = {};
+      for (const table of tables)
+        result[table] = (
+          await db.query(
+            `SELECT md5(coalesce(string_agg(row_to_json(t)::text,'' ORDER BY id::text),'')) hash FROM ${table} t`,
+          )
+        ).rows[0].hash;
+      return result;
+    };
+    const before = await fingerprint();
+    const products = (
+      await db.query("SELECT id,sku,price FROM pos_products ORDER BY id")
+    ).rows;
+    const down = fs.readFileSync(
+        "migrations/096_pos_product_image_url_rollback.sql",
+        "utf8",
+      ),
+      up = fs.readFileSync("migrations/096_pos_product_image_url.sql", "utf8");
+    for (let round = 0; round < 2; round++) {
+      await db.query("BEGIN");
+      await db.query(down);
+      await db.query("COMMIT");
+      assert.equal(
+        (
+          await db.query(
+            "SELECT count(*)::int n FROM information_schema.columns WHERE table_schema='public' AND table_name='pos_products' AND column_name='image_url'",
+          )
+        ).rows[0].n,
+        0,
+      );
+      assert.deepEqual(
+        (await db.query("SELECT id,sku,price FROM pos_products ORDER BY id"))
+          .rows,
+        products,
+      );
+      await db.query("BEGIN");
+      await db.query(up);
+      await db.query("COMMIT");
+      assert.equal(
+        (
+          await db.query(
+            "SELECT count(*)::int n FROM pos_products WHERE image_url IS NOT NULL",
+          )
+        ).rows[0].n,
+        0,
+      );
+    }
+    assert.deepEqual(await fingerprint(), before);
+    await assert.rejects(
+      () =>
+        db.query(
+          "UPDATE pos_products SET image_url='http://example.com/image.png'",
+        ),
+      (e) => e.code === "23514",
+    );
+    const body = {
+      ...scope,
+      sku: "SYNTHETIC-IMAGE",
+      name: "Synthetic image product",
+      price: "12345",
+      image_url: "https://example.com/synthetic-pos-image.png",
+    };
+    const created = await pos.product(req(body, 1, "POST"));
+    assert.equal(created.image_url, body.image_url);
+    assert.equal(
+      (await mobile.catalog(req({ ...scope, search: body.name }))).products[0]
+        .image_url,
+      body.image_url,
+    );
+    const admin = require("../services/posAdminService").createPosAdminService({
+      db,
+      featureEnabled: async () => true,
+    });
+    const adminReq = {
+      ...req({ ...scope, search: body.name }, 1),
+      params: { kind: "products" },
+    };
+    assert.equal(
+      (await admin.management(adminReq)).rows[0].image_url,
+      body.image_url,
+    );
+    const update = {
+      ...req({ ...body, image_url: undefined }, 1, "POST"),
+      params: { id: created.id },
+    };
+    delete update.body.image_url;
+    assert.equal((await pos.product(update)).image_url, body.image_url);
+    update.body.image_url = "";
+    assert.equal((await pos.product(update)).image_url, null);
+    update.body.image_url = "https://localhost/private";
+    await reject(() => pos.product(update), "INVALID_PRODUCT_IMAGE");
+    assert.deepEqual(await fingerprint(), before);
+  });
   await test("bootstrap current user/assignment only, no secrets; denied actor", async () => {
     const c = await mobile.bootstrap(req());
     assert.equal(c.user.id, 3);
@@ -468,6 +573,16 @@ const reject = (fn, code) => assert.rejects(fn, (e) => e.code === code);
         ),
       "SHIFT_NOT_OPEN",
     );
+  });
+  await test("refund of a prior-shift sale reduces current cash drawer but not current-shift net revenue", async () => {
+    const previous=(await db.query("SELECT p.id FROM pos_payments p JOIN pos_sales s ON s.id=p.sale_id WHERE s.tenant_id=1 AND s.unit_id=2 AND s.merchant_id=1 AND s.status='PAID' AND p.method='CASH' AND p.status='CONFIRMED' AND p.amount > (SELECT coalesce(sum(amount),0) FROM pos_refunds WHERE payment_id=p.id) ORDER BY p.id LIMIT 1")).rows[0];
+    assert.ok(previous);
+    const shift=await pos.openShift(req({...scope,opening_cash:'10000'},3,'POST'));
+    await pos.refund(req({...scope,shift_id:shift.id,payment_id:previous.id,amount:'100',reason:'Synthetic previous shift return',request_id:'mobile-cross-shift-refund'},3,'POST'));
+    const summary=await mobile.summary(req(scope));
+    assert.equal(summary.sales,'0');assert.equal(summary.refunds,'0');
+    assert.equal(summary.cash_refunds,'100');assert.equal(summary.expected_cash,'9900');
+    await pos.closeShift({...req({...scope,actual_cash:'9900'},3,'POST'),params:{id:shift.id}});
   });
   console.log(
     `POS mobile: ${passed}/${passed} groups PASS; production untouched`,

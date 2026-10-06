@@ -7,16 +7,13 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -24,6 +21,21 @@ import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
 import Constants from "expo-constants";
 import { makeApi } from "./src/api";
+import {
+  colors,
+  s,
+  Button,
+  Field,
+  Card,
+  Row,
+  Icon,
+  Money,
+  Badge,
+  Chip,
+  Empty,
+  Artwork,
+  ReviewTools,
+} from "./src/ui";
 const { createVault } = require("./src/vault.cjs");
 const {
   rupiah,
@@ -59,68 +71,38 @@ const storage =
     : SecureStore;
 const vault = createVault(storage),
   TABS = ["BERANDA", "KASIR", "TRANSAKSI", "PRODUK", "LAINNYA"];
-const colors = {
-  green: "#087f5b",
-  navy: "#102b40",
-  muted: "#586b7b",
-  line: "#dce5e8",
-  surface: "#fff",
-  background: "#f3f6f8",
-  red: "#b42318",
+const {
+  PAYMENT_LABELS,
+  STATUS_LABELS,
+  paymentBlock,
+  cashShortcuts,
+  refundSummary,
+  correctionBlock,
+} = require("./src/workflow.cjs");
+const tabIcons = {
+  BERANDA: "home",
+  KASIR: "shopping-bag",
+  TRANSAKSI: "file-text",
+  PRODUK: "grid",
+  LAINNYA: "menu",
 };
-function Button({ title, onPress, disabled, secondary = false }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={disabled}
-      onPress={onPress}
-      style={[s.button, secondary && s.secondary, disabled && s.disabled]}
-    >
-      <Text style={[s.buttonText, secondary && { color: colors.green }]}>
-        {title}
-      </Text>
-    </Pressable>
-  );
-}
-function Field({
-  label,
-  value,
-  onChangeText,
-  secret = false,
-  numeric = false,
-}) {
-  return (
-    <View style={s.field}>
-      <Text style={s.label}>{label}</Text>
-      <TextInput
-        accessibilityLabel={label}
-        style={s.input}
-        value={value}
-        onChangeText={onChangeText}
-        secureTextEntry={secret}
-        keyboardType={numeric ? "number-pad" : "default"}
-        autoCapitalize="none"
-        autoCorrect={false}
-      />
-    </View>
-  );
-}
-function Card({ title, children }) {
-  return (
-    <View style={s.card}>
-      {title && <Text style={s.heading}>{title}</Text>}
-      {children}
-    </View>
-  );
-}
-function Row({ label, value }) {
-  return (
-    <View style={s.row}>
-      <Text style={s.label}>{label}</Text>
-      <Text style={s.value}>{value}</Text>
-    </View>
-  );
-}
+const date = (value) =>
+  value
+    ? new Date(value).toLocaleString("id-ID", {
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
+const validMoney = (value) => {
+  try {
+    money(value);
+    return true;
+  } catch {
+    return false;
+  }
+};
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -163,7 +145,14 @@ function CashierApp() {
     }),
     [historyPage, setHistoryPage] = useState(1),
     [historySearch, setHistorySearch] = useState(""),
-    [historyMethod, setHistoryMethod] = useState(null);
+    [historyMethod, setHistoryMethod] = useState(null),
+    [historyStatus, setHistoryStatus] = useState(null),
+    [catalogLoading, setCatalogLoading] = useState(false),
+    [historyLoading, setHistoryLoading] = useState(false),
+    [confirmation, setConfirmation] = useState(null),
+    [readerDev, setReaderDev] = useState(false),
+    [readerReady, setReaderReady] = useState(false),
+    [refreshKey, setRefreshKey] = useState(0);
   const [sheet, setSheet] = useState(null),
     [opening, setOpening] = useState("0"),
     [actual, setActual] = useState("0"),
@@ -199,13 +188,29 @@ function CashierApp() {
         terminal_id: selected.terminal_id,
       }
     : null;
-  let total;
+  let total, cartTotals;
   try {
-    total = totals(cart, discount).total;
+    cartTotals = totals(cart, discount);
+    total = cartTotals.total;
   } catch {
     total = null;
   }
   const can = (p) => context?.permissions?.includes(p);
+  const editCart = (product, delta) => {
+    try {
+      changeCart(cart, product, delta);
+      setCart((current) => {
+        try {
+          return changeCart(current, product, delta);
+        } catch {
+          return current;
+        }
+      });
+      setNotice(`${product.name}: keranjang diperbarui.`);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
   const pending =
     paymentState.pending ||
     ["PROCESSING", "CHECKING"].includes(paymentState.state);
@@ -237,6 +242,7 @@ function CashierApp() {
     setDiscountReason("");
     setWalletPreview(null);
     credential.current = null;
+    setReaderReady(false);
     setTestInput("");
     setSummary(null);
     setCatalog({ products: [], categories: [], total: 0, page: 1, limit: 30 });
@@ -309,61 +315,77 @@ function CashierApp() {
   }, [acceptSession]);
   useEffect(() => {
     if (!session || !selected || !["KASIR", "PRODUK"].includes(tab)) return;
+
     let alive = true;
     const g = generation.current;
-    const timer = setTimeout(
-      () =>
-        apiRef
-          .current("/pos/mobile/catalog", {
-            query: {
-              ...selected,
-              search,
-              category_id: category,
-              page,
-              limit: 30,
-            },
-          })
-          .then((data) => {
-            if (alive && g === generation.current) setCatalog(data);
-          })
-          .catch((e) => {
-            if (alive && g === generation.current) setError(errorText(e));
-          }),
-      200,
-    );
+    const timer = setTimeout(() => {
+      setCatalogLoading(true);
+      return apiRef
+        .current("/pos/mobile/catalog", {
+          query: {
+            ...selected,
+            search,
+            category_id: category,
+            page,
+            limit: 30,
+          },
+        })
+        .then((data) => {
+          if (alive && g === generation.current) setCatalog(data);
+        })
+        .catch((e) => {
+          if (alive && g === generation.current) setError(errorText(e));
+        })
+        .finally(() => {
+          if (alive && g === generation.current) setCatalogLoading(false);
+        });
+    }, 200);
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [session, selected, tab, search, category, page]);
+  }, [session, selected, tab, search, category, page, refreshKey]);
   useEffect(() => {
     if (!session || !selected || tab !== "TRANSAKSI") return;
+
     let alive = true;
     const g = generation.current;
-    const timer = setTimeout(
-      () =>
-        apiRef
-          .current("/pos/mobile/transactions", {
-            query: {
-              ...selected,
-              page: historyPage,
-              search: historySearch,
-              method: historyMethod,
-            },
-          })
-          .then((data) => {
-            if (alive && g === generation.current) setHistory(data);
-          })
-          .catch((e) => {
-            if (alive && g === generation.current) setError(errorText(e));
-          }),
-      200,
-    );
+    const timer = setTimeout(() => {
+      setHistoryLoading(true);
+      return apiRef
+        .current("/pos/mobile/transactions", {
+          query: {
+            ...selected,
+            page: historyPage,
+            search: historySearch,
+            method: historyMethod,
+            status: historyStatus,
+          },
+        })
+        .then((data) => {
+          if (alive && g === generation.current) setHistory(data);
+        })
+        .catch((e) => {
+          if (alive && g === generation.current) setError(errorText(e));
+        })
+        .finally(() => {
+          if (alive && g === generation.current) setHistoryLoading(false);
+        });
+    }, 200);
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [session, selected, tab, historyPage, historySearch, historyMethod]);
+  }, [
+    session,
+    selected,
+    tab,
+    historyPage,
+    historySearch,
+    historyMethod,
+    historyStatus,
+    refreshKey,
+  ]);
   async function login() {
     await run(async () => {
       const result = await makeClient(null, setOnline)("/auth/login", {
@@ -386,6 +408,7 @@ function CashierApp() {
       const data = await api("/pos/mobile/context");
       setContext(data);
       if (scope) await loadSummary(scope);
+      setRefreshKey((v) => v + 1);
       setNotice("Status diperbarui.");
     });
   }
@@ -397,6 +420,7 @@ function CashierApp() {
       generation.current++;
       coordinator.current = null;
       credential.current = null;
+      setReaderReady(false);
       choose(null);
       setSession(null);
       setContext(null);
@@ -408,10 +432,23 @@ function CashierApp() {
     });
   }
   const confirmAction = (title, message, action) =>
-    Alert.alert(title, message, [
-      { text: "Batal", style: "cancel" },
-      { text: "Konfirmasi", onPress: () => run(action) },
-    ]);
+    setConfirmation({ title, message, action });
+  async function refreshAfterError() {
+    if (pending) {
+      setSheet("login");
+      return;
+    }
+    try {
+      const data = await api("/pos/mobile/context");
+      setContext(data);
+      setRefreshKey((v) => v + 1);
+      if (scope) await loadSummary(scope);
+    } catch (e) {
+      if (e.status === 401) {
+        setSheet("login");
+      } else throw e;
+    }
+  }
   async function open() {
     money(opening);
     const row = await api("/pos/shifts/open", {
@@ -420,6 +457,7 @@ function CashierApp() {
     });
     setContext({ ...context, shift: row });
     setSheet(null);
+    setTab("BERANDA");
     setNotice("Shift terbuka.");
     await loadSummary(scope);
   }
@@ -431,11 +469,14 @@ function CashierApp() {
     });
     setContext({ ...context, shift: null });
     setSheet(null);
+    setTab("BERANDA");
+    setCart([]);
     setNotice(`Shift ditutup. Selisih ${rupiah(row.difference)}.`);
     await loadSummary(scope);
   }
   async function scan() {
     credential.current = null;
+    setReaderReady(false);
     setWalletPreview(null);
     const reader = new TestCredentialReader(
       async () => {
@@ -451,9 +492,27 @@ function CashierApp() {
       body: { ...scope, credential: token, amount: total },
     });
     credential.current = token;
+    setReaderReady(true);
     setWalletPreview(preview);
   }
   async function pay() {
+    const blocked = paymentBlock({
+      cart,
+      discount,
+      discountReason,
+      canDiscount: can("pos.discount"),
+      method,
+      tender,
+      online,
+      shift: summary?.shift,
+      walletPreview,
+      credentialReady: !!credential.current,
+      pending,
+      busy: false,
+      confirmed,
+      reference,
+    });
+    if (blocked) throw Error(blocked);
     if (!summary?.shift || !total || !cart.length)
       throw Error("SHIFT_NOT_OPEN");
     if (!online) throw Error("NETWORK");
@@ -480,18 +539,29 @@ function CashierApp() {
         payment,
       });
     credential.current = null;
+    setReaderReady(false);
     setWalletPreview(null);
     setTestInput("");
     if (result.sale.grand_total !== expected)
       setNotice(
         "Harga diperbarui server. Nominal struk adalah nominal otoritatif.",
       );
+    setCart([]);
+    setDiscount("0");
+    setDiscountReason("");
     await loadSummary(scope);
   }
   async function recover() {
     const result = await coordinator.current.recover();
     credential.current = null;
+    setReaderReady(false);
     setTestInput("");
+    if (result.sale) {
+      setCart([]);
+      setDiscount("0");
+      setDiscountReason("");
+      setWalletPreview(null);
+    }
     if (result.refund) {
       setCorrection(null);
       setNotice(
@@ -509,6 +579,19 @@ function CashierApp() {
     setSheet("detail");
   }
   async function correct() {
+    const blocked = correctionBlock({
+      detail,
+      kind: correction,
+      amount: refundAmount,
+      reason,
+      reference,
+      canRefund: can("pos.refund"),
+      canSell: can("pos.sell"),
+      shift: summary?.shift,
+      online,
+      pending,
+    });
+    if (blocked) throw Error(blocked);
     if (correction === "refund") {
       money(refundAmount);
       await coordinator.current.pay(
@@ -555,6 +638,50 @@ function CashierApp() {
     ),
     terminal = context?.terminals.find((t) => t.id === selected?.terminal_id);
   const contextReady = !!selectedMerchant && !!terminal;
+  function newTransaction() {
+    coordinator.current.reset();
+    setCart([]);
+    setDiscount("0");
+    setDiscountReason("");
+    setTender("0");
+    setReference("");
+    setProvider("");
+    setConfirmed(false);
+    setWalletPreview(null);
+    credential.current = null;
+    setReaderReady(false);
+    setTestInput("");
+    setCorrection(null);
+    setSheet(null);
+    setTab("KASIR");
+  }
+  function dismissSheet() {
+    if (busy || pending) return;
+    if (
+      sheet === "payment" &&
+      ["SUCCESS", "PENDING"].includes(paymentState.state)
+    )
+      return newTransaction();
+    setSheet(null);
+    setCorrection(null);
+    credential.current = null;
+    setReaderReady(false);
+    setTestInput("");
+    setWalletPreview(null);
+  }
+  function startPayment() {
+    coordinator.current.reset();
+    setTender(total);
+    setMethod("CASH");
+    setConfirmed(false);
+    setReference("");
+    setProvider("");
+    setWalletPreview(null);
+    credential.current = null;
+    setReaderReady(false);
+    setTestInput("");
+    setSheet("payment");
+  }
   async function reviewState(name) {
     reviewAdapter.setState(name);
     coordinator.current.reset();
@@ -562,6 +689,7 @@ function CashierApp() {
     setCorrection(null);
     setWalletPreview(null);
     credential.current = null;
+    setReaderReady(false);
     setTestInput("");
     setCart([]);
     setDiscount("0");
@@ -683,168 +811,247 @@ function CashierApp() {
   return (
     <SafeAreaView style={s.root}>
       {reviewAdapter && (
-        <View style={s.feedback}>
-          <Text style={s.error}>
-            LOCAL REVIEW · DATA SINTETIS · FINANCIAL WRITE DISABLED
-          </Text>
-          {busy && <ActivityIndicator color={colors.green} />}
-          <ScrollView horizontal>
-            {reviewAdapter.states.map((name) => (
-              <Button
-                key={name}
-                title={name}
-                secondary
-                disabled={busy}
-                onPress={() => run(() => reviewState(name))}
-              />
-            ))}
-          </ScrollView>
-        </View>
+        <ReviewTools
+          states={reviewAdapter.states}
+          busy={busy}
+          onState={(name) => run(() => reviewState(name))}
+        />
       )}
       <View style={s.header}>
         <View style={s.flex}>
-          <Text style={s.brand}>POS KlikPesantren</Text>
-          <Text style={s.muted}>
-            {selectedMerchant?.nama_merchant || "Pilih merchant"} ·{" "}
-            {terminal?.nama_device || "Pilih terminal"}
+          <Text numberOfLines={1} style={s.brand}>
+            {selectedMerchant?.nama_merchant || "POS KlikPesantren"}
+          </Text>
+          <Text numberOfLines={1} style={s.muted}>
+            {context.user.nama} · {terminal?.nama_device || "Pilih terminal"}
+            {selectedMerchant ? ` · ${selectedMerchant.unit_name}` : ""}
           </Text>
         </View>
-        <Text style={online ? s.success : s.error}>
-          {online ? "ONLINE" : "OFFLINE"}
-        </Text>
+        <Badge
+          label={online ? "ONLINE" : "OFFLINE"}
+          tone={online ? "green" : "amber"}
+        />
       </View>
       {(error || notice) && (
         <View accessibilityRole="alert" style={s.feedback}>
-          <Text style={error ? s.error : s.success}>{error || notice}</Text>
-          <Button
-            title="Tutup pesan"
-            secondary
-            onPress={() => {
-              setError("");
-              setNotice("");
-            }}
-          />
-          <Button
-            title="Masuk kembali / perbarui sesi"
-            secondary
-            disabled={busy}
-            onPress={() => setSheet("login")}
-          />
+          <View style={s.row}>
+            <Text style={[error ? s.error : s.success, s.flex]}>
+              {error || notice}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Tutup pesan"
+              onPress={() => {
+                setError("");
+                setNotice("");
+              }}
+              style={s.qty}
+            >
+              <Icon name="x" size={16} />
+            </Pressable>
+          </View>
+          {error && (
+            <Button
+              title="Coba lagi / perbarui sesi"
+              secondary
+              disabled={busy}
+              onPress={() => run(refreshAfterError)}
+            />
+          )}
         </View>
       )}
-      {pending && (
+      {!online && (
         <View style={s.feedback}>
           <Text style={s.error}>
-            Status pembayaran belum pasti. Jangan membuat transaksi baru.
+            Transaksi membutuhkan koneksi internet. Produk yang sudah dimuat
+            dapat dilihat.
+          </Text>
+        </View>
+      )}
+      {pending && sheet !== "payment" && (
+        <View style={s.feedback}>
+          <Text style={s.error}>
+            Memeriksa status transaksi... Jangan membuat pembayaran baru.
           </Text>
           <Button
-            title="Periksa transaksi yang sama"
+            title="Periksa pembayaran"
             disabled={busy}
-            onPress={() => run(recover)}
+            onPress={() => setSheet("payment")}
           />
         </View>
       )}
       <View style={s.flex}>
         {!contextReady ? (
           <ScrollView contentContainerStyle={s.content}>
-            <Card title="Konteks Kasir">
-              <Text style={s.text}>
-                {context.shift
-                  ? "Shift aktif mengunci konteks. Terminal/penugasan tidak tersedia: hubungi admin."
-                  : "Pilih terminal yang ditugaskan server."}
-              </Text>
-              {!context.merchants.length && (
-                <Text style={s.error}>Belum ada penugasan merchant aktif.</Text>
-              )}
-              {context.merchants.map((m) => (
-                <View key={`${m.unit_id}:${m.merchant_id}`}>
-                  <Text style={s.heading}>
-                    {m.nama_merchant} · {m.unit_name}
-                  </Text>
-                  {context.terminals
-                    .filter(
-                      (t) =>
-                        t.merchant_id === m.merchant_id &&
-                        t.unit_id === m.unit_id,
-                    )
-                    .map((t) => (
-                      <Button
-                        key={t.id}
-                        title={t.nama_device}
-                        disabled={busy || pending || !!context.shift}
-                        onPress={() =>
-                          run(async () => {
-                            const next = {
-                              unit_id: m.unit_id,
-                              merchant_id: m.merchant_id,
-                              terminal_id: t.id,
-                            };
-                            choose(next);
-                            await loadSummary(next);
-                          })
-                        }
-                      />
-                    ))}
-                </View>
-              ))}
-              <Button
-                title="Perbarui konteks"
-                secondary
-                onPress={refresh}
-                disabled={busy}
+            <Empty
+              icon="monitor"
+              title={
+                context.shift
+                  ? "Terminal shift tidak tersedia"
+                  : "Pilih tempat bertugas"
+              }
+              note={
+                context.shift
+                  ? "Shift aktif mengunci lokasi. Hubungi Admin untuk memulihkan terminal."
+                  : "Hanya merchant dan terminal yang ditugaskan kepada Anda yang tampil."
+              }
+            />
+            {context.merchants.map((m) => (
+              <Card
+                key={`${m.unit_id}:${m.merchant_id}`}
+                title={m.nama_merchant}
+              >
+                <Text style={s.muted}>{m.unit_name}</Text>
+                {context.terminals
+                  .filter(
+                    (t) =>
+                      t.merchant_id === m.merchant_id &&
+                      t.unit_id === m.unit_id,
+                  )
+                  .map((t) => (
+                    <Button
+                      key={t.id}
+                      icon="monitor"
+                      title={t.nama_device}
+                      disabled={busy || pending || !!context.shift}
+                      onPress={() =>
+                        run(async () => {
+                          const next = {
+                            unit_id: m.unit_id,
+                            merchant_id: m.merchant_id,
+                            terminal_id: t.id,
+                          };
+                          choose(next);
+                          await loadSummary(next);
+                        })
+                      }
+                    />
+                  ))}
+              </Card>
+            ))}
+            {!context.merchants.length && (
+              <Empty
+                title="Belum ada penugasan"
+                note="Hubungi Admin untuk penugasan merchant dan terminal POS."
               />
-              <Button
-                title="Logout"
-                secondary
-                onPress={logout}
-                disabled={busy || pending}
-              />
-            </Card>
+            )}
+            <Button
+              title="Perbarui konteks"
+              secondary
+              disabled={busy}
+              onPress={refresh}
+            />
+            <Button
+              title="Keluar"
+              secondary
+              disabled={busy || pending}
+              onPress={logout}
+            />
           </ScrollView>
         ) : tab === "BERANDA" ? (
           <ScrollView contentContainerStyle={s.content}>
-            <Card title="Siap Operasional">
-              <Row label="Kasir" value={context.user.nama} />
-              <Row label="Unit" value={selectedMerchant.unit_name} />
-              <Row label="Terminal" value={terminal.nama_device} />
-              <Row
-                label="Shift"
-                value={summary?.shift ? "OPEN" : "BELUM DIBUKA"}
-              />
-              <Button
-                title={summary?.shift ? "BUKA KASIR" : "BUKA SHIFT"}
-                disabled={busy || pending || !online}
-                onPress={() =>
-                  summary?.shift ? setTab("KASIR") : setSheet("open")
-                }
-              />
-            </Card>
-            {summary?.shift && (
-              <Card title="Ringkasan Shift">
-                <Text
-                  style={s.money}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.5}
-                >
-                  {rupiah(summary.sales)}
+            <View style={s.row}>
+              <View>
+                <Text style={s.sectionTitle}>Siap melayani hari ini</Text>
+                <Text style={s.muted}>
+                  {summary?.shift
+                    ? `Shift sejak ${date(summary.shift.opened_at)}`
+                    : "Buka shift sebelum mulai jualan"}
                 </Text>
-                <Row label="Transaksi terkonfirmasi" value={summary.count} />
-                {summary.payments.map((p) => (
+              </View>
+              <Badge
+                label={summary?.shift ? "SHIFT AKTIF" : "BELUM BUKA"}
+                tone={summary?.shift ? "green" : "amber"}
+              />
+            </View>
+            <Button
+              icon={summary?.shift ? "shopping-bag" : "unlock"}
+              title={summary?.shift ? "Mulai / lanjut jualan" : "Buka Shift"}
+              disabled={
+                busy ||
+                pending ||
+                !online ||
+                (!summary?.shift && !can("pos.shifts.manage"))
+              }
+              onPress={() =>
+                summary?.shift ? setTab("KASIR") : setSheet("open")
+              }
+            />
+            {summary?.shift ? (
+              <>
+                <View style={s.hero}>
+                  <Text style={s.heroLabel}>
+                    Penjualan terkonfirmasi · shift ini
+                  </Text>
+                  <Text
+                    style={s.heroMoney}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.45}
+                  >
+                    {rupiah(summary.sales)}
+                  </Text>
+                  <Text style={s.heroLabel}>
+                    {summary.count} transaksi lunas
+                  </Text>
+                </View>
+                <Card title="Metode pembayaran">
+                  {["RFID", "CASH", "TRANSFER_QRIS"].map((m) => {
+                    const p = summary.payments.find((p) => p.method === m);
+                    return (
+                      <Row
+                        key={m}
+                        label={`${PAYMENT_LABELS[m]} · ${p?.count || 0} transaksi`}
+                        value={rupiah(p?.amount || 0)}
+                      />
+                    );
+                  })}
                   <Row
-                    key={p.method}
-                    label={p.method}
-                    value={rupiah(p.amount)}
+                    label="Refund dikonfirmasi"
+                    value={rupiah(summary.refunds)}
                   />
-                ))}
-                <Row
-                  label="Refund terkonfirmasi"
-                  value={rupiah(summary.refunds)}
-                />
-              </Card>
+                  <Row
+                    label="Penjualan neto"
+                    value={rupiah(
+                      BigInt(summary.sales) - BigInt(summary.refunds),
+                    )}
+                  />
+                  <Text style={s.muted}>
+                    Transfer/QRIS tertunda tidak termasuk penjualan lunas.
+                  </Text>
+                </Card>
+                <View style={s.stats}>
+                  <View style={s.flex}>
+                    <Button
+                      title="Transaksi"
+                      icon="file-text"
+                      secondary
+                      onPress={() => setTab("TRANSAKSI")}
+                    />
+                  </View>
+                  {can("pos.shifts.manage") && (
+                    <View style={s.flex}>
+                      <Button
+                        title="Tutup Shift"
+                        icon="lock"
+                        secondary
+                        disabled={busy || pending || !online}
+                        onPress={() => setSheet("close")}
+                      />
+                    </View>
+                  )}
+                </View>
+              </>
+            ) : (
+              <Empty
+                icon="sun"
+                title="Shift belum dibuka"
+                note="Catat kas awal, lalu layani pelanggan. Transaksi baru akan masuk ke shift Anda."
+              />
             )}
             <Button
               title="Perbarui status"
+              icon="refresh-cw"
               secondary
               disabled={busy}
               onPress={refresh}
@@ -854,7 +1061,7 @@ function CashierApp() {
           <View style={s.flex}>
             <View style={s.filters}>
               <Field
-                label="Cari produk"
+                label={tab === "KASIR" ? "Cari menu" : "Cari produk"}
                 value={search}
                 onChangeText={(v) => {
                   setSearch(v);
@@ -862,19 +1069,19 @@ function CashierApp() {
                 }}
               />
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <Button
-                  title="Semua"
-                  secondary
+                <Chip
+                  label="Semua"
+                  active={!category}
                   onPress={() => {
                     setCategory(null);
                     setPage(1);
                   }}
                 />
                 {catalog.categories.map((c) => (
-                  <Button
+                  <Chip
                     key={c.id}
-                    title={c.name}
-                    secondary
+                    label={c.name}
+                    active={category === c.id}
                     onPress={() => {
                       setCategory(c.id);
                       setPage(1);
@@ -883,67 +1090,97 @@ function CashierApp() {
                 ))}
               </ScrollView>
             </View>
+            {tab === "KASIR" && !summary?.shift && (
+              <View style={s.feedback}>
+                <Text style={s.error}>
+                  Buka shift untuk menambahkan produk dan melayani pelanggan.
+                </Text>
+              </View>
+            )}
             <FlatList
+              numColumns={2}
+              columnWrapperStyle={s.gridRow}
               data={catalog.products}
               keyExtractor={(p) => p.id}
               contentContainerStyle={s.content}
               ListEmptyComponent={
-                <Text style={s.muted}>Tidak ada produk untuk filter ini.</Text>
+                <Empty
+                  icon="coffee"
+                  loading={catalogLoading}
+                  title={
+                    catalogLoading ? "Memuat produk..." : "Tidak ada produk"
+                  }
+                  note="Coba kata pencarian atau kategori lain."
+                />
               }
               renderItem={({ item: p }) => (
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityLabel={`${p.name}, ${rupiah(p.price)}`}
                   disabled={
                     tab === "PRODUK" ||
                     !p.available ||
                     pending ||
+                    busy ||
                     !summary?.shift
                   }
                   onPress={() => {
                     try {
-                      setCart(changeCart(cart, p, 1));
+                      editCart(p, 1);
+                      setNotice(`${p.name} ditambahkan.`);
                     } catch (e) {
                       setError(errorText(e));
                     }
                   }}
                   style={[s.product, !p.available && s.disabled]}
                 >
-                  <View style={s.flex}>
-                    <Text style={s.heading}>{p.name}</Text>
-                    <Text style={s.muted}>
-                      {p.available ? "Tersedia" : "Tidak tersedia"} · {p.sku}
-                    </Text>
+                  <Artwork url={p.image_url} />
+                  <Text numberOfLines={3} style={s.productName}>
+                    {p.name}
+                  </Text>
+                  <Text numberOfLines={1} adjustsFontSizeToFit style={s.price}>
+                    {rupiah(p.price)}
+                  </Text>
+                  <View style={s.row}>
+                    <Badge
+                      label={p.available ? "Tersedia" : "Tidak tersedia"}
+                      tone={p.available ? "green" : "amber"}
+                    />
+                    {tab === "KASIR" && p.available && (
+                      <Icon name="plus-circle" />
+                    )}
                   </View>
-                  <Text style={s.price}>{rupiah(p.price)}</Text>
                 </Pressable>
               )}
             />
             <View style={s.pager}>
-              <Button
-                title="‹"
-                secondary
-                disabled={page <= 1}
-                onPress={() => setPage(page - 1)}
-              />
+              <Chip label="‹" onPress={() => page > 1 && setPage(page - 1)} />
               <Text style={s.muted}>
                 {page} · {catalog.total} produk
               </Text>
-              <Button
-                title="›"
-                secondary
-                disabled={page * catalog.limit >= catalog.total}
-                onPress={() => setPage(page + 1)}
+              <Chip
+                label="›"
+                onPress={() =>
+                  page * catalog.limit < catalog.total && setPage(page + 1)
+                }
               />
             </View>
             {tab === "KASIR" && (
               <View style={s.cartBar}>
-                <Text style={s.value}>
-                  {cart.reduce((n, p) => n + p.quantity, 0)} item ·{" "}
-                  {total ? rupiah(total) : "Nominal tidak valid"}
-                </Text>
+                <View style={s.row}>
+                  <Text style={s.value}>
+                    {cart.reduce((n, p) => n + p.quantity, 0)} item
+                  </Text>
+                  <Text style={s.price}>
+                    {total ? rupiah(total) : "Nominal tidak valid"}
+                  </Text>
+                </View>
                 <Button
-                  title="Keranjang"
-                  disabled={!cart.length || pending || busy}
+                  icon="shopping-cart"
+                  title={
+                    cart.length ? "Lihat keranjang" : "Pilih produk untuk mulai"
+                  }
+                  disabled={!cart.length || busy || pending}
                   onPress={() => setSheet("cart")}
                 />
               </View>
@@ -952,22 +1189,38 @@ function CashierApp() {
         ) : tab === "TRANSAKSI" ? (
           <View style={s.flex}>
             <View style={s.filters}>
+              <Text style={s.heading}>
+                Transaksi · {summary?.shift ? "shift aktif" : "hari ini"}
+              </Text>
               <Field
-                label="Cari struk"
+                label="Cari nomor struk"
                 value={historySearch}
                 onChangeText={(v) => {
                   setHistorySearch(v);
                   setHistoryPage(1);
                 }}
               />
-              <ScrollView horizontal>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 {[null, "CASH", "RFID", "TRANSFER_QRIS"].map((m) => (
-                  <Button
+                  <Chip
                     key={m || "all"}
-                    title={m || "Semua"}
-                    secondary
+                    label={PAYMENT_LABELS[m] || "Semua metode"}
+                    active={historyMethod === m}
                     onPress={() => {
                       setHistoryMethod(m);
+                      setHistoryPage(1);
+                    }}
+                  />
+                ))}
+              </ScrollView>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {[null, "PAID", "DRAFT", "VOID"].map((status) => (
+                  <Chip
+                    key={status || "all"}
+                    label={STATUS_LABELS[status] || "Semua status"}
+                    active={historyStatus === status}
+                    onPress={() => {
+                      setHistoryStatus(status);
                       setHistoryPage(1);
                     }}
                   />
@@ -979,80 +1232,128 @@ function CashierApp() {
               keyExtractor={(r) => r.id}
               contentContainerStyle={s.content}
               ListEmptyComponent={
-                <Text style={s.muted}>
-                  Belum ada transaksi pada shift/hari ini.
-                </Text>
+                <Empty
+                  loading={historyLoading}
+                  icon="file-text"
+                  title={
+                    historyLoading
+                      ? "Memuat transaksi..."
+                      : "Belum ada transaksi"
+                  }
+                  note="Riwayat mengikuti shift/hari ini dan filter yang dipilih."
+                />
               }
               renderItem={({ item: r }) => (
                 <Pressable
+                  accessibilityRole="button"
+                  disabled={busy}
                   style={s.card}
                   onPress={() => run(() => showDetail(r.id))}
                 >
-                  <Text numberOfLines={1} style={s.heading}>
-                    {r.receipt}
-                  </Text>
-                  <Row label={r.method} value={rupiah(r.grand_total)} />
+                  <View style={s.row}>
+                    <Text numberOfLines={1} style={[s.heading, s.flex]}>
+                      {r.receipt}
+                    </Text>
+                    <Icon name="chevron-right" />
+                  </View>
                   <Text style={s.muted}>
-                    {r.status} · {r.payment_status}
+                    {date(r.created_at)} · {PAYMENT_LABELS[r.method]}
                   </Text>
+                  <View style={s.row}>
+                    <Text style={s.price}>{rupiah(r.grand_total)}</Text>
+                    <Badge
+                      label={STATUS_LABELS[r.status]}
+                      tone={r.status === "PAID" ? "green" : "amber"}
+                    />
+                  </View>
                 </Pressable>
               )}
             />
             <View style={s.pager}>
-              <Button
-                title="‹"
-                secondary
-                disabled={historyPage <= 1}
-                onPress={() => setHistoryPage(historyPage - 1)}
+              <Chip
+                label="‹"
+                onPress={() =>
+                  historyPage > 1 && setHistoryPage(historyPage - 1)
+                }
               />
-              <Text>
-                {historyPage} · {history.total}
+              <Text style={s.muted}>
+                {historyPage} · {history.total} transaksi
               </Text>
-              <Button
-                title="›"
-                secondary
-                disabled={historyPage * history.limit >= history.total}
-                onPress={() => setHistoryPage(historyPage + 1)}
+              <Chip
+                label="›"
+                onPress={() =>
+                  historyPage * history.limit < history.total &&
+                  setHistoryPage(historyPage + 1)
+                }
               />
             </View>
           </View>
         ) : (
           <ScrollView contentContainerStyle={s.content}>
-            <Card title="Operasional">
-              <Row label="Kasir" value={context.user.nama} />
-              <Row label="Merchant" value={selectedMerchant.nama_merchant} />
-              <Row label="Unit" value={selectedMerchant.unit_name} />
-              <Row label="Terminal" value={terminal.nama_device} />
-              <Row label="Aplikasi" value={Constants.expoConfig.version} />
-              <Row label="Koneksi" value={online ? "Online" : "Terputus"} />
-              <Text style={s.muted}>
-                RFID: pembaca fisik menunggu validasi hardware. Adapter input
-                hanya tersedia pada development.
-              </Text>
+            <Text style={s.sectionTitle}>Operasional</Text>
+            <Card title="Shift & laci kas">
+              <Row label="Dibuka" value={date(summary?.shift?.opened_at)} />
+              <Row
+                label="Kas awal"
+                value={rupiah(summary?.shift?.opening_cash)}
+              />
+              <Row
+                label="Kas seharusnya"
+                value={rupiah(summary?.expected_cash)}
+              />
               {can("pos.shifts.manage") && (
                 <Button
                   title={summary?.shift ? "Tutup Shift" : "Buka Shift"}
+                  icon={summary?.shift ? "lock" : "unlock"}
                   disabled={busy || pending || !online}
                   onPress={() => setSheet(summary?.shift ? "close" : "open")}
                 />
               )}
+            </Card>
+            <Card title="Perangkat / terminal">
+              <Row label="Terminal" value={terminal.nama_device} />
+              <Row label="Merchant" value={selectedMerchant.nama_merchant} />
+              <Row label="Unit" value={selectedMerchant.unit_name} />
+              <Badge
+                label={online ? "SIAP · ONLINE" : "OFFLINE"}
+                tone={online ? "green" : "amber"}
+              />
               <Button
-                title="Ganti merchant / terminal"
+                title="Ganti tempat bertugas"
                 secondary
                 disabled={!!context.shift || pending || busy}
                 onPress={() => choose(null)}
               />
+            </Card>
+            <Card title="Akun & aplikasi">
+              <Row label="Kasir" value={context.user.nama} />
+              <Row
+                label="Aplikasi"
+                value={`POS KlikPesantren ${Constants.expoConfig.version}`}
+              />
+              {__DEV__ && (
+                <Row
+                  label="Lingkungan"
+                  value={Constants.expoConfig.extra.posEnvironment}
+                />
+              )}
+              <Text style={s.muted}>
+                Pembaca RFID fisik belum divalidasi; alur software memakai
+                abstraksi reader.
+              </Text>
               <Button
                 title="Perbarui status"
+                icon="refresh-cw"
                 secondary
                 onPress={refresh}
                 disabled={busy}
               />
               <Button
-                title="Logout"
+                title="Keluar akun"
+                icon="log-out"
                 secondary
-                disabled={busy || pending}
                 onPress={logout}
+                disabled={busy || pending}
               />
             </Card>
           </ScrollView>
@@ -1065,37 +1366,54 @@ function CashierApp() {
             accessibilityState={{ selected: tab === t }}
             key={t}
             onPress={() => setTab(t)}
-            style={s.tab}
+            style={[s.tab, tab === t && s.tabActive]}
           >
-            <Text style={[s.tabText, tab === t && s.activeTab]}>{t}</Text>
+            <Icon
+              name={tabIcons[t]}
+              size={21}
+              color={tab === t ? colors.green : colors.muted}
+            />
+            <Text style={[s.tabText, tab === t && s.activeTab]}>
+              {t.charAt(0) + t.slice(1).toLowerCase()}
+            </Text>
           </Pressable>
         ))}
       </View>
       <Modal
         visible={!!sheet}
         animationType="slide"
-        onRequestClose={() => {
-          if (!busy && !pending) {
-            setSheet(null);
-            setCorrection(null);
-            credential.current = null;
-            setTestInput("");
-            setWalletPreview(null);
-          }
-        }}
+        onRequestClose={dismissSheet}
       >
         <SafeAreaView style={s.root}>
           {reviewAdapter && (
-            <View style={s.feedback}>
-              <Text style={s.error}>LOCAL REVIEW · RESET STATE</Text>
-              <Button
-                title="Reset review"
-                secondary
-                disabled={busy}
-                onPress={() => run(() => reviewState("normal"))}
-              />
-            </View>
+            <ReviewTools
+              busy={busy}
+              onReset={() => run(() => reviewState("normal"))}
+            />
           )}
+          <View style={s.header}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Kembali"
+              disabled={busy || pending}
+              style={s.qty}
+              onPress={dismissSheet}
+            >
+              <Icon name="arrow-left" />
+            </Pressable>
+            <Text style={[s.heading, s.flex]}>
+              {
+                {
+                  cart: "Keranjang",
+                  payment: "Pembayaran",
+                  open: "Buka Shift",
+                  close: "Tutup Shift",
+                  detail: "Detail transaksi",
+                  login: "Perbarui sesi",
+                }[sheet]
+              }
+            </Text>
+          </View>
           <KeyboardAvoidingView
             style={s.flex}
             behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -1104,29 +1422,17 @@ function CashierApp() {
               contentContainerStyle={s.content}
               keyboardShouldPersistTaps="handled"
             >
-              <Button
-                title="Kembali"
-                secondary
-                disabled={busy || pending}
-                onPress={() => {
-                  setSheet(null);
-                  setCorrection(null);
-                  credential.current = null;
-                  setTestInput("");
-                  setWalletPreview(null);
-                }}
-              />
               {error && (
-                <Text accessibilityRole="alert" style={s.error}>
-                  {error}
-                </Text>
+                <View accessibilityRole="alert" style={s.feedback}>
+                  <Text style={s.error}>{error}</Text>
+                </View>
               )}
               {busy && <ActivityIndicator color={colors.green} />}
               {sheet === "login" && (
-                <Card title="Perbarui Sesi">
-                  <Text style={s.text}>
-                    Gunakan akun yang sama bila ada transaksi belum pasti.
-                    Request lama tetap dipertahankan.
+                <Card title="Masuk kembali">
+                  <Text style={s.muted}>
+                    Gunakan akun yang sama. Permintaan pembayaran belum pasti
+                    tetap dipertahankan.
                   </Text>
                   <Field
                     label="Kode institusi"
@@ -1152,174 +1458,204 @@ function CashierApp() {
                 </Card>
               )}
               {sheet === "open" && (
-                <Card title="Buka Shift">
-                  <Row
-                    label="Merchant"
-                    value={selectedMerchant?.nama_merchant}
-                  />
-                  <Row label="Terminal" value={terminal?.nama_device} />
-                  <Field
-                    label="Kas awal (Rupiah)"
-                    value={opening}
-                    onChangeText={setOpening}
-                    numeric
-                  />
-                  <Button
-                    title="Buka Shift"
-                    disabled={busy || !can("pos.shifts.manage") || !online}
-                    onPress={() => run(open)}
-                  />
-                </Card>
+                <>
+                  <Card title="Tempat bertugas">
+                    <Row label="Kasir" value={context.user.nama} />
+                    <Row
+                      label="Merchant"
+                      value={selectedMerchant?.nama_merchant}
+                    />
+                    <Row label="Terminal" value={terminal?.nama_device} />
+                    <Row label="Unit" value={selectedMerchant?.unit_name} />
+                  </Card>
+                  <Card title="Kas awal laci">
+                    <Text style={s.muted}>
+                      Masukkan uang tunai awal. Saldo dompet dan transfer tidak
+                      masuk laci.
+                    </Text>
+                    <Field
+                      label="Kas awal (Rupiah)"
+                      value={opening}
+                      onChangeText={setOpening}
+                      numeric
+                    />
+                  </Card>
+                </>
               )}
               {sheet === "close" && (
-                <Card title="Tutup Shift">
-                  <Row
-                    label="Kas awal"
-                    value={rupiah(summary?.shift?.opening_cash)}
-                  />
-                  <Row
-                    label="Penjualan tunai"
-                    value={rupiah(summary?.cash_sales)}
-                  />
-                  <Row
-                    label="Refund tunai"
-                    value={rupiah(summary?.cash_refunds)}
-                  />
-                  <Row
-                    label="Kas seharusnya"
-                    value={rupiah(summary?.expected_cash)}
-                  />
-                  <Field
-                    label="Kas aktual (Rupiah)"
-                    value={actual}
-                    onChangeText={setActual}
-                    numeric
-                  />
-                  <Text style={s.muted}>
-                    RFID dan QRIS bukan uang laci. Selisih ditentukan server.
-                  </Text>
-                  <Button
-                    title="Konfirmasi tutup shift"
-                    disabled={busy || !online}
-                    onPress={() =>
-                      confirmAction(
-                        "Tutup shift?",
-                        "Penjualan pada shift ini akan dihentikan.",
-                        close,
-                      )
-                    }
-                  />
-                </Card>
+                <>
+                  <Card title="Ringkasan kas dari server">
+                    <Row
+                      label="Kas awal"
+                      value={rupiah(summary?.shift?.opening_cash)}
+                    />
+                    <Row
+                      label="+ Penjualan tunai"
+                      value={rupiah(summary?.cash_sales)}
+                    />
+                    <Row
+                      label="− Refund tunai dikonfirmasi"
+                      value={rupiah(summary?.cash_refunds)}
+                    />
+                    <Money
+                      label="Kas seharusnya"
+                      value={rupiah(summary?.expected_cash)}
+                    />
+                    <Text style={s.muted}>
+                      RFID dan Transfer/QRIS tidak dihitung sebagai uang laci.
+                    </Text>
+                  </Card>
+                  <Card title="Hitung uang laci">
+                    <Field
+                      label="Kas aktual (Rupiah)"
+                      value={actual}
+                      onChangeText={setActual}
+                      numeric
+                    />
+                    <Row
+                      label="Selisih perkiraan"
+                      value={
+                        /^(0|[1-9]\d*)$/.test(actual)
+                          ? rupiah(
+                              BigInt(actual) -
+                                BigInt(summary?.expected_cash || 0),
+                            )
+                          : "Masukkan nominal valid"
+                      }
+                    />
+                    <Text style={s.muted}>
+                      Nilai akhir dan selisih tetap dihitung server. Tutup shift
+                      menghentikan penjualan pada shift ini.
+                    </Text>
+                  </Card>
+                </>
               )}
               {sheet === "cart" && (
-                <Card title="Keranjang">
-                  {cart.map((p) => (
-                    <View key={p.id} style={s.cartItem}>
-                      <Text style={s.heading}>{p.name}</Text>
-                      <Row
-                        label={`${p.quantity} × ${rupiah(p.price)}`}
-                        value={rupiah(BigInt(p.quantity) * BigInt(p.price))}
+                <>
+                  <Card
+                    title={`${cart.reduce((n, p) => n + p.quantity, 0)} item dalam keranjang`}
+                  >
+                    {!cart.length && (
+                      <Empty
+                        icon="shopping-cart"
+                        title="Keranjang kosong"
+                        note="Kembali ke Kasir untuk memilih produk."
                       />
-                      <View style={s.row}>
-                        <Button
-                          title="−"
-                          secondary
-                          onPress={() => setCart(changeCart(cart, p, -1))}
+                    )}
+                    {cart.map((p) => (
+                      <View key={p.id} style={s.cartItem}>
+                        <Text style={s.heading}>{p.name}</Text>
+                        <Row
+                          label={`${rupiah(p.price)} per item`}
+                          value={rupiah(BigInt(p.quantity) * BigInt(p.price))}
                         />
-                        <Button
-                          title="+"
-                          secondary
-                          onPress={() => setCart(changeCart(cart, p, 1))}
-                        />
-                        <Button
-                          title="Hapus"
-                          secondary
-                          onPress={() =>
-                            setCart(cart.filter((i) => i.id !== p.id))
-                          }
-                        />
+                        <View style={s.row}>
+                          <View
+                            style={[s.row, { justifyContent: "flex-start" }]}
+                          >
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Kurangi ${p.name}`}
+                              style={s.qty}
+                              onPress={() => editCart(p, -1)}
+                            >
+                              <Icon name="minus" />
+                            </Pressable>
+                            <Text style={s.value}>{p.quantity}</Text>
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Tambah ${p.name}`}
+                              disabled={p.quantity >= 2147483647}
+                              style={s.qty}
+                              onPress={() => editCart(p, 1)}
+                            >
+                              <Icon name="plus" />
+                            </Pressable>
+                          </View>
+                          <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`Hapus ${p.name}`}
+                            style={s.qty}
+                            onPress={() =>
+                              setCart((current) =>
+                                current.filter((i) => i.id !== p.id),
+                              )
+                            }
+                          >
+                            <Icon name="trash-2" color={colors.red} />
+                          </Pressable>
+                        </View>
                       </View>
-                    </View>
-                  ))}
-                  {can("pos.discount") && (
-                    <>
+                    ))}
+                  </Card>
+                  {can("pos.discount") && cart.length > 0 && (
+                    <Card title="Diskon">
                       <Field
                         label="Diskon nominal (Rupiah)"
                         value={discount}
                         onChangeText={setDiscount}
                         numeric
                       />
-                      <Field
-                        label="Alasan diskon (minimal 5 karakter)"
-                        value={discountReason}
-                        onChangeText={setDiscountReason}
-                      />
-                    </>
+                      {discount !== "0" && (
+                        <Field
+                          label="Alasan diskon (minimal 5 karakter)"
+                          value={discountReason}
+                          onChangeText={setDiscountReason}
+                        />
+                      )}
+                    </Card>
                   )}
-                  <Text
-                    style={s.money}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.5}
-                  >
-                    {total ? rupiah(total) : "Nominal tidak valid"}
-                  </Text>
-                  <Text style={s.muted}>
-                    Preview; harga dan total final dihitung server.
-                  </Text>
-                  <Button
-                    title="Pilih Pembayaran"
-                    disabled={
-                      !cart.length ||
-                      !total ||
-                      total === "0" ||
-                      busy ||
-                      !online ||
-                      (discount !== "0" && discountReason.trim().length < 5)
-                    }
-                    onPress={() => {
-                      coordinator.current.reset();
-                      setTender(total);
-                      setConfirmed(false);
-                      setReference("");
-                      setProvider("");
-                      setSheet("payment");
-                    }}
-                  />
-                </Card>
+                  <Card title="Ringkasan">
+                    <Row
+                      label="Subtotal"
+                      value={cartTotals ? rupiah(cartTotals.subtotal) : "—"}
+                    />
+                    <Row
+                      label="Diskon"
+                      value={cartTotals ? rupiah(cartTotals.discount) : "—"}
+                    />
+                    <Money
+                      label="Total pembelian"
+                      value={total ? rupiah(total) : "Nominal tidak valid"}
+                    />
+                    <Text style={s.muted}>
+                      Harga dan total final ditentukan server saat pembayaran.
+                    </Text>
+                  </Card>
+                </>
               )}
               {sheet === "payment" && (
-                <Card title="Pembayaran">
+                <>
                   {["SUCCESS", "PENDING"].includes(paymentState.state) ? (
-                    <Receipt
-                      result={paymentState.result}
-                      onNew={() => {
-                        coordinator.current.reset();
-                        setCart([]);
-                        setDiscount("0");
-                        setSheet(null);
-                        setTab("KASIR");
-                      }}
-                      onDetail={
-                        paymentState.result?.sale
-                          ? () =>
-                              run(() => showDetail(paymentState.result.sale.id))
-                          : null
-                      }
-                    />
+                    <Card>
+                      <Receipt
+                        result={paymentState.result}
+                        onNew={newTransaction}
+                        onDetail={
+                          paymentState.result?.sale
+                            ? () =>
+                                run(() =>
+                                  showDetail(paymentState.result.sale.id),
+                                )
+                            : null
+                        }
+                      />
+                    </Card>
                   ) : pending ? (
-                    <>
-                      <Text style={s.heading}>
-                        {paymentState.state === "PROCESSING"
-                          ? "MEMPROSES"
-                          : "STATUS BELUM PASTI"}
-                      </Text>
-                      <Text style={s.text}>
-                        Jangan membuat transaksi baru. Pemulihan memakai
-                        permintaan yang sama.
-                      </Text>
+                    <Card>
+                      <Empty
+                        icon="clock"
+                        loading={["PROCESSING", "CHECKING"].includes(
+                          paymentState.state,
+                        )}
+                        title={
+                          STATUS_LABELS[paymentState.state] ||
+                          "Memeriksa status transaksi..."
+                        }
+                        note="Jangan membuat transaksi baru. Pemeriksaan memakai identitas pembayaran yang sama."
+                      />
                       <Button
-                        title="Periksa status / coba ulang permintaan sama"
+                        title="Periksa status transaksi"
                         disabled={
                           busy ||
                           ["PROCESSING", "CHECKING"].includes(
@@ -1334,66 +1670,97 @@ function CashierApp() {
                         disabled={busy}
                         onPress={() => setSheet("login")}
                       />
-                    </>
+                    </Card>
                   ) : (
                     <>
-                      <Text
-                        style={s.money}
-                        numberOfLines={1}
-                        adjustsFontSizeToFit
-                        minimumFontScale={0.5}
-                      >
-                        {total ? rupiah(total) : "—"}
-                      </Text>
-                      {["RFID", "CASH", "TRANSFER_QRIS"].map((m) => (
-                        <Button
+                      <Card>
+                        <Money
+                          label="Total pembelian"
+                          value={total ? rupiah(total) : "—"}
+                        />
+                      </Card>
+                      <Text style={s.heading}>Pilih metode pembayaran</Text>
+                      {[
+                        ["RFID", "credit-card", "Tempelkan kartu santri"],
+                        [
+                          "CASH",
+                          "dollar-sign",
+                          "Terima tunai dan hitung kembalian",
+                        ],
+                        [
+                          "TRANSFER_QRIS",
+                          "smartphone",
+                          "Catat transfer/QRIS secara manual",
+                        ],
+                      ].map(([m, icon, note]) => (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityState={{ selected: method === m }}
                           key={m}
-                          title={m === method ? `✓ ${m}` : m}
-                          secondary
                           onPress={() => {
                             setMethod(m);
                             credential.current = null;
+                            setReaderReady(false);
                             setWalletPreview(null);
                             setTestInput("");
                           }}
-                        />
+                          style={[s.choice, method === m && s.choiceActive]}
+                        >
+                          <Icon name={icon} size={24} />
+                          <View style={s.flex}>
+                            <Text style={s.heading}>{PAYMENT_LABELS[m]}</Text>
+                            <Text style={s.muted}>{note}</Text>
+                          </View>
+                          {method === m && <Icon name="check-circle" />}
+                        </Pressable>
                       ))}
                       {method === "CASH" && (
-                        <>
+                        <Card title="Pembayaran tunai">
                           <Field
                             label="Uang diterima (Rupiah)"
                             value={tender}
                             onChangeText={setTender}
                             numeric
                           />
-                          <View style={s.row}>
-                            {[total, "50000", "100000"]
-                              .filter(Boolean)
-                              .map((v, i) => (
-                                <Button
-                                  key={i}
-                                  title={i === 0 ? "Uang pas" : rupiah(v)}
-                                  secondary
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                          >
+                            {total &&
+                              cashShortcuts(total).map((v, i) => (
+                                <Chip
+                                  key={v}
+                                  label={i === 0 ? "Uang pas" : rupiah(v)}
+                                  active={v === tender}
                                   onPress={() => setTender(v)}
                                 />
                               ))}
-                          </View>
-                          <Row
-                            label="Kembalian preview"
+                          </ScrollView>
+                          <Money
+                            label="Kembalian"
                             value={
                               /^(0|[1-9]\d*)$/.test(tender) &&
                               total &&
                               BigInt(tender) >= BigInt(total)
                                 ? rupiah(BigInt(tender) - BigInt(total))
-                                : "Uang kurang"
+                                : "Uang diterima kurang"
                             }
                           />
-                        </>
+                        </Card>
                       )}
                       {method === "TRANSFER_QRIS" && (
-                        <>
-                          <Text style={s.text}>
-                            Pencatatan manual, bukan gateway atau QR otomatis.
+                        <Card title="Transfer / QRIS manual">
+                          <Badge
+                            label={
+                              confirmed
+                                ? "AKAN DIKONFIRMASI"
+                                : "MENUNGGU KONFIRMASI"
+                            }
+                            tone={confirmed ? "green" : "amber"}
+                          />
+                          <Text style={s.muted}>
+                            Tidak ada gateway atau QR otomatis. Verifikasi dana
+                            nyata sebelum menandai lunas.
                           </Text>
                           <Field
                             label="Bank / provider (opsional)"
@@ -1408,46 +1775,57 @@ function CashierApp() {
                           <Button
                             title={
                               confirmed
-                                ? "✓ Dana telah saya verifikasi"
-                                : "Simpan MENUNGGU KONFIRMASI"
+                                ? "✓ Dana sudah saya terima"
+                                : "Dana belum diterima"
                             }
                             secondary
                             onPress={() => setConfirmed(!confirmed)}
                           />
                           <Text style={s.muted}>
                             {confirmed
-                              ? "Wajib referensi asli, hanya setelah dana diterima."
-                              : "Belum dibayar, bukan penjualan terkonfirmasi."}
+                              ? "Referensi wajib. Transaksi akan dicatat lunas."
+                              : "Disimpan tertunda, bukan pendapatan lunas. Konfirmasi nanti melalui detail transaksi."}
                           </Text>
-                        </>
+                        </Card>
                       )}
                       {method === "RFID" && (
-                        <>
+                        <Card title="Tempelkan kartu">
+                          <Icon name="credit-card" size={34} />
+                          <Text style={s.text}>
+                            {walletPreview
+                              ? "Periksa santri dan saldo sebelum membayar."
+                              : "Menunggu pembaca kartu yang terhubung."}
+                          </Text>
                           {__DEV__ &&
                           Constants.expoConfig.extra.posEnvironment ===
                             "development" ? (
                             <>
-                              <Text style={s.muted}>
-                                Adapter input TEST. Tidak tersedia pada release
-                                production.
-                              </Text>
-                              <Field
-                                label="Kredensial test (disembunyikan)"
-                                value={testInput}
-                                onChangeText={setTestInput}
-                                secret
-                              />
                               <Button
-                                title="Baca kartu test / periksa dompet"
+                                title="Pembaca uji development"
                                 secondary
-                                disabled={busy || !online}
-                                onPress={() => run(scan)}
+                                onPress={() => setReaderDev(!readerDev)}
                               />
+                              {readerDev && (
+                                <>
+                                  <Field
+                                    label="Kredensial test (disembunyikan)"
+                                    value={testInput}
+                                    onChangeText={setTestInput}
+                                    secret
+                                  />
+                                  <Button
+                                    title="Baca kartu uji"
+                                    secondary
+                                    disabled={busy || !online}
+                                    onPress={() => run(scan)}
+                                  />
+                                </>
+                              )}
                             </>
                           ) : (
-                            <Text style={s.error}>
-                              Pembaca RFID fisik belum divalidasi. Pembayaran
-                              kartu belum tersedia pada build release.
+                            <Text style={s.muted}>
+                              Pembaca fisik belum divalidasi. Gunakan metode
+                              lain sampai perangkat pembaca siap.
                             </Text>
                           )}
                           {walletPreview && (
@@ -1457,136 +1835,170 @@ function CashierApp() {
                                 value={walletPreview.santri_name}
                               />
                               <Row
-                                label="Saldo saat ini"
-                                value={rupiah(walletPreview.current_balance)}
+                                label="Unit"
+                                value={selectedMerchant?.unit_name}
                               />
                               <Row
-                                label="Sisa perkiraan"
+                                label="Saldo dompet"
+                                value={rupiah(walletPreview.current_balance)}
+                              />
+                              <Row label="Pembelian" value={rupiah(total)} />
+                              <Row
+                                label="Sisa setelah pembelian"
                                 value={rupiah(walletPreview.projected_balance)}
                               />
-                              <Text style={s.muted}>
-                                Checkout memeriksa saldo kembali; preview bukan
-                                persetujuan pembayaran.
-                              </Text>
                             </>
                           )}
-                        </>
+                          <Text style={s.muted}>
+                            Pembayaran dompet selalu memerlukan internet. Saldo
+                            diperiksa kembali secara atomik oleh server.
+                          </Text>
+                        </Card>
                       )}
-                      <Button
-                        title={
-                          method === "TRANSFER_QRIS" && !confirmed
-                            ? "Simpan PENDING"
-                            : "Konfirmasi Pembayaran"
-                        }
-                        disabled={
-                          busy ||
-                          pending ||
-                          !online ||
-                          !total ||
-                          (method === "RFID" && !walletPreview) ||
-                          (method === "TRANSFER_QRIS" &&
-                            confirmed &&
-                            !reference.trim())
-                        }
-                        onPress={() => run(pay)}
-                      />
                     </>
                   )}
-                </Card>
+                </>
               )}
               {sheet === "detail" && detail && (
-                <Card title="Detail Transaksi">
-                  <Receipt result={detail} />
-                  {detail.refunds.map((r) => (
-                    <View key={r.id}>
+                <>
+                  <Card>
+                    <Receipt result={detail} />
+                    <Row label="Terminal" value={detail.sale.terminal_name} />
+                    {detail.sale.discount_reason && (
                       <Row
-                        label={`Refund ${r.status}`}
-                        value={rupiah(r.amount)}
+                        label="Alasan diskon"
+                        value={detail.sale.discount_reason}
                       />
+                    )}
+                    <Row
+                      label="Pengembalian dikonfirmasi"
+                      value={rupiah(refundSummary(detail).confirmed)}
+                    />
+                    <Row
+                      label="Sudah dialokasikan (termasuk pending)"
+                      value={rupiah(refundSummary(detail).reserved)}
+                    />
+                    <Row
+                      label="Sisa dapat dikembalikan"
+                      value={rupiah(refundSummary(detail).remaining)}
+                    />
+                  </Card>
+                  {detail.refunds.map((r) => (
+                    <Card key={r.id}>
+                      <Badge
+                        label={`Refund · ${STATUS_LABELS[r.status]}`}
+                        tone={r.status === "PENDING" ? "amber" : "green"}
+                      />
+                      <Row label="Nominal" value={rupiah(r.amount)} />
                       <Text style={s.text}>{r.reason}</Text>
                       {r.status === "PENDING" && can("pos.refund") && (
                         <Button
-                          title="Konfirmasi refund eksternal"
+                          title="Konfirmasi dana refund eksternal"
                           secondary
-                          disabled={busy || pending}
+                          disabled={busy || pending || !online}
                           onPress={() => {
                             setCorrection(r.id);
                             setReference("");
                           }}
                         />
                       )}
-                    </View>
+                    </Card>
                   ))}
-                  {detail.sale.status === "DRAFT" && (
-                    <>
-                      <Button
-                        title="Konfirmasi dana diterima"
-                        secondary
-                        disabled={busy || pending}
-                        onPress={() => {
-                          setCorrection("confirm-payment");
-                          setReference("");
-                        }}
-                      />
-                      <Button
-                        title="Void transaksi belum dibayar"
-                        secondary
-                        disabled={busy || pending}
-                        onPress={() => {
-                          setCorrection("void");
-                          setReason("");
-                        }}
-                      />
-                    </>
-                  )}
-                  {detail.sale.status === "PAID" && can("pos.refund") && (
-                    <Button
-                      title="Pengembalian dana"
-                      secondary
-                      disabled={busy || pending}
-                      onPress={() => {
-                        setCorrection("refund");
-                        setReason("");
-                        setRefundAmount("");
-                        coordinator.current.reset();
-                      }}
-                    />
+                  {!correction && (
+                    <Card title="Koreksi transaksi">
+                      {detail.sale.status === "DRAFT" &&
+                        can("pos.sell") &&
+                        summary?.shift?.id === detail.sale.shift_id && (
+                          <>
+                            <Button
+                              title="Konfirmasi dana diterima"
+                              secondary
+                              disabled={busy || pending || !online}
+                              onPress={() => {
+                                setCorrection("confirm-payment");
+                                setReference("");
+                              }}
+                            />
+                            <Button
+                              title="Batalkan transaksi belum dibayar"
+                              secondary
+                              disabled={busy || pending || !online}
+                              onPress={() => {
+                                setCorrection("void");
+                                setReason("");
+                              }}
+                            />
+                          </>
+                        )}
+                      {detail.sale.status === "PAID" &&
+                        can("pos.refund") &&
+                        BigInt(refundSummary(detail).remaining) > 0n && (
+                          <Button
+                            title="Pengembalian dana"
+                            secondary
+                            disabled={
+                              busy ||
+                              pending ||
+                              !online ||
+                              (detail.payment.method === "CASH" &&
+                                !summary?.shift)
+                            }
+                            onPress={() => {
+                              setCorrection("refund");
+                              setReason("");
+                              setRefundAmount("");
+                              coordinator.current.reset();
+                            }}
+                          />
+                        )}
+                      <Text style={s.muted}>
+                        Riwayat asli tidak dapat diedit. Pengembalian dompet
+                        masuk ke rekening asal; pengembalian tunai memakai laci
+                        shift aktif.
+                      </Text>
+                    </Card>
                   )}
                   {correction && (
-                    <>
-                      <Text style={s.heading}>
-                        Konfirmasi{" "}
-                        {correction === "refund"
-                          ? "refund"
+                    <Card
+                      title={
+                        correction === "refund"
+                          ? "Pengembalian dana"
                           : correction === "void"
-                            ? "void"
-                            : "dana eksternal"}
-                      </Text>
-                      {["refund", "void"].includes(correction) ? (
+                            ? "Batalkan transaksi"
+                            : "Konfirmasi dana eksternal"
+                      }
+                    >
+                      {correction === "refund" && (
                         <>
-                          <Field
-                            label="Alasan (minimal 5 karakter)"
-                            value={reason}
-                            onChangeText={setReason}
+                          <Row
+                            label="Nominal awal"
+                            value={rupiah(detail.payment.amount)}
                           />
-                          {correction === "refund" && (
-                            <>
-                              <Field
-                                label="Nominal pengembalian"
-                                value={refundAmount}
-                                onChangeText={setRefundAmount}
-                                numeric
-                              />
-                              <Text style={s.muted}>
-                                {detail.payment.method === "CASH"
-                                  ? "Mengurangi laci shift OPEN saat ini."
-                                  : detail.payment.method === "RFID"
-                                    ? "Kredit hanya ke dompet asal."
-                                    : "Refund eksternal disimpan PENDING; wajib konfirmasi referensi."}
-                              </Text>
-                            </>
-                          )}
+                          <Row
+                            label="Sisa dapat dikembalikan"
+                            value={rupiah(refundSummary(detail).remaining)}
+                          />
+                          <Field
+                            label="Nominal pengembalian (Rupiah)"
+                            value={refundAmount}
+                            onChangeText={setRefundAmount}
+                            numeric
+                          />
+                          <Text style={s.muted}>
+                            {detail.payment.method === "RFID"
+                              ? "Kredit ke dompet asli."
+                              : detail.payment.method === "CASH"
+                                ? "Pengeluaran laci pada shift aktif."
+                                : "Refund eksternal disimpan tertunda sampai referensi dikonfirmasi."}
+                          </Text>
                         </>
+                      )}
+                      {["refund", "void"].includes(correction) ? (
+                        <Field
+                          label="Alasan (minimal 5 karakter)"
+                          value={reason}
+                          onChangeText={setReason}
+                        />
                       ) : (
                         <Field
                           label="Referensi dana eksternal"
@@ -1596,7 +2008,21 @@ function CashierApp() {
                       )}
                       <Button
                         title="Konfirmasi tindakan"
-                        disabled={busy || pending || !online}
+                        disabled={
+                          busy ||
+                          !!correctionBlock({
+                            detail,
+                            kind: correction,
+                            amount: refundAmount,
+                            reason,
+                            reference,
+                            canRefund: can("pos.refund"),
+                            canSell: can("pos.sell"),
+                            shift: summary?.shift,
+                            online,
+                            pending,
+                          })
+                        }
                         onPress={() =>
                           confirmAction(
                             "Lanjutkan koreksi?",
@@ -1605,13 +2031,149 @@ function CashierApp() {
                           )
                         }
                       />
-                    </>
+                      <Button
+                        title="Batal"
+                        secondary
+                        disabled={busy || pending}
+                        onPress={() => setCorrection(null)}
+                      />
+                    </Card>
                   )}
-                </Card>
+                </>
               )}
             </ScrollView>
+            {sheet === "cart" && (
+              <View style={s.footer}>
+                <Button
+                  icon="credit-card"
+                  title={`Bayar ${total ? rupiah(total) : "—"}`}
+                  disabled={
+                    !cart.length ||
+                    !total ||
+                    total === "0" ||
+                    busy ||
+                    pending ||
+                    !online ||
+                    !summary?.shift ||
+                    (discount !== "0" &&
+                      (!can("pos.discount") ||
+                        discountReason.trim().length < 5))
+                  }
+                  onPress={startPayment}
+                />
+              </View>
+            )}
+            {sheet === "payment" &&
+              !pending &&
+              !["SUCCESS", "PENDING"].includes(paymentState.state) && (
+                <View style={s.footer}>
+                  <Button
+                    title={
+                      method === "CASH"
+                        ? "Bayar Tunai"
+                        : method === "RFID"
+                          ? "Bayar dengan Dompet"
+                          : confirmed
+                            ? "Konfirmasi pembayaran"
+                            : "Simpan menunggu konfirmasi"
+                    }
+                    icon="check"
+                    disabled={
+                      !!paymentBlock({
+                        cart,
+                        discount,
+                        discountReason,
+                        canDiscount: can("pos.discount"),
+                        method,
+                        tender,
+                        online,
+                        shift: summary?.shift,
+                        walletPreview,
+                        credentialReady: readerReady,
+                        pending,
+                        busy,
+                        confirmed,
+                        reference,
+                      })
+                    }
+                    onPress={() => run(pay)}
+                  />
+                  {!online && (
+                    <Text style={s.error}>
+                      Transaksi membutuhkan koneksi internet.
+                    </Text>
+                  )}
+                </View>
+              )}
+            {sheet === "open" && (
+              <View style={s.footer}>
+                <Button
+                  title="Buka Shift"
+                  icon="unlock"
+                  disabled={
+                    busy ||
+                    pending ||
+                    !can("pos.shifts.manage") ||
+                    !online ||
+                    !validMoney(opening)
+                  }
+                  onPress={() => run(open)}
+                />
+              </View>
+            )}
+            {sheet === "close" && (
+              <View style={s.footer}>
+                <Button
+                  title="Konfirmasi tutup shift"
+                  icon="lock"
+                  disabled={
+                    busy ||
+                    pending ||
+                    !online ||
+                    !can("pos.shifts.manage") ||
+                    !summary?.shift ||
+                    !validMoney(actual)
+                  }
+                  onPress={() =>
+                    confirmAction(
+                      "Tutup shift?",
+                      "Pastikan uang laci sudah dihitung. Penjualan akan dihentikan pada shift ini.",
+                      close,
+                    )
+                  }
+                />
+              </View>
+            )}
           </KeyboardAvoidingView>
         </SafeAreaView>
+      </Modal>
+      <Modal
+        visible={!!confirmation}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !busy && setConfirmation(null)}
+      >
+        <View style={s.overlay}>
+          <View style={s.dialog}>
+            <Text style={s.heading}>{confirmation?.title}</Text>
+            <Text style={s.text}>{confirmation?.message}</Text>
+            <Button
+              title="Ya, konfirmasi"
+              disabled={busy}
+              onPress={() => {
+                const action = confirmation.action;
+                setConfirmation(null);
+                run(action);
+              }}
+            />
+            <Button
+              title="Batal"
+              secondary
+              disabled={busy}
+              onPress={() => setConfirmation(null)}
+            />
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -1619,53 +2181,68 @@ function CashierApp() {
 function Receipt({ result, onNew, onDetail }) {
   if (!result?.sale)
     return (
-      <>
-        <Text style={s.heading}>
-          {result?.payment?.status === "PENDING"
-            ? "REFUND MENUNGGU KONFIRMASI"
-            : "REFUND TERSIMPAN"}
-        </Text>
-        {onNew && <Button title="Kembali" onPress={onNew} />}
-      </>
+      <Empty
+        icon="check-circle"
+        title={
+          result?.payment?.status === "PENDING"
+            ? "Pengembalian menunggu konfirmasi"
+            : "Pengembalian tersimpan"
+        }
+        onRetry={onNew}
+      />
     );
-  const { sale, payment, items } = result;
+  const { sale, payment, items } = result,
+    paid = sale.status === "PAID" && payment.status === "CONFIRMED",
+    voided = sale.status === "VOID";
   return (
     <>
-      <Text style={s.heading}>
-        {sale.status === "VOID"
-          ? "DIBATALKAN"
-          : payment.status === "PENDING"
-            ? "MENUNGGU KONFIRMASI"
-            : "BERHASIL"}
-      </Text>
-      <Text selectable style={s.muted}>
-        {sale.receipt}
-      </Text>
-      <Text style={s.text}>
-        {sale.merchant_name} · {sale.cashier_name}
-      </Text>
-      <Text style={s.muted}>
-        {new Date(sale.created_at).toLocaleString("id-ID")}
-      </Text>
-      {items.map((i) => (
-        <Row
-          key={i.id}
-          label={`${i.quantity} × ${i.name}`}
-          value={rupiah(i.total)}
+      <View style={s.receiptHero}>
+        <Icon
+          name={paid ? "check-circle" : voided ? "x-circle" : "clock"}
+          size={42}
+          color={paid ? colors.green : colors.amber}
         />
+        <Text style={s.sectionTitle}>
+          {paid
+            ? "Pembayaran berhasil"
+            : voided
+              ? "Transaksi dibatalkan"
+              : "Menunggu konfirmasi"}
+        </Text>
+        <Money value={rupiah(sale.grand_total)} />
+        <Badge
+          label={PAYMENT_LABELS[payment.method]}
+          tone={paid ? "green" : "amber"}
+        />
+      </View>
+      {!paid && !voided && (
+        <Text style={s.muted}>
+          Belum diakui sebagai penjualan lunas. Verifikasi dana melalui detail
+          transaksi.
+        </Text>
+      )}
+      <Row label="Nomor struk" value={sale.receipt} />
+      <Row label="Merchant" value={sale.merchant_name} />
+      <Row label="Kasir" value={sale.cashier_name} />
+      <Row label="Waktu" value={date(sale.created_at)} />
+      {items.map((i) => (
+        <View key={i.id} style={s.cartItem}>
+          <Text style={s.text}>{i.name}</Text>
+          <Row
+            label={`${i.quantity} × ${rupiah(i.unit_price)}`}
+            value={rupiah(i.total)}
+          />
+          {BigInt(i.discount || 0) > 0n && (
+            <Row label="Diskon item" value={rupiah(i.discount)} />
+          )}
+        </View>
       ))}
-      <Text
-        style={s.money}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.5}
-      >
-        {rupiah(sale.grand_total)}
-      </Text>
-      <Row label="Metode" value={payment.method} />
+      <Row label="Subtotal" value={rupiah(sale.subtotal)} />
+      <Row label="Diskon" value={rupiah(sale.discount)} />
+      <Row label="Total" value={rupiah(sale.grand_total)} />
       {payment.method === "CASH" && (
         <>
-          <Row label="Diterima" value={rupiah(payment.tendered)} />
+          <Row label="Uang diterima" value={rupiah(payment.tendered)} />
           <Row label="Kembalian" value={rupiah(payment.change)} />
         </>
       )}
@@ -1680,136 +2257,17 @@ function Receipt({ result, onNew, onDetail }) {
           />
         </>
       )}
-      {onNew && <Button title="Transaksi Baru" onPress={onNew} />}{" "}
+      {sale.void_reason && (
+        <Row label="Alasan pembatalan" value={sale.void_reason} />
+      )}
+      <Text style={s.muted}>
+        Nominal struk berasal dari server. Riwayat pembayaran tidak dapat
+        diedit.
+      </Text>
+      {onNew && (
+        <Button icon="shopping-bag" title="Transaksi Baru" onPress={onNew} />
+      )}{" "}
       {onDetail && <Button title="Lihat Detail" secondary onPress={onDetail} />}
     </>
   );
 }
-const s = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.background },
-  flex: { flex: 1 },
-  content: { padding: 16, gap: 12, paddingBottom: 28 },
-  header: {
-    padding: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderBottomWidth: 1,
-    borderColor: colors.line,
-  },
-  brand: { fontSize: 20, fontWeight: "800", color: colors.navy },
-  heading: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: colors.navy,
-    marginBottom: 8,
-  },
-  text: { fontSize: 14, lineHeight: 21, color: colors.navy },
-  muted: { fontSize: 12, lineHeight: 19, color: colors.muted },
-  card: {
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.surface,
-    gap: 10,
-    marginBottom: 8,
-  },
-  field: { gap: 6, marginBottom: 8 },
-  label: { fontSize: 13, color: colors.muted, flexShrink: 1 },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 10,
-    minHeight: 48,
-    padding: 12,
-    fontSize: 16,
-    color: colors.navy,
-    backgroundColor: colors.surface,
-  },
-  button: {
-    minHeight: 46,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    backgroundColor: colors.green,
-    borderRadius: 10,
-    marginVertical: 3,
-  },
-  secondary: {
-    backgroundColor: "#e8f4ef",
-    borderWidth: 1,
-    borderColor: "#b8ddce",
-  },
-  buttonText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#fff",
-    textAlign: "center",
-  },
-  disabled: { opacity: 0.45 },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  value: { fontSize: 14, fontWeight: "700", color: colors.navy, flexShrink: 1 },
-  money: { fontSize: 30, fontWeight: "800", color: colors.navy },
-  price: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: colors.green,
-    flexShrink: 1,
-  },
-  error: { color: colors.red, fontSize: 14, lineHeight: 21 },
-  success: { color: colors.green, fontSize: 13 },
-  feedback: { padding: 12, backgroundColor: "#fff8e8", gap: 6 },
-  filters: { padding: 12, gap: 6 },
-  product: {
-    padding: 16,
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.line,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 8,
-  },
-  pager: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-    padding: 8,
-  },
-  cartBar: {
-    padding: 12,
-    borderTopWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.surface,
-    gap: 8,
-  },
-  cartItem: {
-    borderBottomWidth: 1,
-    borderColor: colors.line,
-    paddingVertical: 10,
-  },
-  tabs: {
-    flexDirection: "row",
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderColor: colors.line,
-    minHeight: 58,
-  },
-  tab: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 12,
-  },
-  tabText: { fontSize: 10, fontWeight: "700", color: colors.muted },
-  activeTab: { color: colors.green },
-});

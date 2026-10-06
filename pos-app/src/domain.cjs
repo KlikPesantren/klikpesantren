@@ -85,6 +85,10 @@ const messages = {
   READER_UNAVAILABLE: "Pembaca RFID fisik belum terhubung/divalidasi.",
   INVALID_MONEY: "Masukkan Rupiah bulat tanpa tanda baca.",
   INVALID_TOTAL: "Nominal atau diskon tidak valid.",
+  INVALID_DISCOUNT: "Diskon memerlukan izin dan alasan minimal 5 karakter.",
+  INVALID_TEXT: "Lengkapi alasan atau referensi yang diwajibkan.",
+  PROCESSING: "Transaksi sedang diproses. Tunggu hasilnya.",
+  PAYMENT_NOT_PAID: "Transaksi belum lunas dan belum dapat dikembalikan.",
   OVER_REFUND: "Nominal melebihi sisa yang dapat dikembalikan.",
   REFUND_WALLET_UNAVAILABLE: "Dompet asal tidak tersedia untuk pengembalian.",
   AUTH_EXPIRED:

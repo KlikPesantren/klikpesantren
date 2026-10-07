@@ -575,7 +575,7 @@ const reject = (fn, code) => assert.rejects(fn, (e) => e.code === code);
     );
   });
   await test("refund of a prior-shift sale reduces current cash drawer but not current-shift net revenue", async () => {
-    const previous=(await db.query("SELECT p.id FROM pos_payments p JOIN pos_sales s ON s.id=p.sale_id WHERE s.tenant_id=1 AND s.unit_id=2 AND s.merchant_id=1 AND s.status='PAID' AND p.method='CASH' AND p.status='CONFIRMED' AND p.amount > (SELECT coalesce(sum(amount),0) FROM pos_refunds WHERE payment_id=p.id) ORDER BY p.id LIMIT 1")).rows[0];
+    const previous=(await db.query("SELECT p.id FROM pos_payments p JOIN pos_sales s ON s.id=p.sale_id WHERE s.tenant_id=1 AND s.unit_id=2 AND s.merchant_id=1 AND s.status='PAID' AND p.method='CASH' AND p.status='CONFIRMED' AND p.amount - (SELECT coalesce(sum(amount),0) FROM pos_refunds WHERE payment_id=p.id) >= 100 ORDER BY p.id LIMIT 1")).rows[0];
     assert.ok(previous);
     const shift=await pos.openShift(req({...scope,opening_cash:'10000'},3,'POST'));
     await pos.refund(req({...scope,shift_id:shift.id,payment_id:previous.id,amount:'100',reason:'Synthetic previous shift return',request_id:'mobile-cross-shift-refund'},3,'POST'));

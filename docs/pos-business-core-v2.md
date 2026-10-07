@@ -277,3 +277,108 @@ clearing reconcile Rp0. Existing POS/Admin/mobile/Attendance/Device/Wallet
 regressions remain PASS. Physical readers NOT VERIFIED. Overall V2 product remains
 incomplete (online, onboarding/UI/control-plane); this Wallet software phase is
 local only. No EAS, deployment, production mutation, push/PR/merge.
+
+## Online Store V1 continuation — LOCAL ONLY
+
+Baseline `3252ec8ccb5b14698bae3710c150a3d0ad13ac8b`. Historical sections above
+describe prior checkpoints; ONLINE is implemented in this continuation, not in
+those earlier checkpoints. Canonical Wallet settlement remains DEFERRED.
+
+Store profile reuses pos_businesses branding/slug/enablement; 100 adds public-phone
+opt-in, hours/footer/payment instructions, server-controlled shipping charge and
+reservation duration (initial 30 minutes, merchant editable 1–1440). Product
+presentation extends pos_business_products. Price, identity, FIFO layers, stock,
+customer, sales and CRM remain canonical, with no duplicated ecommerce masters.
+Images use the existing HTTPS/private-target/credential-query URL validator.
+
+Real integration found PostgreSQL rejects the old URL regex repetition bound
+{1,2040} in 097 (SQLSTATE 2201B). 100 repairs those three checks forward-only to
+HTTPS + no whitespace + equivalent length bounds; 094–099 remain unchanged.
+DOWN restores the original check definitions NOT VALID so existing URL data is
+preserved; second UP revalidates the corrected checks. No production SQL executed.
+
+Stock policy: ORDERED atomically reserves (no sale/money/COGS); merchant CONFIRMED
+atomically marks reservations COMMITTED and posts exactly ONE canonical SALE
+channel ONLINE with original server-price snapshots and existing FIFO allocation.
+On hand = inventory movement sum; reserved = active reservation sum; available =
+on hand − reserved. Product locks are shared by POS, online, purchases/returns and
+adjustments. Deferred DB guards reject any consumption of reserved last stock.
+Merchant/customer cancellation before commit marks RELEASED, without a refund.
+Expiry has explicit expires_at and a callable bounded/SKIP LOCKED server service;
+storefront reads/checkout, merchant transitions and authenticated POS catalog/sale
+invoke it. No browser-dependent or imaginary scheduler. Future workers can call
+expireOnline(); no production scheduler is installed/claimed.
+
+State machine: ORDERED → CONFIRMED → PROCESSING → READY_TO_SHIP → SHIPPED →
+COMPLETED for DELIVERY. PICKUP skips SHIPPED (READY_TO_SHIP → COMPLETED).
+ORDERED may CANCELLED. Committed states may REFUNDED via existing canonical V2
+full-item sale-return/FIFO reversal. Direct generic return of an ONLINE sale is
+rejected so order state cannot diverge. Order events record merchant actor/time/
+reason; line/event history is immutable. Returns/refunds are capped, source-locked,
+idempotent and transactional. Shipping refund reverses its separate original
+account, never product stock or another wallet. This V1 order action is FULL refund;
+partial item return support remains in the canonical POS core, not this order UI.
+
+Payment states: PENDING/CONFIRMED/CANCELLED/REFUNDED. BANK/QRIS require operator
+attestation + reference, not payment-provider verification. CASH is PICKUP only,
+requires the operator's actual open shift; it affects that physical cash drawer.
+CREDIT is only for an explicitly verified, active registered Customer with credit
+permission/limit and due date; it posts AR, not received cash. Shipping-bearing
+CREDIT orders are rejected rather than inventing a shipping-credit policy.
+Online Dompet Santri is forbidden. No courier/gateway/Wallet settlement integration.
+
+DELIVERY requires recipient/phone/address. Shipping charge is determined by store
+settings; it is separate from merchandise. At confirmation shipping posts one
+OTHER_INCOME operation to the same receiving account; full refund posts EXPENSE
+against that original account. These are auditable shipping legs, not product
+revenue/quantity/COGS. No Buku Kas posting. Canonical reports show merchandise
+POS/ONLINE once; online report gives status counts, gross/refunds/net, average,
+top products/customers and channel contribution. Existing CRM aggregates both
+channels through canonical party_id; guest names/phones are never auto-merged.
+
+Registered customer access is a separate 256-bit opaque hash-only capability,
+issued once by parties.manage after explicit identity_verified operator attestation.
+Rotation revokes previous access. No Admin JWT/member assumption, auto phone match
+or public arbitrary customer_id. Order access is a separate 256-bit capability in
+X-Order-Access, scoped to order + store, hash-only in DB. Checkout carries a random
+retry ID and access proof; body prices/totals/tenant/business/customer/shipping
+authority are rejected. Public projection excludes costs/stock ledger/suppliers/
+staff/books/Wallet/internal credentials. Checkout throttle persists failed attempts.
+
+Merchant permissions: store.manage, products.manage, parties.manage, orders.read,
+orders.manage, returns.post and reports.read remain distinct; no default cashier
+private order-book/provisioning access. Order payment context exposes only allowed
+account names/kinds/IDs and the current user's open shifts, not account balances.
+
+LOCAL composition: npm run pos-business:local (literal guarded loopback DB
+pos_business_v2_test / pos_test_owner / 127.0.0.1:55439), HTTP 127.0.0.1:55440.
+Public /store-api/:slug; private /pos-business/:businessId uses merchant session.
+server.js and production configuration remain unchanged. Vite DEV-only routes:
+/store/:slug, /store/:slug/products/:productId, /store/:slug/orders/:orderId and
+/merchant-store. Run npm --prefix frontend run dev for local use. Actual React UI
+includes hero/logo/catalog/server search/category/pagination, detail, scoped cart,
+checkout, status/timeline, merchant store/product editor, order workflow and KPIs.
+Session-only checkout journal retains original request through timeout/reload;
+unknown outcomes lock edits until retry. Customer access is never persisted.
+This does not expose V2 production routes or finish merchant onboarding/mobile UX.
+
+100 least-privilege delta (tested against real local runtime role): SELECT on six
+new tables; INSERT on those tables; UPDATE(active) customer_access; UPDATE(state)
+reservations; UPDATE(attempts,started_at) request_limits; UPDATE only lifecycle,
+sale/shipping references/timestamps on orders. Store/profile and presentation
+UPDATE uses explicit columns. NO order price/customer/expiry mutation grant;
+NO history UPDATE/DELETE, ALL PRIVILEGES, ownership/DDL or new sequence grant.
+100 UP/DOWN/UP fingerprints preserve non-empty existing Wallet and V2 history;
+DOWN refuses any order/customer-capability history. Production grants unchanged.
+
+Regression fixture repair: old mobile test selected any remaining cash payment
+then refunded 100; random UUID ordering sometimes selected a remaining 7 payment.
+Its selection now requires remaining >=100. Only test code changed; V1 runtime frozen.
+
+Local evidence: foundation 40 + returns 24 + Wallet 25 + Online 34 PostgreSQL groups;
+UI journal/source contracts 3 checks. Real HTTP router, last-item races, expiry,
+canonical commit/credit/refund/forced rollback, private field boundaries and runtime
+grants exercised. Browser helper cannot initialize due Windows sandbox ACL errors;
+visual Desktop/Mobile acceptance NOT VERIFIED (not claimed by build/source checks).
+Physical readers NOT VERIFIED. No production data, migration, deploy, EAS, push,
+PR or merge. Final onboarding/Admin control-plane/mobile UX/settlement remain gaps.

@@ -4,8 +4,10 @@ function createBusinessReturns(h) {
     moneyRow, debtRow, stockRow, addLayer, getAccount, afterStage, shiftRow, wallet } = h;
   const min = (a, b) => a < b ? a : b;
   async function post(req, purchase) {
-    return run(req, 'returns.post', async (c, a) => {
-      const b = req.body, kind = purchase ? 'PURCHASE_RETURN' : 'SALE_RETURN';
+    return run(req, 'returns.post', (c,a)=>postWork(c,a,req.body,purchase));
+  }
+  async function postWork(c,a,b,purchase=false,online=false) {
+      const kind = purchase ? 'PURCHASE_RETURN' : 'SALE_RETURN';
       if (!Array.isArray(b.items) || !b.items.length || b.items.length > 100) bad('INVALID_ITEMS');
       const items = b.items.map(i => ({ product: uuid(i.product_id), quantity: amount(i.quantity, true) })).sort((x,y) => x.product.localeCompare(y.product));
       if (new Set(items.map(i => i.product)).size !== items.length) bad('DUPLICATE_PRODUCT');
@@ -17,6 +19,7 @@ function createBusinessReturns(h) {
       const source = (await c.query('SELECT * FROM pos_business_operations WHERE id=$1 AND business_id=$2 AND kind=$3',
         [f.source, a.business, purchase ? 'PURCHASE' : 'SALE'])).rows[0];
       if (!source) bad('RETURN_SOURCE_DENIED', 403);
+      if(source.channel==='ONLINE'&&!online)bad('ONLINE_ORDER_RETURN_REQUIRED',409);
       const accounts = (await c.query(`SELECT m.account_id,ac.kind,
         sum(m.amount)*$3::integer capacity FROM pos_money_movements m
         JOIN pos_business_operations o ON o.id=m.operation_id AND o.business_id=m.business_id
@@ -95,8 +98,7 @@ function createBusinessReturns(h) {
       }
       await afterStage('return-money');
       return {id:op.id,total:f.total.toString(),refund:f.paid.toString(),debt_reduction:reduction.toString(),replay:false};
-    });
   }
-  return { saleReturn:req=>post(req,false), purchaseReturn:req=>post(req,true) };
+  return { saleReturn:req=>post(req,false), purchaseReturn:req=>post(req,true), postWork };
 }
 module.exports={createBusinessReturns};

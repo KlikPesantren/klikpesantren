@@ -31,7 +31,7 @@ const grants = {
   SUPERVISOR: ['profile.read', 'products.read', 'customers.read'],
 };
 const configurable = new Set(['products.manage', 'parties.manage', 'purchases.post', 'stock.adjust',
-  'sale.post', 'sale.discount', 'returns.post', 'shifts.own', 'money.manage', 'debt.collect', 'reports.read', 'users.manage', 'profile.manage', 'wallet.preview', 'wallet.credentials.manage']);
+  'sale.post', 'sale.discount', 'returns.post', 'shifts.own', 'money.manage', 'debt.collect', 'reports.read', 'users.manage', 'profile.manage', 'wallet.preview', 'wallet.credentials.manage', 'store.manage', 'orders.read', 'orders.manage']);
 function createPosBusinessService({ db, afterStage = async () => {}, featureEnabled = (...args)=>require('./unitFeatureService').isUnitFeatureEnabled(...args) }) {
   if (!db?.connect) throw new Error('EXPLICIT_DATABASE_REQUIRED');
   async function transaction(work) {
@@ -119,10 +119,17 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     });
   }
   async function catalog(req) {
-    return run(req, 'products.read', async (c, a) => (await c.query(`SELECT p.id,p.sku,p.barcode,p.name,p.category,p.uom,p.image_url,p.selling_price,p.minimum_stock,
+    return run(req, 'products.read', async (c, a) => {
+      const hasOnline=(await c.query("SELECT to_regclass('public.pos_online_reservations') present")).rows[0].present;
+      if(hasOnline)await online.expireOnline(a.business);
+      const products=(await c.query(`SELECT p.id,p.sku,p.barcode,p.name,p.category,p.uom,p.image_url,p.selling_price,p.minimum_stock,
       p.active,p.sellable,p.online_visible,coalesce(s.on_hand,0) on_hand FROM pos_business_products p
       LEFT JOIN(SELECT product_id,sum(quantity) on_hand FROM pos_inventory_movements WHERE business_id=$1 GROUP BY product_id)s ON s.product_id=p.id
-      WHERE p.business_id=$1 ORDER BY p.name,p.id LIMIT 200`, [a.business])).rows);
+      WHERE p.business_id=$1 ORDER BY p.name,p.id LIMIT 200`, [a.business])).rows;
+      if(hasOnline){const reserved=(await c.query("SELECT product_id,sum(quantity) quantity FROM pos_online_reservations WHERE business_id=$1 AND state='RESERVED' GROUP BY product_id",[a.business])).rows;
+        for(const p of products){p.reserved=reserved.find(r=>r.product_id===p.id)?.quantity||'0';p.available=(BigInt(p.on_hand)-BigInt(p.reserved)).toString();}}
+      return products;
+    });
   }
   async function party(req) {
     return run(req, 'parties.manage', async (c, a) => {
@@ -253,6 +260,13 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     });
   }
   async function availableCost(c, a, product, quantity) {
+    // Product is already locked. Reservations share this SAME stock, never a second counter.
+    if ((await c.query("SELECT to_regclass('public.pos_online_reservations') present")).rows[0].present) {
+      const stock = (await c.query(`SELECT
+       (SELECT coalesce(sum(quantity),0) FROM pos_inventory_movements WHERE business_id=$1 AND product_id=$2)
+       -(SELECT coalesce(sum(quantity),0) FROM pos_online_reservations WHERE business_id=$1 AND product_id=$2 AND state='RESERVED') available`,[a.business,product])).rows[0];
+      if (BigInt(stock.available)<quantity) bad('INSUFFICIENT_STOCK',409);
+    }
     const rows = (await c.query(`SELECT l.unit_cost,l.received_quantity-coalesce(x.used,0) available FROM pos_inventory_layers l
       LEFT JOIN(SELECT layer_id,sum(quantity) used FROM pos_inventory_allocations WHERE business_id=$1 GROUP BY layer_id)x ON x.layer_id=l.id
       WHERE l.business_id=$1 AND l.product_id=$2 ORDER BY l.created_at,l.id`, [a.business, product])).rows;
@@ -342,10 +356,14 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
   }
   async function sale(req) {
     return run(req, 'sale.post', async (c, a) => {
-      const b = req.body;
+      if((await c.query("SELECT to_regclass('public.pos_online_reservations') present")).rows[0].present)await online.expireOnline(a.business);
+      return saleWork(c,a,req.body);
+    });
+  }
+  async function saleWork(c,a,b,online = null) {
       if (!Array.isArray(b.items) || !b.items.length || b.items.length > 100 || !Array.isArray(b.payments) || !b.payments.length || b.payments.length > 5) bad('INVALID_SALE');
       // ONLINE is not accepted until reservation/order authorization integration is complete.
-      if (b.channel && b.channel !== 'POS') bad('CHANNEL_NOT_READY', 409);
+      if (!online && b.channel && b.channel !== 'POS') bad('CHANNEL_NOT_READY', 409);
       const items = b.items.map(i => ({ product: uuid(i.product_id), quantity: amount(i.quantity, true) })).sort((x, y) => x.product.localeCompare(y.product));
       if (new Set(items.map(i => i.product)).size !== items.length) bad('DUPLICATE_PRODUCT');
       const payments = b.payments.map(p => {
@@ -359,18 +377,23 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       if (new Set(payments.map(p => p.method)).size !== payments.length) bad('DUPLICATE_PAYMENT_METHOD');
       const f = { items, payments, discount: amount(b.discount || 0), reason: b.discount ? text(b.discount_reason, 500) : null,
         party: b.customer_id ? uuid(b.customer_id) : null, due: payments.some(p => p.method === 'CREDIT') ? dueDate(b.due_date) : null,
-        shift: uuid(b.shift_id), channel: 'POS' };
+        shift: b.shift_id ? uuid(b.shift_id) : null, channel: online ? 'ONLINE' : 'POS' };
+      if (!online && !f.shift) bad('INVALID_ID');
+      if (online && payments.some(p=>p.method==='DOMPET_SANTRI')) bad('ONLINE_WALLET_NOT_AUTHORIZED',403);
       const op = await beginOperation(c, a, b, 'SALE', f); if (op.replay) return receiptData(c, a, op.id, true);
-      const s = await shiftRow(c, a, f.shift); if (s.status !== 'OPEN') bad('SHIFT_NOT_OPEN', 409);
+      const s = f.shift ? await shiftRow(c, a, f.shift) : null;
+      if (s && s.status !== 'OPEN') bad('SHIFT_NOT_OPEN', 409);
       const wp=payments.find(p=>p.method==='DOMPET_SANTRI');
       if(wp)wp.account=await wallet.clearing(c,a);
       for (const p of payments.filter(p => p.account).sort((x, y) => x.account.localeCompare(y.account))) {
         const account = await getAccount(c, a, p.account,0n,p.method==='DOMPET_SANTRI');
-        if (account.kind !== (p.method==='DOMPET_SANTRI'?'WALLET_CLEARING':p.method) || p.method === 'CASH' && p.account !== s.cash_account_id) bad('PAYMENT_ACCOUNT_DENIED', 403);
+        if (account.kind !== (p.method==='DOMPET_SANTRI'?'WALLET_CLEARING':p.method) || p.method === 'CASH' && p.account !== s?.cash_account_id) bad('PAYMENT_ACCOUNT_DENIED', 403);
       }
       let subtotal = 0n;
       for (const i of items) {
         i.p = await getProduct(c, a, i.product); if (!i.p.sellable) bad('PRODUCT_NOT_SELLABLE', 403);
+        if(online){const snapshot=online.find(l=>l.product_id===i.product);if(!snapshot||BigInt(snapshot.quantity)!==i.quantity)bad('ONLINE_ITEM_MISMATCH');
+          i.p={...i.p,name:snapshot.name,sku:snapshot.sku,selling_price:snapshot.unit_price};}
         i.gross = i.quantity * BigInt(i.p.selling_price); subtotal += i.gross;
         i.cogs = await availableCost(c, a, i.product, i.quantity);
       }
@@ -420,7 +443,6 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       await debtRow(c, a, op.id, f, 'AR', credit, op.id);
       await afterStage('money');
       return { ...(await receiptData(c, a, op.id)), branding: brand };
-    });
   }
   async function receiptData(c, a, id, replay = false) {
     const op = (await c.query(`SELECT id,kind,total,paid,party_id,created_at,channel,receipt_snapshot FROM pos_business_operations
@@ -470,14 +492,16 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       return { from, to, timezone: a.member.timezone, kpi: k,
         payment_methods: paymentMethods, refunds_by_account_kind: refundsByAccount,
         formula: 'Period posted sales minus period posted returns minus net FIFO COGS; operating result adds classified other income and subtracts operating expenses. Capital/prive excluded. Not net profit. Average gross sale rounded down in Rupiah.',
-        completeness: 'Wallet clearing is unsettled, not physical cash. Online integration is not implemented in this checkpoint.' };
+        completeness: 'Wallet clearing is unsettled, not physical cash. ONLINE merchandise is posted once; shipping is separately classified other income/expense, not merchandise or COGS.' };
     });
   }
   const wallet=require('./posBusinessWallet').createBusinessWallet({run,bad,amount,uuid,makeId,featureEnabled,afterStage});
   const returns = require('./posBusinessReturns').createBusinessReturns({run,bad,uuid,amount,text,makeId,lock,beginOperation,
     insertOperation,moneyRow,debtRow,stockRow,addLayer,getAccount,afterStage,shiftRow,wallet});
   const metrics = require('./posBusinessMetrics').createBusinessMetrics({run,bad,dueDate});
-  return { walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,...returns, ...metrics, login, logout, context, member, product, catalog, party, account, purchase, adjustment, money, payDebt, books,
+  const online=require('./posBusinessOnline').createBusinessOnline({transaction,run,bad,uuid,amount,text,makeId,hash,serialize,lock,
+    getProduct,getAccount,saleWork,returns,beginOperation,insertOperation,moneyRow,afterStage});
+  return { ...online,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, logout, context, member, product, catalog, party, account, purchase, adjustment, money, payDebt, books,
     terminal, openShift, closeShift, sale, receipt, report };
 }
 module.exports = { createPosBusinessService, amount };

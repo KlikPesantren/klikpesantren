@@ -11,6 +11,8 @@ import axios from "axios";
 import { API_BASE_URL } from "./services/api";
 
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const LocalStorefrontPage = lazy(() => import("./pos-store/StorefrontPage"));
+const LocalMerchantStorePage = lazy(() => import("./pos-store/MerchantStorePage"));
 const PembayaranPage = lazy(() => import("./pages/PembayaranPage"));
 const PengumumanPage = lazy(() => import("./pages/PengumumanPage"));
 const WaliHomeLinksPage = lazy(() => import("./pages/WaliHomeLinksPage"));
@@ -196,6 +198,12 @@ function App() {
       <TenantProfileProvider>
       <ActiveUnitProvider>
       <Routes>
+        {import.meta.env.DEV && <>
+          <Route path="/store/:slug" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
+          <Route path="/store/:slug/products/:productId" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
+          <Route path="/store/:slug/orders/:orderId" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
+          <Route path="/merchant-store" element={<LazyPage><LocalMerchantStorePage /></LazyPage>} />
+        </>}
         <Route element={<WebsiteContentProvider><Outlet /></WebsiteContentProvider>}>
           <Route path="/" element={<RootRoute />} />
           <Route path="/landing" element={<Navigate to="/founding-partner" replace />} />

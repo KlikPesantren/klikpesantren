@@ -17,6 +17,15 @@ function createPosBusinessRouter({ db, service = createPosBusinessService({ db }
   };
   router.post('/login', handle('login'));
   router.post('/logout', handle('logout'));
+  router.get('/:businessId/store',handle('storeSettings'));
+  router.post('/:businessId/store',handle('storeProfile'));
+  router.post('/:businessId/products/:productId/online',handle('onlineProduct'));
+  router.post('/:businessId/customers/online-access',handle('customerAccess'));
+  router.get('/:businessId/orders',handle('orders'));
+  router.get('/:businessId/order-payment-context',handle('orderPaymentContext'));
+  router.get('/:businessId/orders/:orderId',handle('orderDetail'));
+  router.post('/:businessId/orders/:orderId/transition',handle('transition'));
+  router.get('/:businessId/online-report',handle('onlineReport'));
   router.post('/:businessId/wallet/preview',handle('walletPreview'));
   router.post('/:businessId/wallet/credentials',handle('provisionWalletCredential'));
   router.post('/:businessId/wallet/credentials/:credentialId/revoke',handle('revokeWalletCredential'));

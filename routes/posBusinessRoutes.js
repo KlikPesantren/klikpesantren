@@ -21,10 +21,13 @@ function createPosBusinessRouter({ db, service = createPosBusinessService({ db }
   router.get('/:businessId/products', handle('catalog'));
   router.get('/:businessId/books', handle('books'));
   router.get('/:businessId/reports', handle('report'));
+  router.get('/:businessId/customers/metrics', handle('customers'));
+  router.get('/:businessId/debts/aging', handle('aging'));
   router.get('/:businessId/sales/:operationId', handle('receipt'));
   for (const [path, operation] of [['users', 'member'], ['products', 'product'], ['parties', 'party'], ['accounts', 'account'],
     ['purchases', 'purchase'], ['stock-adjustments', 'adjustment'], ['money', 'money'], ['debt-payments', 'payDebt'],
-    ['terminals', 'terminal'], ['shifts/open', 'openShift'], ['shifts/close', 'closeShift'], ['sales', 'sale']]) {
+    ['terminals', 'terminal'], ['shifts/open', 'openShift'], ['shifts/close', 'closeShift'], ['sales', 'sale'],
+    ['sale-returns','saleReturn'],['purchase-returns','purchaseReturn']]) {
     router.post('/:businessId/' + path, handle(operation));
   }
   return router;

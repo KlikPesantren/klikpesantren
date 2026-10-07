@@ -57,7 +57,7 @@ credit-limit overruns fail closed. Posted records cannot be updated.
 The V2 router is intentionally not mounted in the application yet. No new menu
 is exposed. Existing V1 application and its acceptance APK are unchanged.
 
-Still required: returns/reversals, Wallet/RFID/barcode canonical integration,
+Still required: broader financial reversal types, Wallet/RFID/barcode canonical integration,
 merchant onboarding/settings/account assignment UI, inventory/opname UI,
 customer/supplier CRM/aging/report completeness, online stock reservation/orders/
 shipping/storefront, tenant control-plane projection and role-based mobile UX.
@@ -102,9 +102,9 @@ linked cash sale returns when that module is implemented. AR/AP, bank, capital,
 prive and Wallet clearing are not implicitly drawer movements. General merchant
 account and physical shift drawer are distinct balances.
 
-Report gross profit = posted sales minus FIFO COGS; operating result adds other
+Report gross profit = posted sales minus posted returns minus net FIFO COGS; operating result adds other
 income and subtracts operating expense. Capital/prive excluded. Do not call this
-net profit. Return/online completeness is explicitly absent in this checkpoint.
+net profit. Online completeness is explicitly absent in this checkpoint.
 
 ## Verified local checkpoint
 
@@ -118,6 +118,67 @@ net profit. Return/online completeness is explicitly absent in this checkpoint.
 - `node scripts/test-device-management.js`: PASS.
 
 These are local software results, not UI/physical acceptance or production
-reconciliation. Merchant onboarding, reversals, Wallet adapters, online shared
+reconciliation. Merchant onboarding, broader reversals, Wallet adapters, online shared
 stock/reservations, comprehensive reports and both UI integrations remain gates.
 Do not run 097 on production or publish this checkpoint as a completed V2 POS.
+
+## Local continuation: returns, CRM and aging (PARTIAL product)
+
+Migration 098 is additive: deferred INSERT-only return reconciliation triggers.
+It does not edit migration 097 or existing financial rows. Local rehearsal runs
+UP -> DOWN -> UP on an isolated loopback PostgreSQL fixture, preserving a SHA-256
+fingerprint of every original ledger row. DOWN refuses after posted returns.
+No new table/sequence privileges are needed: existing SELECT/INSERT history
+privileges and product/account/shift lock privileges suffice. No production grants.
+
+`sale-returns` and `purchase-returns` require `returns.post` merchant permission.
+Original operations stay immutable. Return lines carry original product snapshots,
+actor/time/reason/source/idempotency relationship; quantities cannot cumulatively
+exceed original quantities. Source advisory locks serialize return and debt payment.
+Retries replay one committed operation; changed payloads conflict. Whole-Rupiah
+partial values use cumulative allocation so full return sums exactly to discounted
+original total. COGS restores original FIFO allocation costs, not current prices.
+
+Refund allocation is explicit: outstanding AR/AP first, then original receiving/
+paying accounts in stable account UUID order. No arbitrary new refund account.
+Cash sale refunds require the current operator's open shift and matching cash
+account. Manual BANK/QRIS refunds require `refund_confirmed=true` and a reference;
+paid supplier refunds require confirmed receipt. Credit returns reduce debt and
+cannot invent a payout. Purchase returns consume only unconsumed ORIGINAL purchase
+layers, rejecting unsafe returns even if unrelated product stock exists.
+Supplier refunds affect the merchant account, not the checkout drawer.
+These are operator-recorded confirmations, not payment-provider verification.
+Wallet refunds are NOT supported yet; Wallet checkout remains fail-closed.
+
+CRM `/customers/metrics`: separate preaggregations avoid join multiplication.
+Lifetime gross spend, returns, net spend, POS/ONLINE net channel spend, count,
+last purchase, whole-Rupiah gross-ticket average, and outstanding AR come from
+canonical ledgers. SPEND/FREQUENCY/RECENT rankings are allowlisted and tie-broken
+by customer UUID, capped at 200 customers. Guests are not merged or granted credit.
+ONLINE fields support existing ledger channel semantics; they do NOT prove an
+online order/checkout implementation.
+
+`/debts/aging` uses source-level net signed debt, not sum of original invoices.
+It reports CURRENT, 1_30, 31_60, 61_90 and 91_PLUS buckets plus per-source/party
+outstanding, using merchant-local report date. Due day is CURRENT. Historical
+as_of uses operations posted on/before that date, not today's net debt.
+Both projections require reports.read; cashier private-finance access is denied.
+
+Reports distinguish gross sales, returns, net sales, channel net sales and net
+COGS. Gross profit = net sales - net COGS. Payment-method gross sale components
+sum to gross sales. Refund account movements + returned receivable sum to return
+value; later AR collection/refund is not mislabeled as original sale payment.
+No Wallet debit is called physical cash and no Buku Kas posting is introduced.
+
+Evidence: V2 foundation 40/40 and continuation 24/24 PostgreSQL groups PASS;
+partial/full/concurrent returns, AP payment/return race, original multi-cost FIFO,
+discount rounding, strict runtime privileges, forced rollback, HTTP authorization,
+immutable history, schema rehearsal and reported money/stock reconcile Rp0.
+Existing POS V1 (23), Admin (14), mobile (19 unit + 11 DB), Attendance (23 suites),
+device-management and mobile lint remain PASS. These are LOCAL synthetic results.
+
+Known gaps: canonical V2 Wallet/credential/refund integration; opaque barcode
+provisioning; physical readers; storefront/order/shipping state machine; shared
+POS/ONLINE reservation; online KPIs; settlement policy; onboarding/control-plane
+and UI. V2 is mounted only in isolated HTTP integration tests, not server.js.
+Do not deploy, run a production migration, invoke EAS or claim full V2 completion.

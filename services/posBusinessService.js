@@ -31,7 +31,7 @@ const grants = {
   SUPERVISOR: ['profile.read', 'products.read', 'customers.read'],
 };
 const configurable = new Set(['products.manage', 'parties.manage', 'purchases.post', 'stock.adjust',
-  'sale.post', 'sale.discount', 'shifts.own', 'money.manage', 'debt.collect', 'reports.read', 'users.manage', 'profile.manage']);
+  'sale.post', 'sale.discount', 'returns.post', 'shifts.own', 'money.manage', 'debt.collect', 'reports.read', 'users.manage', 'profile.manage']);
 function createPosBusinessService({ db, afterStage = async () => {} }) {
   if (!db?.connect) throw new Error('EXPLICIT_DATABASE_REQUIRED');
   async function transaction(work) {
@@ -284,7 +284,8 @@ function createPosBusinessService({ db, afterStage = async () => {} }) {
       if (!['AR', 'AP'].includes(kind)) bad('INVALID_DEBT_KIND');
       const f = { source: uuid(b.source_id), account: uuid(b.account_id), total: amount(b.amount, true), paid: amount(b.amount, true) };
       const op = await beginOperation(c, a, b, kind === 'AR' ? 'AR_COLLECTION' : 'AP_PAYMENT', f); if (op.replay) return op;
-      const original = (await c.query(`SELECT id,party_id,due_date FROM pos_business_operations WHERE id=$1 AND business_id=$2 AND kind=$3 FOR UPDATE`,
+      await lock(c, 'pos-source:' + a.business + ':' + f.source);
+      const original = (await c.query(`SELECT id,party_id,due_date FROM pos_business_operations WHERE id=$1 AND business_id=$2 AND kind=$3`,
         [f.source, a.business, kind === 'AR' ? 'SALE' : 'PURCHASE'])).rows[0];
       if (!original?.party_id) bad('DEBT_SOURCE_DENIED', 403);
       const outstanding = BigInt((await c.query(`SELECT coalesce(sum(amount),0) amount FROM pos_debt_movements WHERE business_id=$1 AND source_id=$2 AND kind=$3`, [a.business, f.source, kind])).rows[0].amount);
@@ -433,20 +434,36 @@ function createPosBusinessService({ db, afterStage = async () => {} }) {
       const v = [a.business, from, to, a.member.timezone];
       const where = `o.business_id=$1 AND (o.created_at AT TIME ZONE $4)::date BETWEEN $2::date AND $3::date`;
       const k = (await c.query(`SELECT coalesce(sum(total) FILTER(WHERE kind='SALE'),0) sales,
+        coalesce(sum(total) FILTER(WHERE kind='SALE_RETURN'),0) returns,
+        coalesce(sum(total) FILTER(WHERE kind='SALE' AND channel='POS'),0)-coalesce(sum(total) FILTER(WHERE kind='SALE_RETURN' AND channel='POS'),0) pos_net_sales,
+        coalesce(sum(total) FILTER(WHERE kind='SALE' AND channel='ONLINE'),0)-coalesce(sum(total) FILTER(WHERE kind='SALE_RETURN' AND channel='ONLINE'),0) online_net_sales,
+        coalesce(sum(total-paid) FILTER(WHERE kind='SALE_RETURN'),0) returned_receivable,
         count(*) FILTER(WHERE kind='SALE') sales_count,coalesce(sum(total) FILTER(WHERE kind='EXPENSE'),0) expenses,
         coalesce(sum(total) FILTER(WHERE kind='OTHER_INCOME'),0) other_income,
         coalesce(sum(total) FILTER(WHERE kind='CAPITAL'),0) capital,
         coalesce(sum(total) FILTER(WHERE kind='WITHDRAWAL'),0) withdrawals FROM pos_business_operations o WHERE ${where}`, v)).rows[0];
-      k.cogs = (await c.query(`SELECT coalesce(sum(l.cogs),0) cogs FROM pos_business_lines l JOIN pos_business_operations o ON o.id=l.operation_id AND o.business_id=l.business_id WHERE ${where} AND o.kind='SALE'`, v)).rows[0].cogs;
-      k.gross_profit = (BigInt(k.sales) - BigInt(k.cogs)).toString();
+      k.cogs = (await c.query(`SELECT coalesce(sum(CASE WHEN o.kind='SALE_RETURN' THEN -l.cogs ELSE l.cogs END),0) cogs FROM pos_business_lines l JOIN pos_business_operations o ON o.id=l.operation_id AND o.business_id=l.business_id WHERE ${where} AND o.kind IN('SALE','SALE_RETURN')`, v)).rows[0].cogs;
+      k.net_sales = (BigInt(k.sales)-BigInt(k.returns)).toString();
+      k.gross_profit = (BigInt(k.net_sales) - BigInt(k.cogs)).toString();
       k.operating_result = (BigInt(k.gross_profit) + BigInt(k.other_income) - BigInt(k.expenses)).toString();
       k.average_sale = k.sales_count === '0' ? '0' : (BigInt(k.sales) / BigInt(k.sales_count)).toString();
+      const paymentMethods = (await c.query(`SELECT p.method,sum(p.amount) sale_amount FROM pos_business_payments p
+        JOIN pos_business_operations o ON o.id=p.operation_id AND o.business_id=p.business_id
+        WHERE ${where} AND o.kind='SALE' GROUP BY p.method ORDER BY p.method`,v)).rows;
+      const refundsByAccount = (await c.query(`SELECT ac.kind,-sum(m.amount) refunded_amount FROM pos_money_movements m
+        JOIN pos_business_operations o ON o.id=m.operation_id AND o.business_id=m.business_id
+        JOIN pos_business_accounts ac ON ac.id=m.account_id AND ac.business_id=m.business_id
+        WHERE ${where} AND o.kind='SALE_RETURN' GROUP BY ac.kind ORDER BY ac.kind`,v)).rows;
       return { from, to, timezone: a.member.timezone, kpi: k,
-        formula: 'Posted sale total minus FIFO COGS; operating result adds classified other income and subtracts operating expenses. Capital/prive excluded. Not net profit. Average rounded down in Rupiah.',
-        completeness: 'Returns and online integration not implemented; report is local POS foundation only.' };
+        payment_methods: paymentMethods, refunds_by_account_kind: refundsByAccount,
+        formula: 'Period posted sales minus period posted returns minus net FIFO COGS; operating result adds classified other income and subtracts operating expenses. Capital/prive excluded. Not net profit. Average gross sale rounded down in Rupiah.',
+        completeness: 'Online/Wallet integration is not implemented in this checkpoint.' };
     });
   }
-  return { login, logout, context, member, product, catalog, party, account, purchase, adjustment, money, payDebt, books,
+  const returns = require('./posBusinessReturns').createBusinessReturns({run,bad,uuid,amount,text,makeId,lock,beginOperation,
+    insertOperation,moneyRow,debtRow,stockRow,addLayer,getAccount,afterStage,shiftRow});
+  const metrics = require('./posBusinessMetrics').createBusinessMetrics({run,bad,dueDate});
+  return { ...returns, ...metrics, login, logout, context, member, product, catalog, party, account, purchase, adjustment, money, payDebt, books,
     terminal, openShift, closeShift, sale, receipt, report };
 }
 module.exports = { createPosBusinessService, amount };

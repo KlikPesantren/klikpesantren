@@ -12,6 +12,9 @@ function createPosAdminRouter({admin=service}={}){
  for(const operation of ['dashboard','transactions','shifts','refunds','reconciliation'])router.get('/'+operation,handle(operation));
  router.get('/transactions/:id',handle('detail'));
  router.get('/management/:kind',handle('management'));
+ router.get('/businesses-v2',handle('businessesV2'));
+ router.post('/businesses-v2',handle('onboardBusiness'));
+ router.patch('/businesses-v2/:id',handle('editBusinessV2'));
  router.patch('/categories/:id',handle('editCategory'));
  router.patch('/merchants/:id',handle('editMerchant'));
  router.patch('/terminals/:id',handle('configureTerminal'));

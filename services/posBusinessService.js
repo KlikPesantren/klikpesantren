@@ -501,7 +501,8 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
   const metrics = require('./posBusinessMetrics').createBusinessMetrics({run,bad,dueDate});
   const online=require('./posBusinessOnline').createBusinessOnline({transaction,run,bad,uuid,amount,text,makeId,hash,serialize,lock,
     getProduct,getAccount,saleWork,returns,beginOperation,insertOperation,moneyRow,afterStage});
-  return { ...online,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, logout, context, member, product, catalog, party, account, purchase, adjustment, money, payDebt, books,
+  const workspace=require('./posBusinessWorkspace').createBusinessWorkspace({run,bad,uuid,amount,text});
+  return { ...online,...workspace,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, logout, context, member, product, catalog, party, account, purchase, adjustment, money, payDebt, books,
     terminal, openShift, closeShift, sale, receipt, report };
 }
 module.exports = { createPosBusinessService, amount };

@@ -382,3 +382,11 @@ grants exercised. Browser helper cannot initialize due Windows sandbox ACL error
 visual Desktop/Mobile acceptance NOT VERIFIED (not claimed by build/source checks).
 Physical readers NOT VERIFIED. No production data, migration, deploy, EAS, push,
 PR or merge. Final onboarding/Admin control-plane/mobile UX/settlement remain gaps.
+
+## Merchant Product Experience continuation — LOCAL ONLY
+
+Checkpoint after Online Store adds a responsive, permission-derived merchant workspace at the DEV-only `/merchant` route. It connects to canonical V2 services for readiness/dashboard, products and immutable stock movement history, Customer/Supplier directories, purchases, classified money operations, AP/AR aging, reports, Online orders, users/access, and profile/receipt settings. Cashier projections exclude cost/private finance; Owner receives the full business workspace; Supervisor remains permission-driven. Existing native POS remains the touch-optimized cashier workflow.
+
+The Tenant Admin control plane adds unit-scoped Business V2 onboarding and privacy-safe monitoring. Onboarding atomically creates the business, unit link, bcrypt owner identity, membership, first cash account, and terminal. INTERNAL/EXTERNAL ownership is explicit. External merchants expose only allowed high-level omzet/gross-profit/count/refund/Wallet volume; supplier debt, customer debt, expenses, capital, prive, and private account ledger are never selected. Merchant auth remains separate from tenant Admin auth.
+
+No migration is required: all settings reuse canonical 097–100 schema. New projections never edit current stock; adjustments still create canonical movements. Receipt data remains immutable server snapshot with merchant identity/payment details and can be rendered/printed client-side; no per-sale PDF is stored and no physical printer is claimed. Engineering tests pass locally; direct visual browser acceptance remains NOT VERIFIED because the Windows browser helper ACL failure persists. Physical RFID/barcode/printer, Wallet settlement, courier, and payment gateway remain intentionally deferred.

@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';import fs from 'node:fs';
+const page=fs.readFileSync(new URL('../frontend/src/pos-store/MerchantWorkspacePage.jsx',import.meta.url),'utf8'),css=fs.readFileSync(new URL('../frontend/src/pos-store/merchantWorkspace.css',import.meta.url),'utf8');
+for(const key of ['Beranda','Kasir','Produk & Stok','Customer','Supplier & Pembelian','Keuangan','Utang & Piutang','Laporan','Online Store','Pengguna & Akses','Pengaturan'])assert.ok(page.includes(key));
+for(const endpoint of ['/workspace','/inventory','/parties?kind=CUSTOMER','/parties?kind=SUPPLIER','/activity','/debts/aging?kind=AR','/reports?period=MONTH','/orders','/users','/profile'])assert.ok(page.includes(endpoint));
+for(const text of ['Modal bukan pendapatan','Prive bukan biaya operasional','Wallet clearing bukan kas fisik','Akses terbatas','Unit Usaha Internal','Merchant Eksternal'])assert.ok(page.includes(text));
+assert.ok(page.includes("can('products.manage')"));assert.ok(!page.includes('password_hash'));assert.ok(!page.includes('DOMPET_SANTRI')||page.includes('Dompet Santri'));
+assert.ok(css.includes('@media(max-width:820px)'));assert.ok(css.includes('@media(max-width:520px)'));assert.ok(css.includes('overflow:auto'));
+const app=fs.readFileSync(new URL('../frontend/src/App.jsx',import.meta.url),'utf8');assert.ok(app.includes('import.meta.env.DEV && <>'));assert.ok(app.includes('path="/merchant"'));
+const admin=fs.readFileSync(new URL('../frontend/src/pages/PosAdminPage.jsx',import.meta.url),'utf8'),adminService=fs.readFileSync(new URL('../services/posAdminService.js',import.meta.url),'utf8');for(const text of ['Business V2','Onboarding merchant','Unit Usaha Internal','Merchant Eksternal'])assert.ok(admin.includes(text));for(const text of ['businessesV2','onboardBusiness','High-level only for EXTERNAL','pos.config.manage'])assert.ok(adminService.includes(text));assert.ok(!adminService.includes('password_hash AS'));
+console.log('MERCHANT UI: role-aware navigation, connected modules, privacy language, responsive local review route PASS.');

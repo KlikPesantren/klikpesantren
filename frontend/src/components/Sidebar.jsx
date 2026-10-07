@@ -37,7 +37,7 @@ const SIDEBAR = {
 };
 
 const MENU = [
-  ...[['dashboard','Dashboard'],['transactions','Transaksi'],['products','Produk'],['categories','Kategori'],['merchants','Merchant'],['cashiers','Kasir'],['shifts','Shift'],['refunds','Refund / Void'],['reconciliation','Rekonsiliasi'],['settings','Pengaturan']].map(([path,label])=>({name:`POS ${label}`,path:`/pos/${path}`,perm:path==='reconciliation'?'pos.reconcile':'pos.view',feature:null,icon:<FaMoneyBill/>})),
+  ...[['dashboard','Dashboard'],['transactions','Transaksi'],['products','Produk'],['categories','Kategori'],['merchants','Merchant'],['business-v2','Business V2'],['cashiers','Kasir'],['shifts','Shift'],['refunds','Refund / Void'],['reconciliation','Rekonsiliasi'],['settings','Pengaturan']].map(([path,label])=>({name:`POS ${label}`,path:`/pos/${path}`,perm:path==='reconciliation'?'pos.reconcile':'pos.view',feature:null,icon:<FaMoneyBill/>})),
   { name: "Dashboard", path: "/dashboard", perm: "dashboard.view", feature: "dashboard", icon: <FaHome /> },
   { name: "Santri", path: "/santri", perm: "santri.view", feature: "santri", icon: <FaUsers /> },
   { name: "Alumni", path: "/alumni", perm: "alumni.view", feature: "santri", icon: <FaUsers /> },

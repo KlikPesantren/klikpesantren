@@ -29,6 +29,7 @@
     "wali-identity:audit": "node scripts/audit-wali-identity-resolution.js",
     "test:attendance-v1-phase1": "node scripts/test-attendance-v1-phase1.js",
     "test:pos-v1": "node scripts/test-pos-v1-static.js && node scripts/test-pos-v1-db.js",
+    "test:pos-business-v2": "node scripts/test-pos-business-v2-db.js",
     "test:pos-v1:static": "node scripts/test-pos-v1-static.js",
     "test:pos-admin": "node scripts/test-pos-admin-static.js && node scripts/test-pos-admin-db.js",
     "test:absensi-rfid-final": "node scripts/test-absensi-rfid-final.js",

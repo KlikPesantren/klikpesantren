@@ -219,6 +219,6 @@ async function main(){
   try{const svc=createPosBusinessService({db:runtime});await svc.customers(req());await svc.aging(req());}
   finally{await runtime.end();}assert.equal(await finger(),before);
  });
- console.log(`V2 RETURNS: ${passed}/${passed} groups PASS, Rp0 mismatch; Wallet/online NOT implemented.`);
+ console.log(`V2 RETURNS: ${passed}/${passed} groups PASS, Rp0 mismatch; Wallet tested in the subsequent dedicated suite; online NOT implemented.`);
 }
 main().catch(e=>{console.error('FAIL returns fixture',{code:e.code||'ASSERTION',message:e.code?'rejected/test failure':e.message});process.exitCode=1;}).finally(()=>db.end());

@@ -27,12 +27,12 @@ const passwordInput = (value, minimum = 1) => {
   return value; // Never silently trim or bcrypt-truncate a password.
 };
 const grants = {
-  CASHIER: ['profile.read', 'products.read', 'sale.post', 'customers.read', 'shifts.own'],
+  CASHIER: ['profile.read', 'products.read', 'sale.post', 'customers.read', 'shifts.own', 'wallet.preview'],
   SUPERVISOR: ['profile.read', 'products.read', 'customers.read'],
 };
 const configurable = new Set(['products.manage', 'parties.manage', 'purchases.post', 'stock.adjust',
-  'sale.post', 'sale.discount', 'returns.post', 'shifts.own', 'money.manage', 'debt.collect', 'reports.read', 'users.manage', 'profile.manage']);
-function createPosBusinessService({ db, afterStage = async () => {} }) {
+  'sale.post', 'sale.discount', 'returns.post', 'shifts.own', 'money.manage', 'debt.collect', 'reports.read', 'users.manage', 'profile.manage', 'wallet.preview', 'wallet.credentials.manage']);
+function createPosBusinessService({ db, afterStage = async () => {}, featureEnabled = (...args)=>require('./unitFeatureService').isUnitFeatureEnabled(...args) }) {
   if (!db?.connect) throw new Error('EXPLICIT_DATABASE_REQUIRED');
   async function transaction(work) {
     const c = await db.connect();
@@ -141,9 +141,9 @@ function createPosBusinessService({ db, afterStage = async () => {} }) {
       return (await c.query('INSERT INTO pos_business_accounts(id,business_id,name,kind) VALUES($1,$2,$3,$4) RETURNING id,name,kind', [makeId(), a.business, text(b.name), b.kind])).rows[0];
     });
   }
-  async function getAccount(c, a, id, outflow = 0n) {
+  async function getAccount(c, a, id, outflow = 0n, allowClearing = false) {
     const ac = (await c.query(`SELECT id,kind FROM pos_business_accounts WHERE id=$1 AND business_id=$2 AND active FOR UPDATE`, [uuid(id), a.business])).rows[0];
-    if (!ac || ac.kind === 'WALLET_CLEARING') bad('ACCOUNT_DENIED', 403);
+    if (!ac || ac.kind === 'WALLET_CLEARING' && !allowClearing) bad('ACCOUNT_DENIED', 403);
     const balance = BigInt((await c.query('SELECT coalesce(sum(amount),0) amount FROM pos_money_movements WHERE account_id=$1 AND business_id=$2', [ac.id, a.business])).rows[0].amount);
     if (balance < outflow) bad('INSUFFICIENT_BUSINESS_FUNDS', 409);
     return ac;
@@ -343,16 +343,18 @@ function createPosBusinessService({ db, afterStage = async () => {} }) {
   async function sale(req) {
     return run(req, 'sale.post', async (c, a) => {
       const b = req.body;
-      if (!Array.isArray(b.items) || !b.items.length || b.items.length > 100 || !Array.isArray(b.payments) || !b.payments.length || b.payments.length > 4) bad('INVALID_SALE');
+      if (!Array.isArray(b.items) || !b.items.length || b.items.length > 100 || !Array.isArray(b.payments) || !b.payments.length || b.payments.length > 5) bad('INVALID_SALE');
       // ONLINE is not accepted until reservation/order authorization integration is complete.
       if (b.channel && b.channel !== 'POS') bad('CHANNEL_NOT_READY', 409);
       const items = b.items.map(i => ({ product: uuid(i.product_id), quantity: amount(i.quantity, true) })).sort((x, y) => x.product.localeCompare(y.product));
       if (new Set(items.map(i => i.product)).size !== items.length) bad('DUPLICATE_PRODUCT');
       const payments = b.payments.map(p => {
-        if (!['CASH', 'BANK', 'QRIS', 'CREDIT'].includes(p.method)) bad('PAYMENT_METHOD_NOT_READY', 409);
-        return { method: p.method, amount: amount(p.amount, true), account: p.method === 'CREDIT' ? null : uuid(p.account_id),
+        if (!['CASH', 'BANK', 'QRIS', 'CREDIT', 'DOMPET_SANTRI'].includes(p.method)) bad('PAYMENT_METHOD_NOT_READY', 409);
+        const parsed = { method: p.method, amount: amount(p.amount, true), account: ['CREDIT','DOMPET_SANTRI'].includes(p.method) ? null : uuid(p.account_id),
           tender: p.method === 'CASH' ? amount(p.tendered) : null,
           reference: ['BANK', 'QRIS'].includes(p.method) ? text(p.reference) : null };
+        if(p.method==='DOMPET_SANTRI') {const f=wallet.input(p);parsed.wallet={type:f.type,hash:f.hash,unit:f.unit};Object.defineProperty(parsed,'scan',{value:f.credential});}
+        return parsed;
       });
       if (new Set(payments.map(p => p.method)).size !== payments.length) bad('DUPLICATE_PAYMENT_METHOD');
       const f = { items, payments, discount: amount(b.discount || 0), reason: b.discount ? text(b.discount_reason, 500) : null,
@@ -360,9 +362,11 @@ function createPosBusinessService({ db, afterStage = async () => {} }) {
         shift: uuid(b.shift_id), channel: 'POS' };
       const op = await beginOperation(c, a, b, 'SALE', f); if (op.replay) return receiptData(c, a, op.id, true);
       const s = await shiftRow(c, a, f.shift); if (s.status !== 'OPEN') bad('SHIFT_NOT_OPEN', 409);
+      const wp=payments.find(p=>p.method==='DOMPET_SANTRI');
+      if(wp)wp.account=await wallet.clearing(c,a);
       for (const p of payments.filter(p => p.account).sort((x, y) => x.account.localeCompare(y.account))) {
-        const account = await getAccount(c, a, p.account);
-        if (account.kind !== p.method || p.method === 'CASH' && p.account !== s.cash_account_id) bad('PAYMENT_ACCOUNT_DENIED', 403);
+        const account = await getAccount(c, a, p.account,0n,p.method==='DOMPET_SANTRI');
+        if (account.kind !== (p.method==='DOMPET_SANTRI'?'WALLET_CLEARING':p.method) || p.method === 'CASH' && p.account !== s.cash_account_id) bad('PAYMENT_ACCOUNT_DENIED', 403);
       }
       let subtotal = 0n;
       for (const i of items) {
@@ -400,9 +404,17 @@ function createPosBusinessService({ db, afterStage = async () => {} }) {
       await afterStage('stock');
       for (const p of payments) {
         if (p.method === 'CASH' && p.tender < p.amount) bad('INSUFFICIENT_TENDER');
-        await c.query(`INSERT INTO pos_business_payments(id,business_id,operation_id,method,amount,account_id,tendered,change,reference)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [makeId(), a.business, op.id, p.method, p.amount.toString(), p.account, p.tender?.toString() || null,
-            p.method === 'CASH' ? (p.tender - p.amount).toString() : null, p.reference]);
+        const paymentId=makeId();
+        if(p.method==='DOMPET_SANTRI') {
+          const {w}=await wallet.resolve(c,a,{...p.wallet,credential:p.scan});
+          p.resolvedWallet=w;
+        }
+        const values=[paymentId,a.business,op.id,p.method,p.amount.toString(),p.account,p.tender?.toString()||null,
+          p.method==='CASH'?(p.tender-p.amount).toString():null,p.reference];
+        if(p.wallet)values.push(p.wallet.type);
+        await c.query(`INSERT INTO pos_business_payments(id,business_id,operation_id,method,amount,account_id,tendered,change,reference${p.wallet?',credential_method':''})
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9${p.wallet?',$10':''})`,values);
+        if(p.resolvedWallet)await wallet.movement(c,a,p.resolvedWallet,p.amount,'debit',op.id,paymentId);
         if (p.account) await moneyRow(c, a, op.id, p.account, p.amount);
       }
       await debtRow(c, a, op.id, f, 'AR', credit, op.id);
@@ -415,7 +427,8 @@ function createPosBusinessService({ db, afterStage = async () => {} }) {
       WHERE id=$1 AND business_id=$2 AND kind='SALE'`, [id, a.business])).rows[0];
     if (!op) bad('SALE_NOT_FOUND', 404);
     const lines = (await c.query(`SELECT product_id,sku,name,quantity,unit_price,discount,total FROM pos_business_lines WHERE operation_id=$1 AND business_id=$2 ORDER BY product_id`, [id, a.business])).rows;
-    const payments = (await c.query(`SELECT method,amount,tendered,change,reference FROM pos_business_payments WHERE operation_id=$1 AND business_id=$2 ORDER BY method`, [id, a.business])).rows;
+    const payments = (await c.query(`SELECT method,CASE WHEN method='DOMPET_SANTRI' THEN 'Dompet Santri' ELSE method END AS label,
+      amount,tendered,change,reference,to_jsonb(p)->>'credential_method' AS credential_method FROM pos_business_payments p WHERE operation_id=$1 AND business_id=$2 ORDER BY method`, [id, a.business])).rows;
     return { sale: op, items: lines, payments, replay };
   }
   async function receipt(req) { return run(req, 'sale.post', (c, a) => receiptData(c, a, uuid(req.params.operationId))); }
@@ -457,13 +470,14 @@ function createPosBusinessService({ db, afterStage = async () => {} }) {
       return { from, to, timezone: a.member.timezone, kpi: k,
         payment_methods: paymentMethods, refunds_by_account_kind: refundsByAccount,
         formula: 'Period posted sales minus period posted returns minus net FIFO COGS; operating result adds classified other income and subtracts operating expenses. Capital/prive excluded. Not net profit. Average gross sale rounded down in Rupiah.',
-        completeness: 'Online/Wallet integration is not implemented in this checkpoint.' };
+        completeness: 'Wallet clearing is unsettled, not physical cash. Online integration is not implemented in this checkpoint.' };
     });
   }
+  const wallet=require('./posBusinessWallet').createBusinessWallet({run,bad,amount,uuid,makeId,featureEnabled,afterStage});
   const returns = require('./posBusinessReturns').createBusinessReturns({run,bad,uuid,amount,text,makeId,lock,beginOperation,
-    insertOperation,moneyRow,debtRow,stockRow,addLayer,getAccount,afterStage,shiftRow});
+    insertOperation,moneyRow,debtRow,stockRow,addLayer,getAccount,afterStage,shiftRow,wallet});
   const metrics = require('./posBusinessMetrics').createBusinessMetrics({run,bad,dueDate});
-  return { ...returns, ...metrics, login, logout, context, member, product, catalog, party, account, purchase, adjustment, money, payDebt, books,
+  return { walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,...returns, ...metrics, login, logout, context, member, product, catalog, party, account, purchase, adjustment, money, payDebt, books,
     terminal, openShift, closeShift, sale, receipt, report };
 }
 module.exports = { createPosBusinessService, amount };

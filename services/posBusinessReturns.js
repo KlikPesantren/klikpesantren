@@ -1,7 +1,7 @@
 // Uses the SAME V2 transaction, membership, idempotency and ledger primitives.
 function createBusinessReturns(h) {
   const { run, bad, uuid, amount, text, makeId, lock, beginOperation, insertOperation,
-    moneyRow, debtRow, stockRow, addLayer, getAccount, afterStage, shiftRow } = h;
+    moneyRow, debtRow, stockRow, addLayer, getAccount, afterStage, shiftRow, wallet } = h;
   const min = (a, b) => a < b ? a : b;
   async function post(req, purchase) {
     return run(req, 'returns.post', async (c, a) => {
@@ -26,7 +26,7 @@ function createBusinessReturns(h) {
       let activeShift;
       if (f.shift) { activeShift = await shiftRow(c, a, f.shift); if (activeShift.status !== 'OPEN') bad('SHIFT_NOT_OPEN',409); }
       // Same ordering as checkout: shift -> account -> product.
-      for (const ac of accounts) await getAccount(c, a, ac.account_id);
+      for (const ac of accounts) await getAccount(c, a, ac.account_id,0n,ac.kind==='WALLET_CLEARING');
       f.total = 0n;
       for (const i of items) {
         const p = (await c.query('SELECT id FROM pos_business_products WHERE id=$1 AND business_id=$2 FOR UPDATE', [i.product,a.business])).rows[0];
@@ -67,10 +67,10 @@ function createBusinessReturns(h) {
       // Deterministic allocation: outstanding AR/AP first, then source account UUID order.
       for(const ac of accounts) {
         const value=min(left,BigInt(ac.capacity)); if(value<=0n) continue;
-        if(purchase && !f.confirmed || ac.kind!=='CASH' && (!f.confirmed || !f.reference)) bad('REFUND_CONFIRMATION_REQUIRED');
+        if(purchase && !f.confirmed || !['CASH','WALLET_CLEARING'].includes(ac.kind) && (!f.confirmed || !f.reference)) bad('REFUND_CONFIRMATION_REQUIRED');
         if(!purchase && ac.kind==='CASH' && (!activeShift || activeShift.cash_account_id!==ac.account_id)) bad('REFUND_CASH_SHIFT_REQUIRED');
-        if(!purchase) await getAccount(c,a,ac.account_id,value);
-        payouts.push({account:ac.account_id,value}); left-=value;
+        if(!purchase) await getAccount(c,a,ac.account_id,value,ac.kind==='WALLET_CLEARING');
+        payouts.push({account:ac.account_id,value,kind:ac.kind}); left-=value;
       }
       if(left) bad('REFUND_SOURCE_FUNDS_MISSING',409);
       await insertOperation(c,a,op,kind,f);
@@ -89,7 +89,10 @@ function createBusinessReturns(h) {
       }
       await afterStage('return-stock');
       await debtRow(c,a,op.id,f,purchase?'AP':'AR',-reduction,f.source);
-      for(const payout of payouts) await moneyRow(c,a,op.id,payout.account,purchase?payout.value:-payout.value);
+      for(const payout of payouts) {
+        if(payout.kind==='WALLET_CLEARING')await wallet.refund(c,a,f.source,op.id,payout.value);
+        await moneyRow(c,a,op.id,payout.account,purchase?payout.value:-payout.value);
+      }
       await afterStage('return-money');
       return {id:op.id,total:f.total.toString(),refund:f.paid.toString(),debt_reduction:reduction.toString(),replay:false};
     });

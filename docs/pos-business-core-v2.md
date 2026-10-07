@@ -182,3 +182,98 @@ provisioning; physical readers; storefront/order/shipping state machine; shared
 POS/ONLINE reservation; online KPIs; settlement policy; onboarding/control-plane
 and UI. V2 is mounted only in isolated HTTP integration tests, not server.js.
 Do not deploy, run a production migration, invoke EAS or claim full V2 completion.
+
+## Canonical Dompet Santri continuation (local software integration)
+
+Baseline 5425ab45922bc5cbabb5c8211c62826a2534c7b2. This phase does not implement
+online commerce or change Attendance/Wali/V1 payment behavior.
+
+Audit: canonical Wallet is wallet_accounts (tenant, unit, santri, current_balance)
+plus wallet_transactions. walletUnitService.getWalletAccountForSantri is reused
+with its transaction-client row lock. Canonical unitFeatureService is reused.
+The safe V1 transactional movement pattern (row lock, signed balance, ledger,
+unique tenant idempotency) is retained; its internal payment method remains frozen.
+walletTransactionCorrectionService is manual-topup correction, not a sale-refund
+API, and is deliberately NOT used. santri.saldo and legacy /rfid/payment are never
+read by V2 payment code. Legacy migration 078/079 SQL is used only to construct
+representative isolated fixtures, never to migrate production in this task.
+
+DOMPET_SANTRI is one payment method. RFID preserves the existing case-compatible
+legacy santri.uid_rfid bridge; ambiguity is checked before membership eligibility.
+BARCODE/QR use one 256-bit CSPRNG opaque kpw_ token, SHA-256 stored only, tenant
+unique. No balance, phone/PIN or person IDs are encoded. Provision response is
+one-time/no-store. No token retrieval/list endpoint. Revoke is idempotent;
+replacement means revoke old + provision new. Only wallet.credentials.manage
+merchant principals may provision/revoke, and tenant integration/allowed unit
+authority remains server-owned. Cashier cannot provision/revoke. Tenant Admin
+does not become a merchant user. Revocation is limited to the originating
+authorized business. Existing RFID enrollment/status remains under the canonical
+santri identity/membership lifecycle; no UID mutation or bulk credential backfill.
+
+Wallet preview returns only display name, chosen authorized unit, available
+balance, eligibility and acquisition type. No debit, private identity, account
+ID, credential/hash or financial history. Checkout revalidates every condition.
+Merchant integration_enabled/wallet_enabled plus pos_business_units must already
+authorize the relationship. Active unit, identity, exactly one active membership,
+left_at IS NULL, account active and Wallet feature are mandatory. RFID also needs
+RFID entitlement; Barcode/QR does not. No ALL/fallback wallet/merged balances.
+Those control-plane flags/mappings cannot be changed through V2 merchant APIs.
+
+Checkout transaction contains immutable sale/lines/payments, stock/FIFO, canonical
+Wallet debit/balance, and pos_business_wallet_links. Raw credential is non-enumerable
+process-memory input; idempotency hash includes only its digest/type/unit. Retry
+after commit returns the original receipt before creating another debit. Receipt
+labels Dompet Santri and acquisition method; never contains UID/token/account ID.
+Independent concurrent checkouts serialize on the canonical Wallet account.
+
+WALLET_CLEARING is an explicitly UNSETTLED merchant claim, not cash, bank funds or
+settlement received. V2 signed clearing movements preserve money reconciliation.
+Merchant cannot withdraw/transfer/topup this clearing as ordinary money. No Buku
+Kas post, fee assumption or settlement automation. Settlement policy is DEFERRED.
+Wallet sale/refund legs are excluded from physical cash drawer math.
+
+Return uses the existing source lock, debt-first then source account UUID refund
+allocation. Wallet credit references original payment and its unique original
+debit through the immutable link ledger, always same tenant/unit/account. Credit
+is capped cumulatively and transactionally. Closed account refund is rejected;
+frozen account credit is permitted, matching canonical V1 return semantics.
+Eligibility changes do not redirect a historical refund to another wallet.
+
+099_pos_business_wallet.sql is additive: opaque credential/audit tables, immutable
+Wallet link table, DOMPET_SANTRI payment constraint/optional acquisition field,
+clearing uniqueness and composite Wallet transaction scope index. Deferred
+constraints reconcile payment, original debit/refund cap, canonical account
+ledger balance and clearing money; Rp1 orphan clearing is rejected. 094-098 are
+unchanged. UP/DOWN/UP preserves non-empty Wallet and previous V2 row fingerprints;
+DOWN refuses after credential/Wallet history. No production migration or grants.
+
+Required runtime delta (tested locally, no ALL/ownership/DDL): SELECT on new
+tables and referenced canonical identity/unit/features/Wallet tables; INSERT
+wallet_transactions/new credential/audit/link tables; UPDATE(current_balance,
+updated_at) wallet_accounts; UPDATE(active,revoked_at) credentials; lock-column
+UPDATE(id) on santri/santri_units/unit_pendidikan and UPDATE(unit_id) on the
+authorized bridge for FOR SHARE; USAGE/SELECT wallet_transactions_id_seq.
+No history UPDATE/DELETE. Merchant actor UUID stays in V2 operation/audit; no
+invented integer users/legacy merchant/device FK is assigned to Wallet records.
+
+API under locally mounted /pos-business/:businessId:
+- POST wallet/preview
+- POST wallet/credentials (one-time opaque token)
+- POST wallet/credentials/:credentialId/revoke
+- POST sales (DOMPET_SANTRI full/split)
+- POST sale-returns (canonical Wallet credit)
+
+Real HTTP integration app mounts this router with actual merchant sessions and
+isolated PostgreSQL. server.js/production routing remains unchanged/unexposed.
+pos-app businessWallet.cjs provides typed CredentialReader adapters, preview,
+payment component, checkout/retry contract and safe development adapter. It does
+not claim a finished V2 onboarding/screen redesign or physical NFC/camera support.
+Use the existing encrypted journal for durable client retries; same request_id
+and payload must be retained after an unknown response. Offline debit is forbidden.
+
+Evidence: foundation 40 + returns/metrics 24 + Wallet 25 PostgreSQL groups PASS;
+mobile contract added to 20 unit tests. All fixture debit/refund/balance/payment/
+clearing reconcile Rp0. Existing POS/Admin/mobile/Attendance/Device/Wallet
+regressions remain PASS. Physical readers NOT VERIFIED. Overall V2 product remains
+incomplete (online, onboarding/UI/control-plane); this Wallet software phase is
+local only. No EAS, deployment, production mutation, push/PR/merge.

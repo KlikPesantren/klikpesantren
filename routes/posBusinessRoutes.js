@@ -17,6 +17,9 @@ function createPosBusinessRouter({ db, service = createPosBusinessService({ db }
   };
   router.post('/login', handle('login'));
   router.post('/logout', handle('logout'));
+  router.post('/:businessId/wallet/preview',handle('walletPreview'));
+  router.post('/:businessId/wallet/credentials',handle('provisionWalletCredential'));
+  router.post('/:businessId/wallet/credentials/:credentialId/revoke',handle('revokeWalletCredential'));
   router.get('/:businessId/context', handle('context'));
   router.get('/:businessId/products', handle('catalog'));
   router.get('/:businessId/books', handle('books'));

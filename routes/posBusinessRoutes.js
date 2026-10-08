@@ -16,6 +16,7 @@ function createPosBusinessRouter({ db, service = createPosBusinessService({ db }
     }
   };
   router.post('/login', handle('login'));
+  router.post('/activate', handle('activate'));
   router.post('/logout', handle('logout'));
   router.get('/memberships', handle('memberships'));
   router.get('/:businessId/store',handle('storeSettings'));
@@ -35,7 +36,7 @@ function createPosBusinessRouter({ db, service = createPosBusinessService({ db }
   router.post('/:businessId/profile', handle('profile'));
   router.get('/:businessId/users', handle('members'));
   router.post('/:businessId/users/:userId', handle('updateMember'));
-  router.post('/:businessId/users/:userId/reset-credential', handle('resetMemberCredential'));
+  router.post('/:businessId/users/:userId/reissue-activation', handle('reissueMemberActivation'));
   router.get('/:businessId/parties', handle('directory'));
   router.post('/:businessId/parties/:partyId', handle('updateParty'));
   router.get('/:businessId/inventory', handle('inventory'));

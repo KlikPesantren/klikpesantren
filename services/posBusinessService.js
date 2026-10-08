@@ -79,6 +79,23 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     if (result.error) bad(result.error, result.status);
     return result;
   }
+  async function activate(req) {
+    const b = req.body || {}, login = text(b.login, 120).toLowerCase();
+    const activationCode = text(b.activation_code, 160), password = passwordInput(b.password, 12);
+    return transaction(async c => {
+      await lock(c, 'pos-activate:' + hash(login));
+      const row = (await c.query(`SELECT u.id,t.business_id FROM pos_merchant_users u
+        JOIN pos_merchant_activation_tokens t ON t.user_id=u.id
+        JOIN pos_merchant_memberships m ON m.business_id=t.business_id AND m.user_id=t.user_id
+        WHERE u.login=$1 AND u.active AND m.active AND t.token_hash=$2 AND t.expires_at>now() FOR UPDATE OF u,t`,
+      [login, hash(activationCode)])).rows[0];
+      if (!row) bad('ACTIVATION_INVALID', 401);
+      await c.query('UPDATE pos_merchant_users SET password_hash=$1 WHERE id=$2', [await bcrypt.hash(password, 12), row.id]);
+      await c.query('DELETE FROM pos_merchant_sessions WHERE user_id=$1', [row.id]);
+      await c.query('DELETE FROM pos_merchant_activation_tokens WHERE business_id=$1 AND user_id=$2', [row.business_id, row.id]);
+      return { activated: true };
+    });
+  }
   async function logout(req) {
     const match = /^Bearer ([a-f0-9]{64})$/.exec(req.headers?.authorization || '');
     if (!match) bad('MERCHANT_AUTH_REQUIRED', 401);
@@ -126,13 +143,16 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       if (!['SUPERVISOR', 'CASHIER'].includes(role)) bad('INVALID_ROLE');
       const permissions = merchantPermissions.encodeExplicit(b.permissions || merchantPermissions.DEFAULTS[role]);
       if (!permissions) bad('INVALID_PERMISSIONS');
-      const password = passwordInput(b.password, 12);
-      const userId = makeId(), passwordHash = await bcrypt.hash(password, 12);
+      if (b.password != null) bad('OWNER_PASSWORD_ASSIGNMENT_FORBIDDEN', 400);
+      const userId = makeId(), passwordHash = await bcrypt.hash(crypto.randomBytes(48).toString('base64url'), 12);
+      const activationCode = crypto.randomBytes(24).toString('base64url');
       await c.query('INSERT INTO pos_merchant_users(id,login,name,password_hash) VALUES($1,$2,$3,$4)', [userId, text(b.login, 120).toLowerCase(), text(b.name), passwordHash]);
       await c.query(`INSERT INTO pos_merchant_memberships(business_id,tenant_id,user_id,role,permissions) VALUES($1,$2,$3,$4,$5)`, [a.business, a.member.tenant_id, userId, role, permissions]);
+      await c.query(`INSERT INTO pos_merchant_activation_tokens(business_id,user_id,token_hash,expires_at,created_by)
+        VALUES($1,$2,$3,now()+interval '48 hours',$4)`, [a.business, userId, hash(activationCode), a.user]);
       await c.query(`INSERT INTO pos_merchant_permission_audit(id,business_id,actor_id,target_user_id,action,after_state)
         VALUES($1,$2,$3,$4,'MEMBER_CREATED',$5)`, [makeId(), a.business, a.user, userId, JSON.stringify({ role, permissions: merchantPermissions.effective(role, permissions), active: true })]);
-      return { id: userId, role, name: b.name };
+      return { id: userId, role, name: b.name, login: b.login.trim().toLowerCase(), activation_code: activationCode, activation_expires_in: 172800 };
     });
   }
   async function product(req) {
@@ -550,8 +570,8 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
   const online=require('./posBusinessOnline').createBusinessOnline({transaction,run,bad,uuid,amount,text,makeId,hash,serialize,lock,
     getProduct,getAccount,saleWork,returns,beginOperation,insertOperation,moneyRow,afterStage,
     permitted:(access,key)=>merchantPermissions.has(access.member,key)});
-  const workspace=require('./posBusinessWorkspace').createBusinessWorkspace({run,bad,uuid,amount,text,makeId,bcrypt,passwordInput});
-  return { ...online,...workspace,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, logout, context, member, product, catalog, party, account, purchase, adjustment, money, payDebt, books,
+  const workspace=require('./posBusinessWorkspace').createBusinessWorkspace({run,bad,uuid,amount,text,makeId,bcrypt,passwordInput,crypto,hash});
+  return { ...online,...workspace,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, activate, logout, context, member, product, catalog, party, account, purchase, adjustment, money, payDebt, books,
     memberships, terminal, openShift, closeShift, sale, receipt, report };
 }
 module.exports = { createPosBusinessService, amount };

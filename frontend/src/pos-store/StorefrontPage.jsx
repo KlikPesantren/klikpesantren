@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { orderSecretKey, rupiah, storeApi } from './storeApi';
 import './storefront.css';
 import './responsive.css';
+import './storefrontPolish.css';
 import { clearDraft, loadDraft, prepareDraft } from './checkoutState.mjs';
 
 function readCart(slug) {
@@ -75,8 +76,8 @@ function Store({ slug, productId, orderId }) {
   const brand = data.store;
   const products = data.products;
   return <main className="store-page" style={{ '--store-brand': brand.color || '#166534' }}>
-    <header className="store-header"><Link to={`/store/${slug}`} className="store-identity">{brand.logo_url && <img src={brand.logo_url} alt="" />}<strong>{brand.name}</strong></Link>
-      <button onClick={() => setCartOpen(v => !v)}>Tas belanja · {cart.reduce((n, p) => n + p.quantity, 0)}</button></header>
+    <header className="store-header"><Link to={`/store/${slug}`} className="store-identity">{brand.logo_url ? <img src={brand.logo_url} alt={`Logo ${brand.name}`} /> : <span className="store-logo-fallback">{brand.name.slice(0,1)}</span>}<span><strong>{brand.name}</strong><small>Toko resmi</small></span></Link>
+      <button className="store-cart-button" onClick={() => setCartOpen(v => !v)}><span aria-hidden="true">◻</span> Tas <b>{cart.reduce((n, p) => n + p.quantity, 0)}</b></button></header>
     {error && <div role="alert" className="store-alert">{error}</div>}
     {order ? <section className="store-order"><span className="store-eyebrow">PESANAN ANDA</span><h1>{order.brand.name}</h1><p className="store-number">{order.order_number}</p>
       <h2>{order.status}</h2><p>Pembayaran: {order.payment_state} · {order.payment_method}</p><p>Pesanan baru belum berarti pembayaran diterima. Merchant memverifikasi pembayaran secara manual.</p>
@@ -89,12 +90,12 @@ function Store({ slug, productId, orderId }) {
       <p>Simpan tautan ini pada browser yang sama: <Link to={`/store/${slug}/orders/${order.id}`}>Status pesanan</Link>. Akses aman tersimpan hanya dalam sesi browser ini.</p>
       <Link to={`/store/${slug}`} onClick={() => setOrder(null)}>Kembali ke toko</Link>
     </section> : <>
-      {!productId && <section className="store-hero">{brand.banner_url && <img src={brand.banner_url} alt="" />}<div><span className="store-eyebrow">BELANJA LANGSUNG DARI TOKO</span><h1>{brand.name}</h1><p>{brand.description}</p><a href="#catalog">Jelajahi produk</a></div></section>}
+      {!productId && <><section className="store-hero">{brand.banner_url && <img src={brand.banner_url} alt="" />}<div><span className="store-eyebrow">BELANJA LANGSUNG DARI TOKO</span><h1>Belanja praktis di {brand.name}</h1><p>{brand.description}</p><a href="#catalog">Jelajahi produk</a></div></section><section className="store-trust" aria-label="Keunggulan toko"><span><b>Stok nyata</b><small>Diverifikasi saat checkout</small></span><span><b>Harga transparan</b><small>Snapshot tersimpan di pesanan</small></span><span><b>Status mudah dilacak</b><small>Tanpa perlu membuat akun</small></span></section></>}
       {detail ? <section className="store-detail">{detail.image_url ? <img src={detail.image_url} alt={detail.name} /> : <div className="store-placeholder">Produk</div>}<div><p>{detail.category}</p><h1>{detail.name}</h1><h2>{rupiah(detail.selling_price)}</h2><p>{detail.online_long_description || detail.online_description}</p><p>{detail.available ? 'Tersedia' : 'Stok belum tersedia'}</p>
         <label>Jumlah <input type="number" min="1" max="1000" value={quantity} onChange={e => setQuantity(Math.max(1, Math.min(1000, Number(e.target.value) || 1)))} /></label><button disabled={!detail.available} onClick={() => add(detail, quantity)}>Tambah ke tas</button></div></section>
         : !productId && <section id="catalog"><div className="store-catalog-heading"><h2>Pilihan dari toko kami</h2><form onSubmit={e => { e.preventDefault(); loadCatalog(); }}><label>Cari produk<input placeholder="Cari yang Anda butuhkan" value={search} onChange={e => setSearch(e.target.value)} /></label><button>Cari</button></form></div>
           <div className="store-categories"><button onClick={() => loadCatalog(1, '')} aria-pressed={!category}>Semua</button>{data.categories.map(c => <button key={c} aria-pressed={c === category} onClick={() => loadCatalog(1, c)}>{c}</button>)}</div>
-          <div className="store-grid">{products.map(p => <article key={p.id} className="store-product"><Link to={`/store/${slug}/products/${p.id}`}>{p.image_url ? <img loading="lazy" src={p.image_url} alt={p.name} /> : <div className="store-placeholder">{p.category || 'Produk'}</div>}</Link><div>{p.online_featured && <span className="store-eyebrow">PILIHAN TOKO</span>}<h3><Link to={`/store/${slug}/products/${p.id}`}>{p.name}</Link></h3><p>{p.online_description}</p><strong>{rupiah(p.selling_price)}</strong><button disabled={!p.available} onClick={() => add(p)}>{p.available ? 'Tambah' : 'Habis'}</button></div></article>)}</div>{!products.length && <p>Belum ada produk sesuai pencarian.</p>}
+          <div className="store-grid">{products.map(p => <article key={p.id} className="store-product"><Link to={`/store/${slug}/products/${p.id}`} className="store-product-media">{p.image_url ? <img loading="lazy" src={p.image_url} alt={p.name} /> : <div className="store-placeholder">{p.category || 'Produk'}</div>}{p.online_featured&&<span className="store-featured">Unggulan</span>}</Link><div><small className="store-category">{p.category||'Produk'}</small><h3><Link to={`/store/${slug}/products/${p.id}`}>{p.name}</Link></h3><p>{p.online_description}</p><strong className="store-price">{rupiah(p.selling_price)}</strong><button disabled={!p.available} onClick={() => add(p)}>{p.available ? 'Tambah ke tas' : 'Stok habis'}</button></div></article>)}</div>{!products.length && <p className="store-empty">Belum ada produk sesuai pencarian.</p>}
           <p>Halaman {page} · Ketersediaan dan harga diverifikasi kembali saat pemesanan.</p><button disabled={page === 1} onClick={() => loadCatalog(page - 1)}>Sebelumnya</button><button disabled={products.length < 40} onClick={() => loadCatalog(page + 1)}>Berikutnya</button>
         </section>}
       {cartOpen && <section className="store-cart" aria-label="Tas belanja"><h2>Tas belanja</h2>{cart.map(p => <div key={p.id} className="store-cart-row"><span>{p.name}<small>{rupiah(p.selling_price)}</small></span><div><button disabled={busy} onClick={() => update(p.id, p.quantity - 1)}>−</button><span>{p.quantity}</span><button disabled={busy} onClick={() => update(p.id, p.quantity + 1)}>+</button><button disabled={busy} onClick={() => update(p.id, 0)}>Hapus</button></div></div>)}

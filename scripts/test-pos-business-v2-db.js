@@ -39,11 +39,11 @@ async function setup() {
   const i = (await query('SELECT current_database() db,current_user,host(inet_server_addr()) host,inet_server_port() port'))[0];
   assert.deepEqual(i, { db: options.database, current_user: options.user, host: options.host, port: options.port });
   await db.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public');
-  await db.query(`CREATE TABLE tenants(id integer PRIMARY KEY,status text NOT NULL);
+  await db.query(`CREATE TABLE tenants(id integer PRIMARY KEY,status text NOT NULL,slug text UNIQUE);
     CREATE TABLE unit_pendidikan(id integer PRIMARY KEY,tenant_id integer REFERENCES tenants(id),kode text,nama text,unit_type text,preset_key text,is_active boolean NOT NULL DEFAULT true,sort_order integer NOT NULL DEFAULT 0,UNIQUE(id,tenant_id));
     CREATE TABLE users(id integer PRIMARY KEY,tenant_id integer NOT NULL REFERENCES tenants(id),nama text,role text,status text);
     CREATE TABLE legacy_fixture(id integer PRIMARY KEY,value text); INSERT INTO legacy_fixture VALUES(1,'preserve');
-    INSERT INTO tenants VALUES(1,'active'),(2,'active');
+    INSERT INTO tenants(id,status,slug) VALUES(1,'active','synthetic-merchant'),(2,'active','foreign-merchant');
     INSERT INTO unit_pendidikan(id,tenant_id,kode,nama,unit_type,preset_key,sort_order) VALUES(2,1,'U2','Unit 2','pesantren','pesantren',1),(3,1,'U3','Unit 3','sekolah','sekolah',2),(4,2,'U4','Unit 4','pesantren','pesantren',1);
     INSERT INTO users VALUES(99,1,'Synthetic Tenant Admin','superadmin','active'),(100,2,'Foreign Admin','superadmin','active');`);
   const up = fs.readFileSync(path.join(__dirname, '../migrations/097_pos_business_core_v2.sql'), 'utf8');
@@ -56,6 +56,11 @@ async function setup() {
     await db.query(up);
   });
   await db.query(fs.readFileSync(path.join(__dirname, '../migrations/102_pos_online_product_pricing.sql'), 'utf8'));
+  const activationUp = fs.readFileSync(path.join(__dirname, '../migrations/103_pos_merchant_account_activation.sql'), 'utf8');
+  const activationDown = fs.readFileSync(path.join(__dirname, '../migrations/103_pos_merchant_account_activation_rollback.sql'), 'utf8');
+  await db.query(activationUp); await db.query(activationDown);
+  assert.equal((await query("SELECT to_regclass('pos_merchant_activation_tokens') value"))[0].value, null);
+  await db.query(activationUp);
   const pHash = await bcrypt.hash(password, 12);
   for (const [id, login] of [[owner, 'owner'], [cashier, 'cashier'], [supervisor, 'supervisor'], [otherOwner, 'other-owner']])
     await db.query('INSERT INTO pos_merchant_users(id,login,name,password_hash) VALUES($1,$2,$2,$3)', [id, login, pHash]);
@@ -320,18 +325,19 @@ async function main() {
       GRANT SELECT ON tenants,pos_businesses,pos_business_units,pos_merchant_users,pos_merchant_memberships,pos_merchant_sessions,
        pos_merchant_login_limits,pos_business_products,pos_business_parties,pos_business_accounts,pos_business_operations,
        pos_business_lines,pos_business_payments,pos_inventory_movements,pos_inventory_layers,pos_inventory_allocations,
-       pos_money_movements,pos_debt_movements,pos_business_terminals,pos_business_shifts TO pos_business_v2_fixture_runtime;
+       pos_money_movements,pos_debt_movements,pos_business_terminals,pos_business_shifts,pos_merchant_activation_tokens TO pos_business_v2_fixture_runtime;
       GRANT INSERT ON pos_merchant_users,pos_merchant_memberships,pos_merchant_sessions,pos_merchant_login_limits,
        pos_business_products,pos_business_parties,pos_business_accounts,pos_business_operations,pos_business_lines,
        pos_business_payments,pos_inventory_movements,pos_inventory_layers,pos_inventory_allocations,pos_money_movements,
-       pos_debt_movements,pos_business_terminals,pos_business_shifts TO pos_business_v2_fixture_runtime;
+       pos_debt_movements,pos_business_terminals,pos_business_shifts,pos_merchant_activation_tokens TO pos_business_v2_fixture_runtime;
       GRANT UPDATE(id) ON tenants,pos_businesses,pos_merchant_users,pos_business_products,pos_business_parties,
        pos_business_accounts,pos_business_terminals TO pos_business_v2_fixture_runtime;
       GRANT UPDATE(user_id) ON pos_merchant_memberships TO pos_business_v2_fixture_runtime;
       GRANT UPDATE(token_hash) ON pos_merchant_sessions TO pos_business_v2_fixture_runtime;
+      GRANT UPDATE(token_hash,expires_at,created_by,created_at) ON pos_merchant_activation_tokens TO pos_business_v2_fixture_runtime;
       GRANT UPDATE(attempts,started_at) ON pos_merchant_login_limits TO pos_business_v2_fixture_runtime;
       GRANT UPDATE(status,closed_at,actual_cash,expected_cash,difference) ON pos_business_shifts TO pos_business_v2_fixture_runtime;
-      GRANT DELETE ON pos_merchant_sessions TO pos_business_v2_fixture_runtime;`);
+      GRANT DELETE ON pos_merchant_sessions,pos_merchant_activation_tokens TO pos_business_v2_fixture_runtime;`);
     const role = (await query("SELECT rolsuper,rolcreatedb,rolcreaterole,rolreplication,rolbypassrls FROM pg_roles WHERE rolname='pos_business_v2_fixture_runtime'"))[0];
     assert.ok(Object.values(role).every(v => v === false));
     for (const table of ['pos_business_operations', 'pos_business_lines', 'pos_business_payments', 'pos_inventory_movements',

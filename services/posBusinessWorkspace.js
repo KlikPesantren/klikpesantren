@@ -1,7 +1,7 @@
 const { productImageUrl } = require('../utils/posProductImage');
 const permissionModel = require('./posBusinessPermissions');
 
-function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt, passwordInput }) {
+function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt, passwordInput, crypto, hash }) {
   const optional = (value, max) => value == null || String(value).trim() === '' ? null : text(String(value), max);
   const permitted = (access, permission) => permissionModel.has(access.member, permission);
 
@@ -67,8 +67,9 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
 
   async function members(req) {
     return run(req, 'USER_VIEW', async (c, a) => (await c.query(`SELECT u.id,u.login,u.name,u.active user_active,
-      m.role,m.permissions,m.active membership_active,u.created_at FROM pos_merchant_memberships m
-      JOIN pos_merchant_users u ON u.id=m.user_id WHERE m.business_id=$1 ORDER BY m.role,u.name`, [a.business])).rows
+      m.role,m.permissions,m.active membership_active,u.created_at,(t.user_id IS NOT NULL) activation_pending,t.expires_at activation_expires_at FROM pos_merchant_memberships m
+      JOIN pos_merchant_users u ON u.id=m.user_id LEFT JOIN pos_merchant_activation_tokens t ON t.business_id=m.business_id AND t.user_id=m.user_id
+      WHERE m.business_id=$1 ORDER BY m.role,u.name`, [a.business])).rows
       .map(row => ({ ...row, permissions: permissionModel.effective(row.role, row.permissions) })));
   }
 
@@ -110,6 +111,26 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
         VALUES($1,$2,$3,$4,'CREDENTIAL_RESET',$5)`,
       [makeId(), a.business, a.user, id, JSON.stringify({ sessions_revoked: true })]);
       return { credential_reset: true, sessions_revoked: true };
+    });
+  }
+
+  async function reissueMemberActivation(req) {
+    return run(req, 'USER_MANAGE', async (c, a) => {
+      if (a.member.role !== 'OWNER') bad('OWNER_REQUIRED', 403);
+      const id = uuid(req.params.userId);
+      if (id === a.user) bad('OWNER_PROTECTED', 409);
+      const target = (await c.query("SELECT m.role FROM pos_merchant_memberships m WHERE m.business_id=$1 AND m.user_id=$2 AND m.role<>'OWNER' FOR UPDATE", [a.business, id])).rows[0];
+      if (!target) bad('MEMBER_NOT_FOUND', 404);
+      const activationCode = crypto.randomBytes(24).toString('base64url');
+      await c.query(`INSERT INTO pos_merchant_activation_tokens(business_id,user_id,token_hash,expires_at,created_by)
+        VALUES($1,$2,$3,now()+interval '48 hours',$4)
+        ON CONFLICT(business_id,user_id) DO UPDATE SET token_hash=excluded.token_hash,expires_at=excluded.expires_at,created_by=excluded.created_by,created_at=now()`,
+      [a.business, id, hash(activationCode), a.user]);
+      await c.query('UPDATE pos_merchant_users SET password_hash=$1 WHERE id=$2', [await bcrypt.hash(crypto.randomBytes(48).toString('base64url'), 12), id]);
+      await c.query('DELETE FROM pos_merchant_sessions WHERE user_id=$1', [id]);
+      await c.query(`INSERT INTO pos_merchant_permission_audit(id,business_id,actor_id,target_user_id,action,after_state)
+        VALUES($1,$2,$3,$4,'CREDENTIAL_RESET',$5)`, [makeId(), a.business, a.user, id, JSON.stringify({ activation_reissued: true, sessions_revoked: true })]);
+      return { activation_code: activationCode, activation_expires_in: 172800, sessions_revoked: true };
     });
   }
 
@@ -236,7 +257,7 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
     });
   }
 
-  return { workspace, profile, members, updateMember, resetMemberCredential, directory, updateParty, inventory, activity,
+  return { workspace, profile, members, updateMember, resetMemberCredential, reissueMemberActivation, directory, updateParty, inventory, activity,
     sales, purchases, shifts, terminals, cashDrawers, paymentAccounts, updateProduct };
 }
 

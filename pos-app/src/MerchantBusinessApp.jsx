@@ -39,7 +39,14 @@ const LOADERS = {
   PENGGUNA: [["users", "/users", "USER_VIEW"]],
   PENGATURAN: [["store", "/store", "BUSINESS_SETTINGS_VIEW"]],
 };
-const primary = ["BERANDA", "KASIR", "TRANSAKSI"];
+const NAV_LABELS = { BERANDA:"Beranda", KASIR:"Kasir", TRANSAKSI:"Transaksi", LAPORAN:"Laporan", MENU:"Menu" };
+const MENU_GROUPS = [
+  ["OPERASIONAL", ["PRODUK","STOK","PEMBELIAN","SUPPLIER","CUSTOMER","TRANSAKSI","SHIFT"]],
+  ["KEUANGAN", ["KEUANGAN","UTANG","PIUTANG","LAPORAN"]],
+  ["PENJUALAN ONLINE", ["TOKO ONLINE"]],
+  ["PENGELOLAAN USAHA", ["PENGGUNA","PENGATURAN"]],
+];
+const primaryFor = (role, navigation) => (role === "OWNER" ? ["BERANDA","KASIR","TRANSAKSI","LAPORAN"] : ["BERANDA","KASIR","TRANSAKSI"]).filter(id => navigation.some(item => item.id === id));
 const errorText = e => ({
   MERCHANT_SESSION_INVALID: "Sesi berakhir. Silakan masuk kembali.",
   MERCHANT_PERMISSION_DENIED: "Akun tidak memiliki izin untuk tindakan ini.",
@@ -48,6 +55,7 @@ const errorText = e => ({
   INSUFFICIENT_BUSINESS_FUNDS: "Saldo akun usaha tidak cukup.",
   INSUFFICIENT_BALANCE: "Saldo Dompet Santri tidak cukup.",
   UNKNOWN_CREDENTIAL: "Kartu/kode Dompet tidak dikenal.",
+  ACTIVATION_INVALID: "Kode aktivasi tidak valid atau kedaluwarsa.",
 }[e?.code] || "Permintaan gagal. Periksa data dan coba lagi.");
 
 export default function MerchantBusinessApp() {
@@ -132,6 +140,13 @@ export default function MerchantBusinessApp() {
       else setSession({ token: auth.token, businessId: null });
     });
   }
+  async function activateAccount(payload) {
+    return run(async () => {
+      await makeApi(null)("/pos-business/activate", { method: "POST", body: payload });
+      setNotice("Akun aktif. Silakan masuk dengan password baru.");
+      return true;
+    });
+  }
   async function logout() {
     await run(async () => {
       if (session?.token) await api("/pos-business/logout", { method: "POST", body: {} }).catch(() => {});
@@ -150,15 +165,17 @@ export default function MerchantBusinessApp() {
   }
 
   if (boot) return <SafeAreaView style={s.root}><Empty loading title="Menyiapkan POS" /></SafeAreaView>;
-  if (!session) return <Login value={login} setValue={setLogin} onSubmit={signIn} busy={busy} error={error} />;
+  if (!session) return <Login value={login} setValue={setLogin} onSubmit={signIn} onActivate={activateAccount} busy={busy} error={error} notice={notice} />;
   if (!session.businessId) return <BusinessPicker rows={directory?.businesses || []} busy={busy} onSelect={id => run(() => selectBusiness(session.token, id))} onLogout={logout} />;
   if (!context) return <SafeAreaView style={s.root}><Empty loading title="Memuat konteks usaha" /></SafeAreaView>;
   const navigation = navigationItems(context.permissions);
+  const primary = primaryFor(context.role, navigation);
   const selected = navigation.find(item => item.id === module);
   return (
     <SafeAreaView style={s.root}>
       <View style={s.header}>
-        <View style={s.flex}><Text style={s.brand}>{context.business.display_name}</Text><Text style={s.muted}>{context.role} · {selected?.id || module}</Text></View>
+        <View style={s.avatar}><Text style={s.avatarText}>{context.business.display_name.slice(0,1).toUpperCase()}</Text></View>
+        <View style={s.flex}><Text style={s.brand}>{context.business.display_name}</Text><Text style={s.muted}>{context.user_name} · {context.role} · {selected?.id || module}</Text></View>
         {directory?.businesses?.length > 1 && <Pressable onPress={() => { setSession(x => ({ ...x, businessId: null })); setContext(null); }}><Icon name="repeat" /></Pressable>}
         <Pressable onPress={logout}><Icon name="log-out" color={colors.red} /></Pressable>
       </View>
@@ -166,29 +183,31 @@ export default function MerchantBusinessApp() {
       {!!error && <View style={s.feedback}><Text style={s.error}>{error}</Text></View>}
       {!!notice && <View style={s.feedback}><Text style={s.success}>{notice}</Text></View>}
       <ModuleView module={module} context={context} data={data} submit={submit} request={request} refresh={() => run(() => refresh(module))} />
-      <View style={s.tabs}>
-        {primary.filter(id => navigation.some(item => item.id === id)).map(id => <Tab key={id} id={id} active={module === id} onPress={() => run(() => refresh(id))} />)}
+      <View style={s.tabs} accessibilityRole="tablist">
+        {primary.map(id => <Tab key={id} id={id} active={module === id} onPress={() => run(() => refresh(id))} />)}
         <Tab id="MENU" active={!primary.includes(module)} onPress={() => setMenu(true)} />
       </View>
       <Modal visible={menu} animationType="slide" onRequestClose={() => setMenu(false)}>
-        <SafeAreaView style={s.root}><View style={s.header}><Text style={s.brand}>Semua Modul</Text><Pressable onPress={() => setMenu(false)}><Icon name="x" /></Pressable></View>
-          <ScrollView contentContainerStyle={s.content}>{navigation.map(item => <Button key={item.id} title={item.id} secondary={item.id !== module} icon={item.icon} onPress={() => { setMenu(false); run(() => refresh(item.id)); }} />)}</ScrollView>
+        <SafeAreaView style={s.root}><View style={s.header}><View style={s.flex}><Text style={s.brand}>Menu Usaha</Text><Text style={s.muted}>Modul sesuai akses akun Anda</Text></View><Pressable accessibilityLabel="Tutup menu" onPress={() => setMenu(false)}><Icon name="x" /></Pressable></View>
+          <ScrollView contentContainerStyle={s.content}>{MENU_GROUPS.map(([title,ids])=>{const rows=ids.filter(id=>navigation.some(item=>item.id===id));return rows.length?<View key={title} style={s.menuSection}><Text style={s.eyebrow}>{title}</Text><View style={s.menuGrid}>{rows.map(id=>{const item=navigation.find(x=>x.id===id);return <Pressable accessibilityRole="button" key={id} style={[s.menuItem,module===id&&s.menuItemActive]} onPress={()=>{setMenu(false);run(()=>refresh(id));}}><View style={s.menuIcon}><Icon name={item.icon}/></View><Text style={s.menuLabel}>{id.replace("TOKO ONLINE","Online Store").replace("PENGGUNA","Pengguna & Akses").replace("PENGATURAN","Profil & Pengaturan")}</Text><Icon name="chevron-right" size={16} color={colors.muted}/></Pressable>})}</View></View>:null;})}</ScrollView>
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
 }
 
-function Login({ value, setValue, onSubmit, busy, error }) {
-  return <SafeAreaView style={s.root}><ScrollView contentContainerStyle={s.content}><View style={s.hero}><Text style={s.heroLabel}>KLIKPESANTREN</Text><Text style={s.heroMoney}>POS Merchant</Text><Text style={{ color: colors.surface }}>Satu akun untuk Owner, Supervisor, dan Kasir.</Text></View>
-    {!!error && <Text style={s.error}>{error}</Text>}<Card title="Masuk"><Field label="Login merchant" value={value.login} onChangeText={login => setValue({ ...value, login })}/><Field label="Password" secret value={value.password} onChangeText={password => setValue({ ...value, password })}/><Button title="Masuk" disabled={busy || !value.login || !value.password} onPress={onSubmit}/></Card></ScrollView></SafeAreaView>;
+function Login({ value, setValue, onSubmit, onActivate, busy, error, notice }) {
+  const [mode,setMode]=useState("LOGIN"),[activation,setActivation]=useState({login:"",activation_code:"",password:"",confirm:""});
+  const activate=async()=>{const ok=await onActivate({login:activation.login,activation_code:activation.activation_code,password:activation.password});if(ok){setValue({...value,login:activation.login,password:""});setActivation({login:"",activation_code:"",password:"",confirm:""});setMode("LOGIN");}};
+  return <SafeAreaView style={s.loginRoot}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.loginContent}><View style={s.loginBrand}><View style={s.logoMark}><Icon name="shopping-bag" size={26} color={colors.surface}/></View><Text style={s.loginKicker}>KLIKPESANTREN</Text><Text style={s.loginTitle}>POS untuk usaha yang tumbuh</Text><Text style={s.loginSubtitle}>Kelola kasir, stok, keuangan, dan toko online dalam satu ruang kerja yang aman.</Text></View>
+    <Card title={mode==="LOGIN"?"Masuk ke akun Anda":"Aktivasi akun karyawan"}>{!!error&&<View style={s.alertError}><Text style={s.error}>{error}</Text></View>}{!!notice&&<View style={s.alertSuccess}><Text style={s.success}>{notice}</Text></View>}{mode==="LOGIN"?<><Field label="ID login" value={value.login} onChangeText={login=>setValue({...value,login})}/><Field label="Password" secret value={value.password} onChangeText={password=>setValue({...value,password})}/><Button title={busy?"Memeriksa…":"Masuk"} icon="log-in" disabled={busy||!value.login||!value.password} onPress={onSubmit}/><Button title="Aktivasi akun karyawan" secondary onPress={()=>setMode("ACTIVATE")}/></>:<><Text style={s.muted}>Gunakan kode sekali pakai dari Owner, lalu buat password pribadi Anda.</Text><Field label="ID login" value={activation.login} onChangeText={login=>setActivation({...activation,login})}/><Field label="Kode aktivasi" secret value={activation.activation_code} onChangeText={activation_code=>setActivation({...activation,activation_code})}/><Field label="Password baru (minimal 12 karakter)" secret value={activation.password} onChangeText={password=>setActivation({...activation,password})}/><Field label="Ulangi password" secret value={activation.confirm} onChangeText={confirm=>setActivation({...activation,confirm})}/><Button title={busy?"Mengaktifkan…":"Aktifkan akun"} disabled={busy||!activation.login||!activation.activation_code||activation.password.length<12||activation.password!==activation.confirm} onPress={activate}/><Button title="Kembali ke login" secondary onPress={()=>setMode("LOGIN")}/></>}</Card><Text style={s.loginFoot}>Akun dan hak akses ditentukan oleh Owner usaha. KlikPesantren tidak pernah menampilkan password lama.</Text></ScrollView></SafeAreaView>;
 }
 function BusinessPicker({ rows, busy, onSelect, onLogout }) {
   return <SafeAreaView style={s.root}><View style={s.header}><Text style={s.brand}>Pilih Usaha</Text></View><ScrollView contentContainerStyle={s.content}>{rows.map(row => <Pressable key={row.id} style={s.choice} disabled={busy} onPress={() => onSelect(row.id)}><Icon name="briefcase"/><View style={s.flex}><Text style={s.heading}>{row.display_name}</Text><Text style={s.muted}>{row.tenant_slug} · {row.role}</Text></View></Pressable>)}<Button title="Keluar" danger onPress={onLogout}/></ScrollView></SafeAreaView>;
 }
 function Tab({ id, active, onPress }) {
-  const icon = id === "BERANDA" ? "home" : id === "KASIR" ? "shopping-bag" : id === "TRANSAKSI" ? "file-text" : "menu";
-  return <Pressable style={[s.tab, active && s.tabActive]} onPress={onPress}><Icon name={icon} color={active ? colors.green : colors.muted}/><Text style={[s.tabText, active && s.activeTab]}>{id}</Text></Pressable>;
+  const icon = id === "BERANDA" ? "home" : id === "KASIR" ? "shopping-bag" : id === "TRANSAKSI" ? "file-text" : id === "LAPORAN" ? "bar-chart-2" : "grid";
+  return <Pressable accessibilityRole="tab" accessibilityState={{selected:active}} style={[s.tab, active && s.tabActive]} onPress={onPress}><Icon name={icon} color={active ? colors.green : colors.muted}/><Text style={[s.tabText, active && s.activeTab]}>{NAV_LABELS[id]||id}</Text></Pressable>;
 }
 function ModuleView(props) {
   const safeData = props.data.books ? props.data : { ...props.data, books: { accounts: (props.data.accounts || []).map(account => ({ ...account, balance: "0" })) } };
@@ -225,8 +244,15 @@ function Cashier({ data, context, can, submit }) {
   const updatePayment=(index,patch)=>setPayments(rows=>rows.map((p,i)=>i===index?{...p,...patch}:p));
   const methods=["CASH","BANK","QRIS","DOMPET_SANTRI",...(customerId?["CREDIT"]:[])];
   const paymentPayload=p=>p.method==="CASH"?{method:p.method,amount:p.amount,account_id:shift.cash_account_id,tendered:p.tendered||p.amount}:p.method==="DOMPET_SANTRI"?{method:p.method,amount:p.amount,credential_method:"RFID",credential:p.credential,unit_id:context.units[0]?.unit_id}:p.method==="CREDIT"?{method:p.method,amount:p.amount}:{method:p.method,amount:p.amount,account_id:p.account_id,reference:p.reference};
-  if(!shift)return <Card title="Buka Shift"><Text style={s.muted}>Pilih terminal dan laci kas. Server memvalidasi hubungan keduanya.</Text>{context.terminals.map(t=><Chip key={t.id} label={t.name} active={terminal===t.id} onPress={()=>setTerminal(t.id)}/>)}<Field label="Kas awal" numeric value={openingCash} onChangeText={setOpeningCash}/>
-    {drawers.map(a=><Button key={a.id} title={`Buka dengan ${a.name}`} disabled={!terminal||!validMoney(openingCash)} onPress={()=>submit("/shifts/open",{terminal_id:terminal,cash_account_id:a.id,opening_cash:openingCash},"Shift dibuka.","KASIR")}/>)}</Card>;
+  if(!shift)return (
+    <Card title="Buka Shift">
+      <Text style={s.muted}>Pilih terminal dan laci kas. Server memvalidasi hubungan keduanya.</Text>
+      {context.terminals.map(t=><Chip key={t.id} label={t.name} active={terminal===t.id} onPress={()=>setTerminal(t.id)}/>)}
+      <Field label="Kas awal" numeric value={openingCash} onChangeText={setOpeningCash}/>
+      {drawers.map(a=><Button key={a.id} title={`Buka dengan ${a.name}`} disabled={!terminal||!validMoney(openingCash)}
+        onPress={()=>submit("/shifts/open",{terminal_id:terminal,cash_account_id:a.id,opening_cash:openingCash},"Shift dibuka.","KASIR")}/>)}
+    </Card>
+  );
   if(receipt)return <Receipt value={receipt} onDone={()=>setReceipt(null)}/>;
   const invalid=!validMoney(discount)||total<=0n||paymentTotal!==total||payments.some(p=>!validMoney(p.amount)||moneyValue(p.amount)<=0n||p.method==="CASH"&&p.tendered&&!validMoney(p.tendered)||p.method==="DOMPET_SANTRI"&&(!p.credential||!context.units.length)||["BANK","QRIS"].includes(p.method)&&(!p.account_id||!p.reference)||p.method==="CREDIT"&&(!customerId||!dueDate));
   return <><Card title="Keranjang"><Row label="Item" value={cart.reduce((n,i)=>n+i.quantity,0)}/>{cart.map(i=><View key={i.id} style={s.cartItem}><Row label={i.name} value={rupiah(BigInt(i.selling_price)*BigInt(i.quantity))}/><View style={s.row}><Chip label="−" onPress={()=>quantity(i.id,-1)}/><Text style={s.text}>{i.quantity}</Text><Chip label="+" onPress={()=>quantity(i.id,1)}/><Chip label="Hapus" onPress={()=>quantity(i.id,-i.quantity)}/></View></View>)}
@@ -311,10 +337,12 @@ function Online({ data, can, submit }) {
     <Text style={s.heading}>Pesanan</Text><List rows={data.orders} render={o=><><Row label={o.order_number} value={rupiah(o.total)}/><Row label={o.recipient} value={o.status}/>{can("ONLINE_ORDER_MANAGE")&&nextStatus(o.status)&&<>{o.status==="ORDERED"&&o.payment_method!=="CREDIT"&&<><SelectRows title="Akun penerimaan" rows={data.accounts} selected={accountId} label={x=>x.name} onSelect={setAccountId}/><Fields value={{reference,shift_id:shiftId}} setValue={v=>{setReference(v.reference||"");setShiftId(v.shift_id||"");}} fields={[["reference","Bukti/referensi pembayaran"],["shift_id","ID shift (khusus tunai)"]]}/></>}<Fields value={{courier,resi}} setValue={v=>{setCourier(v.courier||"");setResi(v.resi||"");}} fields={[["courier","Kurir"],["resi","Resi"]]}/><Button title={`Ubah ke ${nextStatus(o.status)}`} disabled={o.status==="ORDERED"&&o.payment_method!=="CREDIT"&&(!accountId||!reference||o.payment_method==="CASH"&&!shiftId)} onPress={()=>advance(o)}/></>}{can("ONLINE_ORDER_MANAGE")&&o.status==="ORDERED"&&<><Field label="Alasan pembatalan" value={reason} onChangeText={setReason}/><Button title="Batalkan Pesanan" danger disabled={!reason} onPress={()=>confirm("Batalkan pesanan?",()=>submit(`/orders/${o.id}/transition`,{status:"CANCELLED",reason},"Pesanan dibatalkan.","TOKO ONLINE"))}/></>}{can("ONLINE_ORDER_MANAGE")&&can("SALE_REFUND")&&!["ORDERED","CANCELLED","REFUNDED","EXPIRED"].includes(o.status)&&<><Fields value={{reason,reference,shift_id:shiftId}} setValue={v=>{setReason(v.reason||"");setReference(v.reference||"");setShiftId(v.shift_id||"");}} fields={[["reason","Alasan refund"],["reference","Bukti/referensi"],["shift_id","ID shift (khusus tunai)"]]}/><Button title="Refund Pesanan" danger disabled={!reason||!reference} onPress={()=>confirm("Refund pesanan?",()=>submit(`/orders/${o.id}/transition`,{status:"REFUNDED",reason,reference,shift_id:shiftId||undefined,refund_confirmed:true},"Pesanan direfund.","TOKO ONLINE"))}/></>}</>}/></>;
 }
 function Users({ data, can, submit }) {
-  const initial={login:"",name:"",password:"",role:"CASHIER",permissions:[...DEFAULTS.CASHIER]};
-  const [form,setForm]=useState(initial),[editing,setEditing]=useState(null),[resetPassword,setResetPassword]=useState("");
+  const initial={login:"",name:"",role:"CASHIER",permissions:[...DEFAULTS.CASHIER]};
+  const [form,setForm]=useState(initial),[editing,setEditing]=useState(null),[activation,setActivation]=useState(null);
   const toggle=key=>setForm(value=>({...value,permissions:value.permissions.includes(key)?value.permissions.filter(item=>item!==key):[...value.permissions,key]}));
-  return <><List rows={data.users} render={user=><><Row label={user.name} value={user.role}/><Row label={user.login} value={user.membership_active?"AKTIF":"NONAKTIF"}/><Text style={s.muted}>{user.permissions.length} hak akses</Text>{user.role!=="OWNER"&&can("PERMISSION_MANAGE")&&<Button title="Edit Akses" secondary onPress={()=>{setEditing(user.id);setResetPassword("");setForm({name:user.name,role:user.role,permissions:user.permissions,active:user.membership_active});}}/>}</>}/>{can("USER_MANAGE")&&<Card title={editing?"Edit Pengguna":"Tambah Pengguna"}>{!editing&&<><Field label="Login" value={form.login} onChangeText={login=>setForm({...form,login})}/><Field label="Password minimal 12 karakter" secret value={form.password} onChangeText={password=>setForm({...form,password})}/></>}<Field label="Nama" value={form.name} onChangeText={name=>setForm({...form,name})}/><Choice options={[["CASHIER","Kasir"],["SUPERVISOR","Supervisor"]]} value={form.role} onChange={role=>setForm({...form,role,permissions:[...DEFAULTS[role]]})}/>{editing&&<Choice options={[["ACTIVE","Aktif"],["INACTIVE","Nonaktif"]]} value={form.active===false?"INACTIVE":"ACTIVE"} onChange={state=>setForm({...form,active:state==="ACTIVE"})}/>}<PermissionEditor selected={form.permissions} onToggle={toggle}/><Button title="Simpan Pengguna" disabled={!form.name||!form.role||!editing&&(!form.login||form.password.length<12)} onPress={()=>submit(editing?`/users/${editing}`:"/users",editing?{name:form.name,role:form.role,permissions:form.permissions,active:form.active!==false}:form,editing?"Akses pengguna diperbarui.":"Pengguna dibuat.","PENGGUNA").then(()=>{setEditing(null);setForm(initial);})}/>{editing&&<><Field label="Password baru minimal 12 karakter" secret value={resetPassword} onChangeText={setResetPassword}/><Button danger title="Reset Kredensial & Cabut Sesi" disabled={resetPassword.length<12} onPress={()=>Alert.alert("Reset kredensial?","Semua sesi pengguna ini akan dicabut.",[{text:"Batal",style:"cancel"},{text:"Reset",style:"destructive",onPress:()=>submit(`/users/${editing}/reset-credential`,{password:resetPassword},"Kredensial direset dan sesi lama dicabut.","PENGGUNA").then(()=>setResetPassword(""))}])}/><Button title="Batal" secondary onPress={()=>{setEditing(null);setResetPassword("");setForm(initial);}}/></>}</Card>}</>;
+  const save=async()=>{const result=await submit(editing?`/users/${editing}`:"/users",editing?{name:form.name,role:form.role,permissions:form.permissions,active:form.active!==false}:form,editing?"Akses pengguna diperbarui.":"Akun dibuat. Bagikan kode aktivasi secara aman.","PENGGUNA");if(result?.activation_code)setActivation({login:result.login,code:result.activation_code});setEditing(null);setForm(initial);};
+  const reissue=id=>Alert.alert("Terbitkan kode aktivasi baru?","Kode sebelumnya dan seluruh sesi akun akan langsung tidak berlaku.",[{text:"Batal",style:"cancel"},{text:"Terbitkan",style:"destructive",onPress:async()=>{const result=await submit(`/users/${id}/reissue-activation`,{},"Kode aktivasi baru diterbitkan.","PENGGUNA");if(result?.activation_code)setActivation({code:result.activation_code});}}]);
+  return <><View style={s.sectionHeader}><View><Text style={s.sectionTitle}>Pengguna & Akses</Text><Text style={s.muted}>Satu akun pribadi untuk setiap anggota tim.</Text></View></View>{activation&&<Card title="Kode aktivasi sekali pakai"><Text style={s.muted}>Bagikan langsung kepada karyawan. Kode tidak disimpan dalam bentuk terbaca dan kedaluwarsa dalam 48 jam.</Text>{activation.login&&<Row label="ID login" value={activation.login}/>}<Text selectable style={s.activationCode}>{activation.code}</Text><Button title="Tutup kode" secondary onPress={()=>setActivation(null)}/></Card>}<List rows={data.users} render={user=><><View style={s.userRow}><View style={s.avatar}><Text style={s.avatarText}>{user.name.slice(0,1).toUpperCase()}</Text></View><View style={s.flex}><Text style={s.heading}>{user.name}</Text><Text style={s.muted}>{user.login} · {user.role}</Text></View><Badge label={!user.membership_active?"NONAKTIF":user.activation_pending?"MENUNGGU AKTIVASI":"AKTIF"} tone={!user.membership_active?"red":user.activation_pending?"amber":"green"}/></View><Text style={s.muted}>{user.permissions.length} hak akses</Text>{user.role!=="OWNER"&&can("PERMISSION_MANAGE")&&<View style={s.actionRow}><Button title="Edit akses" secondary onPress={()=>{setEditing(user.id);setForm({name:user.name,role:user.role,permissions:user.permissions,active:user.membership_active});}}/><Button title="Reissue aktivasi" secondary onPress={()=>reissue(user.id)}/></View>}</>}/>{can("USER_MANAGE")&&<Card title={editing?"Edit anggota tim":"Tambah karyawan"}>{!editing&&<><Text style={s.muted}>Owner menentukan identitas dan akses. Karyawan membuat password sendiri saat aktivasi.</Text><Field label="ID login unik" value={form.login} onChangeText={login=>setForm({...form,login})}/></>}<Field label="Nama lengkap" value={form.name} onChangeText={name=>setForm({...form,name})}/><Choice options={[["CASHIER","Kasir"],["SUPERVISOR","Supervisor"]]} value={form.role} onChange={role=>setForm({...form,role,permissions:[...DEFAULTS[role]]})}/>{editing&&<Choice options={[["ACTIVE","Aktif"],["INACTIVE","Nonaktif"]]} value={form.active===false?"INACTIVE":"ACTIVE"} onChange={state=>setForm({...form,active:state==="ACTIVE"})}/>}<PermissionEditor selected={form.permissions} onToggle={toggle}/><Button title={editing?"Simpan perubahan":"Buat akun karyawan"} disabled={!form.name||!form.role||!editing&&!form.login} onPress={save}/>{editing&&<Button title="Batal" secondary onPress={()=>{setEditing(null);setForm(initial);}}/>}</Card>}</>;
 }
 function PermissionEditor({ selected, onToggle }) {
   return <>{Object.entries(GROUPS).map(([group,items])=><Card key={group} title={group.replaceAll("_"," ")}>{items.map(([key,label])=><Pressable key={key} style={s.row} onPress={()=>onToggle(key)}><Text style={s.text}>{label}</Text><Icon name={selected.includes(key)?"check-square":"square"}/></Pressable>)}</Card>)}</>;

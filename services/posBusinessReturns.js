@@ -4,7 +4,7 @@ function createBusinessReturns(h) {
     moneyRow, debtRow, stockRow, addLayer, getAccount, afterStage, shiftRow, wallet } = h;
   const min = (a, b) => a < b ? a : b;
   async function post(req, purchase) {
-    return run(req, 'returns.post', (c,a)=>postWork(c,a,req.body,purchase));
+    return run(req, purchase ? 'PURCHASE_RETURN' : 'SALE_REFUND', (c,a)=>postWork(c,a,req.body,purchase));
   }
   async function postWork(c,a,b,purchase=false,online=false) {
       const kind = purchase ? 'PURCHASE_RETURN' : 'SALE_RETURN';

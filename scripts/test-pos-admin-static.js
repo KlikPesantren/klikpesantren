@@ -3,7 +3,7 @@ const {readMigration,loadMigrationPolicy,checksumMatches}=require('../utils/migr
 const read=f=>fs.readFileSync(path.join(__dirname,'..',f),'utf8');
 const admin=read('services/posAdminService.js'),route=read('routes/posAdminRoutes.js'),page=read('frontend/src/pages/PosAdminPage.jsx'),hooks=read('frontend/src/hooks/usePosResource.js');
 assert(checksumMatches(readMigration('095_pos_admin_control_center.sql').sql,loadMigrationPolicy().get('095_pos_admin_control_center.sql').checksum));
-assert.equal(readMigration('094_pos_v1_foundation.sql').checksum,'0605eef6c75d82d076269aa12aac4f52aede96b74add5a48a7188f886fb30e51');
+assert(checksumMatches(readMigration('094_pos_v1_foundation.sql').sql,'0605eef6c75d82d076269aa12aac4f52aede96b74add5a48a7188f886fb30e51'));
 for(const name of ['dashboard','transactions','products','categories','merchants','cashiers','shifts','refunds','reconciliation','settings'])assert(page.includes(name));
 assert(admin.includes('REPEATABLE READ READ ONLY'));assert(admin.includes("run(req,'pos.reconcile'"));assert(admin.includes('page_size'));assert(admin.includes('a.units'));
 assert(admin.includes('resolveActiveUnit(req,c)'));assert(!admin.includes('resolveActiveUnit({...req'));

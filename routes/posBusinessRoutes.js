@@ -1,7 +1,7 @@
 const express = require('express');
 const { createPosBusinessService } = require('../services/posBusinessService');
-// Deliberately not mounted in the legacy /pos tenant router until V2 integration
-// is complete. Tests use the real router with an explicitly isolated database.
+// Canonical merchant-owned API. It is intentionally isolated from tenant Admin
+// authentication and mounted under /pos-business.
 function createPosBusinessRouter({ db, service = createPosBusinessService({ db }) }) {
   const router = express.Router();
   router.use(express.json({ limit: '64kb' }));
@@ -17,6 +17,7 @@ function createPosBusinessRouter({ db, service = createPosBusinessService({ db }
   };
   router.post('/login', handle('login'));
   router.post('/logout', handle('logout'));
+  router.get('/memberships', handle('memberships'));
   router.get('/:businessId/store',handle('storeSettings'));
   router.post('/:businessId/store',handle('storeProfile'));
   router.post('/:businessId/products/:productId/online',handle('onlineProduct'));
@@ -34,9 +35,17 @@ function createPosBusinessRouter({ db, service = createPosBusinessService({ db }
   router.post('/:businessId/profile', handle('profile'));
   router.get('/:businessId/users', handle('members'));
   router.post('/:businessId/users/:userId', handle('updateMember'));
+  router.post('/:businessId/users/:userId/reset-credential', handle('resetMemberCredential'));
   router.get('/:businessId/parties', handle('directory'));
+  router.post('/:businessId/parties/:partyId', handle('updateParty'));
   router.get('/:businessId/inventory', handle('inventory'));
   router.get('/:businessId/activity', handle('activity'));
+  router.get('/:businessId/sales', handle('sales'));
+  router.get('/:businessId/purchases', handle('purchases'));
+  router.get('/:businessId/shifts', handle('shifts'));
+  router.get('/:businessId/terminals', handle('terminals'));
+  router.get('/:businessId/cash-drawers', handle('cashDrawers'));
+  router.get('/:businessId/payment-accounts', handle('paymentAccounts'));
   router.post('/:businessId/products/:productId', handle('updateProduct'));
   router.get('/:businessId/products', handle('catalog'));
   router.get('/:businessId/books', handle('books'));

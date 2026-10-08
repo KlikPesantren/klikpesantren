@@ -40,9 +40,12 @@ async function setup() {
   assert.deepEqual(i, { db: options.database, current_user: options.user, host: options.host, port: options.port });
   await db.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public');
   await db.query(`CREATE TABLE tenants(id integer PRIMARY KEY,status text NOT NULL);
-    CREATE TABLE unit_pendidikan(id integer PRIMARY KEY,tenant_id integer REFERENCES tenants(id),UNIQUE(id,tenant_id));
+    CREATE TABLE unit_pendidikan(id integer PRIMARY KEY,tenant_id integer REFERENCES tenants(id),kode text,nama text,unit_type text,preset_key text,is_active boolean NOT NULL DEFAULT true,sort_order integer NOT NULL DEFAULT 0,UNIQUE(id,tenant_id));
+    CREATE TABLE users(id integer PRIMARY KEY,tenant_id integer NOT NULL REFERENCES tenants(id),nama text,role text,status text);
     CREATE TABLE legacy_fixture(id integer PRIMARY KEY,value text); INSERT INTO legacy_fixture VALUES(1,'preserve');
-    INSERT INTO tenants VALUES(1,'active'),(2,'active'); INSERT INTO unit_pendidikan VALUES(2,1),(3,1),(4,2);`);
+    INSERT INTO tenants VALUES(1,'active'),(2,'active');
+    INSERT INTO unit_pendidikan(id,tenant_id,kode,nama,unit_type,preset_key,sort_order) VALUES(2,1,'U2','Unit 2','pesantren','pesantren',1),(3,1,'U3','Unit 3','sekolah','sekolah',2),(4,2,'U4','Unit 4','pesantren','pesantren',1);
+    INSERT INTO users VALUES(99,1,'Synthetic Tenant Admin','superadmin','active'),(100,2,'Foreign Admin','superadmin','active');`);
   const up = fs.readFileSync(path.join(__dirname, '../migrations/097_pos_business_core_v2.sql'), 'utf8');
   const down = fs.readFileSync(path.join(__dirname, '../migrations/097_pos_business_core_v2_rollback.sql'), 'utf8');
   await test('097 UP/DOWN/second UP: only introduced schema removed, legacy preserved', async () => {

@@ -2,7 +2,7 @@ const crypto=require('node:crypto');
 const {productImageUrl}=require('../utils/posProductImage');
 function createBusinessOnline(h){
  const {transaction,run,bad,uuid,amount,text,makeId,hash,serialize,lock,getProduct,getAccount,saleWork,returns,
-  beginOperation,insertOperation,moneyRow,afterStage}=h;
+  beginOperation,insertOperation,moneyRow,afterStage,permitted}=h;
  const optional=(v,n)=>v==null||v===''?null:text(v,n);
  const capability=v=>{if(!/^[a-f0-9]{64}$/.test(v||''))bad('ORDER_ACCESS_REQUIRED',401);return hash(v);};
  const slug=v=>{if(!/^[a-z0-9][a-z0-9-]{2,79}$/.test(v||''))bad('STORE_NOT_FOUND',404);return v;};
@@ -190,7 +190,7 @@ function createBusinessOnline(h){
     await c.query("UPDATE pos_online_orders SET sale_id=$1,shipping_operation_id=$2,payment_state='CONFIRMED',status='CONFIRMED' WHERE id=$3",[o.sale_id,o.shipping_operation_id,o.id]);o.payment_state='CONFIRMED';
    }
    if(target==='REFUNDED'){
-    const permitted=a.member.role==='OWNER'||a.member.role==='SUPERVISOR'&&a.member.permissions.includes('returns.post');if(!permitted)bad('MERCHANT_PERMISSION_DENIED',403);
+    if(!permitted(a,'SALE_REFUND'))bad('MERCHANT_PERMISSION_DENIED',403);
     await returns.postWork(c,a,{source_id:o.sale_id,items:lines.map(l=>({product_id:l.product_id,quantity:l.quantity})),request_id:'online-refund:'+o.id,
      reason:text(b.reason,500),refund_confirmed:b.refund_confirmed,reference:b.reference,shift_id:b.shift_id},false,true);
     const ac=(await c.query('SELECT account_id FROM pos_money_movements WHERE operation_id=$1 ORDER BY account_id LIMIT 1',[o.sale_id])).rows[0]?.account_id;

@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const bcrypt = require('bcryptjs');
 const { productImageUrl } = require('../utils/posProductImage');
+const merchantPermissions = require('./posBusinessPermissions');
 const bad = (code, status = 400) => { throw Object.assign(new Error(code), { code, status }); };
 const uuid = value => {
   if (!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(String(value))) bad('INVALID_ID');
@@ -26,12 +27,6 @@ const passwordInput = (value, minimum = 1) => {
   if (typeof value !== 'string' || value.length < minimum || Buffer.byteLength(value, 'utf8') > 72) bad('INVALID_PASSWORD');
   return value; // Never silently trim or bcrypt-truncate a password.
 };
-const grants = {
-  CASHIER: ['profile.read', 'products.read', 'sale.post', 'customers.read', 'shifts.own', 'wallet.preview'],
-  SUPERVISOR: ['profile.read', 'products.read', 'customers.read'],
-};
-const configurable = new Set(['products.manage', 'parties.manage', 'purchases.post', 'stock.adjust',
-  'sale.post', 'sale.discount', 'returns.post', 'shifts.own', 'money.manage', 'debt.collect', 'reports.read', 'users.manage', 'profile.manage', 'wallet.preview', 'wallet.credentials.manage', 'store.manage', 'orders.read', 'orders.manage']);
 function createPosBusinessService({ db, afterStage = async () => {}, featureEnabled = (...args)=>require('./unitFeatureService').isUnitFeatureEnabled(...args) }) {
   if (!db?.connect) throw new Error('EXPLICIT_DATABASE_REQUIRED');
   async function transaction(work) {
@@ -39,21 +34,25 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     try { await c.query('BEGIN'); const out = await work(c); await c.query('COMMIT'); return out; }
     catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
   }
-  async function access(c, req, permission) {
+  async function authenticatedUser(c, req) {
     const match = /^Bearer ([a-f0-9]{64})$/.exec(req.headers?.authorization || '');
     if (!match) bad('MERCHANT_AUTH_REQUIRED', 401);
     const user = (await c.query(`SELECT u.id,u.name FROM pos_merchant_sessions s JOIN pos_merchant_users u ON u.id=s.user_id
       WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active FOR SHARE OF u,s`, [hash(match[1])])).rows[0];
     if (!user) bad('MERCHANT_SESSION_INVALID', 401);
+    return user;
+  }
+  async function access(c, req, permission) {
+    const user = await authenticatedUser(c, req);
     const business = uuid(req.params?.businessId);
     const m = (await c.query(`SELECT m.role,m.permissions,b.* FROM pos_merchant_memberships m
       JOIN pos_businesses b ON b.id=m.business_id AND b.tenant_id=m.tenant_id JOIN tenants t ON t.id=b.tenant_id
       WHERE m.business_id=$1 AND m.user_id=$2 AND m.active AND b.active AND t.status='active' FOR SHARE OF m,b,t`, [business, user.id])).rows[0];
     if (!m) bad('MERCHANT_ACCESS_DENIED', 403);
-    if (req.body?.tenant_id != null || req.query?.tenant_id != null || req.body?.role != null && permission !== 'users.manage') bad('CLIENT_AUTHORITY_REJECTED', 403);
-    const allowed = m.role === 'OWNER' ? null : new Set([...(grants[m.role] || []), ...(m.role === 'SUPERVISOR' ? m.permissions : [])]);
-    if (allowed && !allowed.has(permission)) bad('MERCHANT_PERMISSION_DENIED', 403);
-    return { business, user: user.id, userName: user.name, member: m };
+    if (req.body?.tenant_id != null || req.query?.tenant_id != null || req.body?.role != null && !['users.manage','USER_MANAGE','PERMISSION_MANAGE'].includes(permission)) bad('CLIENT_AUTHORITY_REJECTED', 403);
+    const effectivePermissions = merchantPermissions.effective(m.role, m.permissions);
+    if (permission && !effectivePermissions.includes(merchantPermissions.canonical(permission))) bad('MERCHANT_PERMISSION_DENIED', 403);
+    return { business, user: user.id, userName: user.name, member: { ...m, effective_permissions: effectivePermissions } };
   }
   const run = (req, permission, work) => transaction(async c => work(c, await access(c, req, permission)));
   async function lock(c, key) { await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [key]); }
@@ -85,26 +84,54 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     if (!match) bad('MERCHANT_AUTH_REQUIRED', 401);
     return transaction(async c => { await c.query('DELETE FROM pos_merchant_sessions WHERE token_hash=$1', [hash(match[1])]); return { logged_out: true }; });
   }
+  async function memberships(req) {
+    return transaction(async c => {
+      const user = await authenticatedUser(c, req);
+      const rows = (await c.query(`SELECT b.id,b.display_name,b.logo_url,b.ownership,b.timezone,b.currency,
+        m.role,m.permissions,t.slug tenant_slug
+        FROM pos_merchant_memberships m
+        JOIN pos_businesses b ON b.id=m.business_id AND b.tenant_id=m.tenant_id
+        JOIN tenants t ON t.id=b.tenant_id
+        WHERE m.user_id=$1 AND m.active AND b.active AND t.status='active'
+        ORDER BY b.display_name,b.id`, [user.id])).rows;
+      return {
+        user: { id: user.id, name: user.name },
+        businesses: rows.map(row => ({
+          id: row.id, display_name: row.display_name, logo_url: row.logo_url,
+          ownership: row.ownership, timezone: row.timezone, currency: row.currency,
+          tenant_slug: row.tenant_slug, role: row.role,
+          permissions: merchantPermissions.effective(row.role, row.permissions),
+        })),
+      };
+    });
+  }
   async function context(req) {
-    return run(req, 'profile.read', async (_, a) => ({
-      user_id: a.user, role: a.member.role, permissions: a.member.role === 'OWNER' ? [...configurable] : [...(grants[a.member.role] || []), ...a.member.permissions],
+    return run(req, null, async (c, a) => ({
+      user_id: a.user, user_name: a.userName, role: a.member.role, permissions: a.member.effective_permissions,
+      permission_groups: merchantPermissions.GROUPS,
       business: { id: a.business, display_name: a.member.display_name, ownership: a.member.ownership, logo_url: a.member.logo_url,
         timezone: a.member.timezone, currency: a.member.currency, receipt_name: a.member.receipt_name,
         receipt_header: a.member.receipt_header, receipt_footer: a.member.receipt_footer, receipt_prefix: a.member.receipt_prefix },
+      units: (await c.query(`SELECT bu.unit_id,coalesce(to_jsonb(u)->>'nama',bu.unit_id::text) AS nama_unit FROM pos_business_units bu
+        JOIN unit_pendidikan u ON u.id=bu.unit_id AND u.tenant_id=bu.tenant_id
+        WHERE bu.business_id=$1 AND u.is_active ORDER BY nama_unit,u.id`, [a.business])).rows,
+      terminals: (await c.query('SELECT id,name FROM pos_business_terminals WHERE business_id=$1 AND active ORDER BY name,id', [a.business])).rows,
     }));
   }
   async function member(req) {
-    return run(req, 'users.manage', async (c, a) => {
+    return run(req, 'USER_MANAGE', async (c, a) => {
       // Only owner can create/assign identities; configurable users.manage alone cannot escalate.
       if (a.member.role !== 'OWNER') bad('OWNER_REQUIRED', 403);
       const b = req.body, role = b.role;
-      if (!['OWNER', 'SUPERVISOR', 'CASHIER'].includes(role)) bad('INVALID_ROLE');
-      const permissions = b.permissions || [];
-      if (!Array.isArray(permissions) || permissions.some(p => !configurable.has(p)) || role !== 'SUPERVISOR' && permissions.length) bad('INVALID_PERMISSIONS');
+      if (!['SUPERVISOR', 'CASHIER'].includes(role)) bad('INVALID_ROLE');
+      const permissions = merchantPermissions.encodeExplicit(b.permissions || merchantPermissions.DEFAULTS[role]);
+      if (!permissions) bad('INVALID_PERMISSIONS');
       const password = passwordInput(b.password, 12);
       const userId = makeId(), passwordHash = await bcrypt.hash(password, 12);
       await c.query('INSERT INTO pos_merchant_users(id,login,name,password_hash) VALUES($1,$2,$3,$4)', [userId, text(b.login, 120).toLowerCase(), text(b.name), passwordHash]);
       await c.query(`INSERT INTO pos_merchant_memberships(business_id,tenant_id,user_id,role,permissions) VALUES($1,$2,$3,$4,$5)`, [a.business, a.member.tenant_id, userId, role, permissions]);
+      await c.query(`INSERT INTO pos_merchant_permission_audit(id,business_id,actor_id,target_user_id,action,after_state)
+        VALUES($1,$2,$3,$4,'MEMBER_CREATED',$5)`, [makeId(), a.business, a.user, userId, JSON.stringify({ role, permissions: merchantPermissions.effective(role, permissions), active: true })]);
       return { id: userId, role, name: b.name };
     });
   }
@@ -132,8 +159,8 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     });
   }
   async function party(req) {
-    return run(req, 'parties.manage', async (c, a) => {
-      const b = req.body; if (!['CUSTOMER', 'SUPPLIER'].includes(b.kind)) bad('INVALID_PARTY_KIND');
+    const b = req.body; if (!['CUSTOMER', 'SUPPLIER'].includes(b.kind)) bad('INVALID_PARTY_KIND');
+    return run(req, b.kind === 'CUSTOMER' ? 'CUSTOMER_MANAGE' : 'SUPPLIER_MANAGE', async (c, a) => {
       return (await c.query(`INSERT INTO pos_business_parties(id,business_id,kind,name,phone,address,notes,credit_allowed,credit_limit,due_days,created_by)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,kind,name`,
       [makeId(), a.business, b.kind, text(b.name), b.phone ? text(b.phone, 80) : null, b.address ? text(b.address, 500) : null,
@@ -142,7 +169,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     });
   }
   async function account(req) {
-    return run(req, 'money.manage', async (c, a) => {
+    return run(req, 'BUSINESS_SETTINGS_MANAGE', async (c, a) => {
       const b = req.body;
       if (!['CASH', 'BANK', 'QRIS'].includes(b.kind)) bad('INVALID_ACCOUNT_KIND');
       return (await c.query('INSERT INTO pos_business_accounts(id,business_id,name,kind) VALUES($1,$2,$3,$4) RETURNING id,name,kind', [makeId(), a.business, text(b.name), b.kind])).rows[0];
@@ -183,7 +210,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     return v;
   }
   async function purchase(req) {
-    return run(req, 'purchases.post', async (c, a) => {
+    return run(req, 'PURCHASE_CREATE', async (c, a) => {
       const b = req.body;
       if (!Array.isArray(b.items) || !b.items.length || b.items.length > 100) bad('INVALID_ITEMS');
       const items = b.items.map(i => ({ product: uuid(i.product_id), quantity: amount(i.quantity, true), cost: amount(i.unit_cost) })).sort((x, y) => x.product.localeCompare(y.product));
@@ -239,7 +266,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     return cost;
   }
   async function adjustment(req) {
-    return run(req, 'stock.adjust', async (c, a) => {
+    return run(req, 'INVENTORY_ADJUST', async (c, a) => {
       const b = req.body, direction = b.direction;
       if (!['IN', 'OUT', 'DAMAGE'].includes(direction)) bad('INVALID_DIRECTION');
       const f = { product: uuid(b.product_id), quantity: amount(b.quantity, true), reason: text(b.reason, 500), direction,
@@ -275,8 +302,10 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     if (remaining) bad('INSUFFICIENT_STOCK', 409); return cost;
   }
   async function money(req) {
-    return run(req, 'money.manage', async (c, a) => {
-      const b = req.body, kind = b.kind;
+    const b = req.body, kind = b.kind;
+    const capability={OPENING:'CAPITAL_MANAGE',CAPITAL:'CAPITAL_MANAGE',WITHDRAWAL:'PRIVE_MANAGE',EXPENSE:'EXPENSE_CREATE',OTHER_INCOME:'OTHER_INCOME_CREATE',TRANSFER:'TRANSFER_CREATE'}[kind];
+    if(!capability)bad('INVALID_MONEY_KIND');
+    return run(req, capability, async (c, a) => {
       if (!['OPENING', 'CAPITAL', 'WITHDRAWAL', 'EXPENSE', 'OTHER_INCOME', 'TRANSFER'].includes(kind)) bad('INVALID_MONEY_KIND');
       const f = { account: uuid(b.account_id), destination: kind === 'TRANSFER' ? uuid(b.destination_account_id) : null,
         reason: text(b.reason, 500), total: amount(b.amount, true), paid: amount(b.amount, true) };
@@ -293,8 +322,8 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     });
   }
   async function payDebt(req) {
-    return run(req, 'debt.collect', async (c, a) => {
-      const b = req.body, kind = b.kind;
+    const b = req.body, kind = b.kind;
+    return run(req, kind === 'AR' ? 'AR_COLLECT' : kind === 'AP' ? 'AP_PAY' : 'INVALID', async (c, a) => {
       if (!['AR', 'AP'].includes(kind)) bad('INVALID_DEBT_KIND');
       const f = { source: uuid(b.source_id), account: uuid(b.account_id), total: amount(b.amount, true), paid: amount(b.amount, true) };
       const op = await beginOperation(c, a, b, kind === 'AR' ? 'AR_COLLECTION' : 'AP_PAYMENT', f); if (op.replay) return op;
@@ -312,7 +341,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     });
   }
   async function books(req) {
-    return run(req, 'reports.read', async (c, a) => ({
+    return run(req, 'FINANCE_ACCOUNT_VIEW', async (c, a) => ({
       accounts: (await c.query(`SELECT ac.id,ac.name,ac.kind,coalesce(sum(m.amount),0) balance FROM pos_business_accounts ac
         LEFT JOIN pos_money_movements m ON m.account_id=ac.id AND m.business_id=ac.business_id WHERE ac.business_id=$1 GROUP BY ac.id ORDER BY ac.name`, [a.business])).rows,
       debts: (await c.query(`SELECT d.kind,d.party_id,p.name,sum(d.amount) outstanding FROM pos_debt_movements d JOIN pos_business_parties p ON p.id=d.party_id AND p.business_id=d.business_id
@@ -322,11 +351,11 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     }));
   }
   async function terminal(req) {
-    return run(req, 'profile.manage', async (c, a) => (await c.query('INSERT INTO pos_business_terminals(id,business_id,name) VALUES($1,$2,$3) RETURNING id,name',
+    return run(req, 'BUSINESS_SETTINGS_MANAGE', async (c, a) => (await c.query('INSERT INTO pos_business_terminals(id,business_id,name) VALUES($1,$2,$3) RETURNING id,name',
       [makeId(), a.business, text(req.body.name)])).rows[0]);
   }
   async function openShift(req) {
-    return run(req, 'shifts.own', async (c, a) => {
+    return run(req, 'SHIFT_OPEN', async (c, a) => {
       const b = req.body, ac = await getAccount(c, a, b.cash_account_id);
       if (ac.kind !== 'CASH') bad('CASH_DRAWER_REQUIRED');
       const t = (await c.query('SELECT id FROM pos_business_terminals WHERE id=$1 AND business_id=$2 AND active FOR SHARE', [uuid(b.terminal_id), a.business])).rows[0];
@@ -340,7 +369,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     if (!s) bad('SHIFT_DENIED', 403); return s;
   }
   async function closeShift(req) {
-    return run(req, 'shifts.own', async (c, a) => {
+    return run(req, 'SHIFT_CLOSE', async (c, a) => {
       const s = await shiftRow(c, a, req.body.shift_id), actual = amount(req.body.actual_cash);
       if (s.status === 'CLOSED') {
         if (BigInt(s.actual_cash) !== actual) bad('SHIFT_ALREADY_CLOSED', 409);
@@ -355,7 +384,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     });
   }
   async function sale(req) {
-    return run(req, 'sale.post', async (c, a) => {
+    return run(req, 'SALE_CREATE', async (c, a) => {
       if((await c.query("SELECT to_regclass('public.pos_online_reservations') present")).rows[0].present)await online.expireOnline(a.business);
       return saleWork(c,a,req.body);
     });
@@ -398,7 +427,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
         i.cogs = await availableCost(c, a, i.product, i.quantity);
       }
       if (f.discount >= subtotal) bad('INVALID_DISCOUNT');
-      if (f.discount && a.member.role !== 'OWNER' && !a.member.permissions.includes('sale.discount')) bad('DISCOUNT_DENIED', 403);
+      if (f.discount && !a.member.effective_permissions.includes('SALE_DISCOUNT')) bad('DISCOUNT_DENIED', 403);
       f.total = subtotal - f.discount;
       if (payments.reduce((sum, p) => sum + p.amount, 0n) !== f.total) bad('PAYMENT_TOTAL_MISMATCH');
       const credit = payments.find(p => p.method === 'CREDIT')?.amount || 0n;
@@ -453,9 +482,13 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       amount,tendered,change,reference,to_jsonb(p)->>'credential_method' AS credential_method FROM pos_business_payments p WHERE operation_id=$1 AND business_id=$2 ORDER BY method`, [id, a.business])).rows;
     return { sale: op, items: lines, payments, replay };
   }
-  async function receipt(req) { return run(req, 'sale.post', (c, a) => receiptData(c, a, uuid(req.params.operationId))); }
+  async function receipt(req) { return run(req, 'SALE_VIEW', (c, a) => receiptData(c, a, uuid(req.params.operationId))); }
   async function report(req) {
-    return run(req, 'reports.read', async (c, a) => {
+    return run(req, null, async (c, a) => {
+      const canSales = a.member.effective_permissions.includes('REPORT_SALES');
+      const canProfit = a.member.effective_permissions.includes('REPORT_PROFIT');
+      const canFinance = a.member.effective_permissions.includes('REPORT_FINANCE');
+      if (!canSales && !canProfit && !canFinance) bad('MERCHANT_PERMISSION_DENIED', 403);
       let from, to;
       if (req.query.from || req.query.to) { from = dueDate(req.query.from); to = dueDate(req.query.to); }
       else {
@@ -482,13 +515,27 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       k.gross_profit = (BigInt(k.net_sales) - BigInt(k.cogs)).toString();
       k.operating_result = (BigInt(k.gross_profit) + BigInt(k.other_income) - BigInt(k.expenses)).toString();
       k.average_sale = k.sales_count === '0' ? '0' : (BigInt(k.sales) / BigInt(k.sales_count)).toString();
-      const paymentMethods = (await c.query(`SELECT p.method,sum(p.amount) sale_amount FROM pos_business_payments p
+      if (!canProfit) {
+        delete k.cogs;
+        delete k.gross_profit;
+        delete k.operating_result;
+      }
+      if (!canSales) {
+        for (const key of ['sales','returns','net_sales','pos_net_sales','online_net_sales','returned_receivable','sales_count','average_sale']) delete k[key];
+      }
+      if (!canFinance) {
+        delete k.expenses;
+        delete k.other_income;
+        delete k.capital;
+        delete k.withdrawals;
+      }
+      const paymentMethods = canSales ? (await c.query(`SELECT p.method,sum(p.amount) sale_amount FROM pos_business_payments p
         JOIN pos_business_operations o ON o.id=p.operation_id AND o.business_id=p.business_id
-        WHERE ${where} AND o.kind='SALE' GROUP BY p.method ORDER BY p.method`,v)).rows;
-      const refundsByAccount = (await c.query(`SELECT ac.kind,-sum(m.amount) refunded_amount FROM pos_money_movements m
+        WHERE ${where} AND o.kind='SALE' GROUP BY p.method ORDER BY p.method`,v)).rows : [];
+      const refundsByAccount = canSales ? (await c.query(`SELECT ac.kind,-sum(m.amount) refunded_amount FROM pos_money_movements m
         JOIN pos_business_operations o ON o.id=m.operation_id AND o.business_id=m.business_id
         JOIN pos_business_accounts ac ON ac.id=m.account_id AND ac.business_id=m.business_id
-        WHERE ${where} AND o.kind='SALE_RETURN' GROUP BY ac.kind ORDER BY ac.kind`,v)).rows;
+        WHERE ${where} AND o.kind='SALE_RETURN' GROUP BY ac.kind ORDER BY ac.kind`,v)).rows : [];
       return { from, to, timezone: a.member.timezone, kpi: k,
         payment_methods: paymentMethods, refunds_by_account_kind: refundsByAccount,
         formula: 'Period posted sales minus period posted returns minus net FIFO COGS; operating result adds classified other income and subtracts operating expenses. Capital/prive excluded. Not net profit. Average gross sale rounded down in Rupiah.',
@@ -500,9 +547,10 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     insertOperation,moneyRow,debtRow,stockRow,addLayer,getAccount,afterStage,shiftRow,wallet});
   const metrics = require('./posBusinessMetrics').createBusinessMetrics({run,bad,dueDate});
   const online=require('./posBusinessOnline').createBusinessOnline({transaction,run,bad,uuid,amount,text,makeId,hash,serialize,lock,
-    getProduct,getAccount,saleWork,returns,beginOperation,insertOperation,moneyRow,afterStage});
-  const workspace=require('./posBusinessWorkspace').createBusinessWorkspace({run,bad,uuid,amount,text});
+    getProduct,getAccount,saleWork,returns,beginOperation,insertOperation,moneyRow,afterStage,
+    permitted:(access,key)=>merchantPermissions.has(access.member,key)});
+  const workspace=require('./posBusinessWorkspace').createBusinessWorkspace({run,bad,uuid,amount,text,makeId,bcrypt,passwordInput});
   return { ...online,...workspace,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, logout, context, member, product, catalog, party, account, purchase, adjustment, money, payDebt, books,
-    terminal, openShift, closeShift, sale, receipt, report };
+    memberships, terminal, openShift, closeShift, sale, receipt, report };
 }
 module.exports = { createPosBusinessService, amount };

@@ -1,7 +1,7 @@
 // Read-only projections of the canonical V2 immutable ledgers. No copied balances.
 function createBusinessMetrics({run,bad,dueDate}) {
   async function customers(req) {
-    return run(req,'reports.read',async(c,a)=>{
+    return run(req,'REPORT_CUSTOMER',async(c,a)=>{
       const ranking=req.query.ranking || 'SPEND';
       const orders={SPEND:'net_spend DESC',FREQUENCY:'transaction_count DESC',RECENT:'last_purchase DESC NULLS LAST'};
       if(!orders[ranking])bad('INVALID_RANKING');
@@ -32,8 +32,9 @@ function createBusinessMetrics({run,bad,dueDate}) {
     });
   }
   async function aging(req) {
-    return run(req,'reports.read',async(c,a)=>{
-      const kind=req.query.kind || 'AR';if(!['AR','AP'].includes(kind))bad('INVALID_DEBT_KIND');
+    const kind=req.query.kind || 'AR';
+    return run(req,kind==='AP'?'AP_VIEW':'AR_VIEW',async(c,a)=>{
+      if(!['AR','AP'].includes(kind))bad('INVALID_DEBT_KIND');
       const asOf=req.query.as_of ? dueDate(req.query.as_of) : (await c.query("SELECT to_char(now() AT TIME ZONE $1,'YYYY-MM-DD') AS report_date",[a.member.timezone])).rows[0].report_date;
       const rows=(await c.query(`WITH outstanding AS (
         SELECT d.source_id,d.party_id,sum(d.amount) outstanding

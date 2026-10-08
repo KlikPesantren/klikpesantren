@@ -16,8 +16,8 @@ async function fingerprint(){const h=crypto.createHash('sha256');for(const table
 async function setup(){
  assert.deepEqual((await q('SELECT current_database() db,current_user,host(inet_server_addr()) host,inet_server_port() port'))[0],
   {db:'pos_business_v2_test',current_user:'pos_test_owner',host:'127.0.0.1',port:55439});
- await db.query(`ALTER TABLE unit_pendidikan ADD COLUMN is_active boolean NOT NULL DEFAULT true,ADD COLUMN preset_key text,ADD COLUMN kode text,ADD COLUMN nama text;
- CREATE TABLE users(id integer PRIMARY KEY);
+ await db.query(`ALTER TABLE unit_pendidikan ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true,ADD COLUMN IF NOT EXISTS preset_key text,ADD COLUMN IF NOT EXISTS kode text,ADD COLUMN IF NOT EXISTS nama text;
+ CREATE TABLE IF NOT EXISTS users(id integer PRIMARY KEY);
  CREATE TABLE santri(id integer PRIMARY KEY,tenant_id integer REFERENCES tenants(id),nama text,status text,uid_rfid text,saldo bigint DEFAULT 0,created_at timestamptz DEFAULT now(),UNIQUE(id,tenant_id));
  CREATE TABLE santri_units(id serial PRIMARY KEY,tenant_id integer,santri_id integer,unit_id integer,status text,left_at date);
  CREATE TABLE transaksi_rfid(id integer PRIMARY KEY,tenant_id integer,santri_id integer,trx_type text,nominal bigint,saldo_akhir bigint,location_unit_id integer,merchant_id integer,device_id integer,created_at timestamptz);

@@ -41,10 +41,10 @@ function createBusinessOnline(h){
  async function listing(c,b,q={}){
   const search=optional(q.search,120),category=optional(q.category,120);
   const page=Number(q.page||1);if(!Number.isSafeInteger(page)||page<1||page>1000)bad('INVALID_PAGE');
-  return (await c.query(`SELECT p.id,p.name,p.category,p.uom,p.image_url,p.selling_price,p.online_description,p.online_long_description,p.online_featured,
+  return (await c.query(`SELECT p.id,p.name,p.category,p.uom,p.image_url,p.online_price AS selling_price,p.online_description,p.online_long_description,p.online_featured,
    ((SELECT coalesce(sum(quantity),0) FROM pos_inventory_movements WHERE product_id=p.id AND business_id=p.business_id)
     -(SELECT coalesce(sum(quantity),0) FROM pos_online_reservations WHERE product_id=p.id AND state='RESERVED'))>0 available
-   FROM pos_business_products p WHERE p.business_id=$1 AND p.active AND p.sellable AND p.online_visible
+   FROM pos_business_products p WHERE p.business_id=$1 AND p.active AND p.sellable AND p.online_visible AND p.online_price IS NOT NULL
    AND ($2::text IS NULL OR strpos(lower(p.name||' '||coalesce(p.online_description,'')),lower($2))>0)
    AND ($3::text IS NULL OR p.category=$3) AND ($4::boolean=false OR p.online_featured)
    ORDER BY p.online_featured DESC,p.online_sort,p.name,p.id LIMIT 40 OFFSET $5`,[b.id,search,category,q.featured==='true',(page-1)*40])).rows;
@@ -52,8 +52,8 @@ function createBusinessOnline(h){
  const storefront=req=>publicWork(req,async(c,b)=>({store:branding(b),products:await listing(c,b,req.query),
   categories:(await c.query('SELECT DISTINCT category FROM pos_business_products WHERE business_id=$1 AND active AND sellable AND online_visible AND category IS NOT NULL ORDER BY category LIMIT 200',[b.id])).rows.map(r=>r.category),page:Number(req.query?.page||1),page_size:40}));
  const publicProduct=req=>publicWork(req,async(c,b)=>{
-  const id=uuid(req.params.productId);const p=(await c.query(`SELECT id,name,category,uom,image_url,selling_price,online_description,online_long_description,online_featured FROM pos_business_products
-   WHERE id=$1 AND business_id=$2 AND active AND sellable AND online_visible`,[id,b.id])).rows[0];
+  const id=uuid(req.params.productId);const p=(await c.query(`SELECT id,name,category,uom,image_url,online_price AS selling_price,online_description,online_long_description,online_featured FROM pos_business_products
+   WHERE id=$1 AND business_id=$2 AND active AND sellable AND online_visible AND online_price IS NOT NULL`,[id,b.id])).rows[0];
   if(!p)bad('PRODUCT_NOT_FOUND',404);
   p.available=BigInt((await stock(c,b.id,id)).available)>0n;return p;
  });
@@ -95,8 +95,8 @@ function createBusinessOnline(h){
    await lock(c,'online-request:'+b.id+':'+request);
    const old=(await c.query('SELECT * FROM pos_online_orders WHERE business_id=$1 AND request_id=$2',[b.id,request])).rows[0];
    if(old){if(old.request_hash!==digest)bad('IDEMPOTENCY_CONFLICT',409);return {...await project(c,old),replay:true};}
-   let total=0n;for(const i of items){i.p=await getProduct(c,{business:b.id},i.product);if(!i.p.sellable||!i.p.online_visible)bad('PRODUCT_NOT_FOUND',404);
-    if(BigInt((await stock(c,b.id,i.product)).available)<i.quantity)bad('INSUFFICIENT_STOCK',409);total+=i.quantity*BigInt(i.p.selling_price);}
+   let total=0n;for(const i of items){i.p=await getProduct(c,{business:b.id},i.product);if(!i.p.sellable||!i.p.online_visible||i.p.online_price==null)bad('PRODUCT_NOT_FOUND',404);
+    if(BigInt((await stock(c,b.id,i.product)).available)<i.quantity)bad('INSUFFICIENT_STOCK',409);total+=i.quantity*BigInt(i.p.online_price);}
    if(method==='CREDIT'){const p=(await c.query('SELECT * FROM pos_business_parties WHERE id=$1 AND business_id=$2 FOR UPDATE',[customer,b.id])).rows[0];
     const debt=BigInt((await c.query("SELECT coalesce(sum(amount),0) n FROM pos_debt_movements WHERE business_id=$1 AND party_id=$2 AND kind='AR'",[b.id,customer])).rows[0].n);
     if(!p.credit_allowed||total+debt>BigInt(p.credit_limit))bad('CREDIT_LIMIT_DENIED',403);}
@@ -105,7 +105,7 @@ function createBusinessOnline(h){
     customer_id,recipient,phone,address,notes,merchandise_total,shipping_total,expires_at,brand_snapshot)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now()+$16*interval '1 minute',$17) RETURNING *`,
     [id,b.id,number,request,digest,access,method,fulfillment,customer,recipient,phone,address,notes,total.toString(),shipping.toString(),b.reservation_minutes,branding(b)])).rows[0];
-   for(const i of items){await c.query('INSERT INTO pos_online_order_lines VALUES($1,$2,$3,$4,$5,$6,$7)',[id,b.id,i.product,i.p.name,i.p.sku,i.quantity.toString(),i.p.selling_price]);
+   for(const i of items){await c.query('INSERT INTO pos_online_order_lines VALUES($1,$2,$3,$4,$5,$6,$7)',[id,b.id,i.product,i.p.name,i.p.sku,i.quantity.toString(),i.p.online_price]);
     await c.query('INSERT INTO pos_online_reservations(order_id,business_id,product_id,quantity) VALUES($1,$2,$3,$4)',[id,b.id,i.product,i.quantity.toString()]);}
    await event(c,o,'ORDERED');await afterStage('online-reserve');return project(c,o);
   });
@@ -130,15 +130,18 @@ function createBusinessOnline(h){
  });
  const storeSettings=req=>run(req,'store.manage',async(c,a)=>({store:{...branding(a.member),display_name:a.member.display_name,brand_color:a.member.brand_color,storefront_slug:a.member.storefront_slug,
   storefront_enabled:a.member.storefront_enabled,public_phone:a.member.public_phone,phone:a.member.phone,reservation_minutes:a.member.reservation_minutes},
-  products:(await c.query('SELECT id,name,category,image_url,selling_price,online_visible,online_description,online_long_description,online_featured,online_sort FROM pos_business_products WHERE business_id=$1 ORDER BY name LIMIT 200',[a.business])).rows}));
+  products:(await c.query('SELECT id,name,category,image_url,selling_price,online_price,online_visible,online_description,online_long_description,online_featured,online_sort FROM pos_business_products WHERE business_id=$1 ORDER BY name LIMIT 200',[a.business])).rows}));
  const orderPaymentContext=req=>run(req,'orders.manage',async(c,a)=>({
   accounts:(await c.query("SELECT id,name,kind FROM pos_business_accounts WHERE business_id=$1 AND active AND kind IN('CASH','BANK','QRIS') ORDER BY name",[a.business])).rows,
   shifts:(await c.query("SELECT id,cash_account_id FROM pos_business_shifts WHERE business_id=$1 AND user_id=$2 AND status='OPEN'",[a.business,a.user])).rows,
  }));
- const onlineProduct=req=>run(req,'products.manage',async(c,a)=>{
-  const b=req.body;await getProduct(c,a,uuid(req.params.productId));const order=Number(amount(b.online_sort||0));if(order>100000)bad('INVALID_SORT');
+ const onlineProduct=req=>run(req,'store.manage',async(c,a)=>{
+  if(!permitted(a,'PRODUCT_MANAGE'))bad('MERCHANT_PERMISSION_DENIED',403);
+  const b=req.body,p=await getProduct(c,a,uuid(req.params.productId));const order=Number(amount(b.online_sort||0));if(order>100000)bad('INVALID_SORT');
+  const onlinePrice=b.online_price==null||b.online_price===''?(p.online_price??p.selling_price):amount(b.online_price,true).toString();
+  if(b.online_visible===true&&onlinePrice==null)bad('ONLINE_PRICE_REQUIRED');
   return (await c.query(`UPDATE pos_business_products SET online_visible=$1,online_description=$2,online_long_description=$3,online_featured=$4,online_sort=$5,
-   image_url=$6,category=$7 WHERE id=$8 AND business_id=$9 RETURNING id,online_visible`,[b.online_visible===true,optional(b.online_description,500),optional(b.online_long_description,5000),b.online_featured===true,order,productImageUrl(b.image_url),optional(b.category,120),req.params.productId,a.business])).rows[0];
+   image_url=$6,category=$7,online_price=$8 WHERE id=$9 AND business_id=$10 RETURNING id,online_visible,online_price`,[b.online_visible===true,optional(b.online_description,500),optional(b.online_long_description,5000),b.online_featured===true,order,productImageUrl(b.image_url),optional(b.category,120),onlinePrice,req.params.productId,a.business])).rows[0];
  });
  const customerAccess=req=>run(req,'parties.manage',async(c,a)=>{
   const id=uuid(req.body.customer_id);const p=(await c.query("SELECT id FROM pos_business_parties WHERE id=$1 AND business_id=$2 AND active AND kind='CUSTOMER' FOR UPDATE",[id,a.business])).rows[0];

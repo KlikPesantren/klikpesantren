@@ -199,10 +199,10 @@ function App() {
       <TenantProfileProvider>
       <ActiveUnitProvider>
       <Routes>
+        <Route path="/store/:slug" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
+        <Route path="/store/:slug/products/:productId" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
+        <Route path="/store/:slug/orders/:orderId" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
         {import.meta.env.DEV && <>
-          <Route path="/store/:slug" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
-          <Route path="/store/:slug/products/:productId" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
-          <Route path="/store/:slug/orders/:orderId" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
           <Route path="/merchant-store" element={<LazyPage><LocalMerchantStorePage /></LazyPage>} />
           <Route path="/merchant" element={<LazyPage><LocalMerchantWorkspacePage /></LazyPage>} />
         </>}

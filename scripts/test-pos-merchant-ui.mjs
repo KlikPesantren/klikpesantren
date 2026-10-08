@@ -6,5 +6,9 @@ for(const text of ['Modal bukan pendapatan','Prive bukan biaya operasional','Wal
 assert.ok(page.includes("can('products.manage')"));assert.ok(!page.includes('password_hash'));assert.ok(!page.includes('DOMPET_SANTRI')||page.includes('Dompet Santri'));
 assert.ok(css.includes('@media(max-width:820px)'));assert.ok(css.includes('@media(max-width:520px)'));assert.ok(css.includes('overflow:auto'));
 const app=fs.readFileSync(new URL('../frontend/src/App.jsx',import.meta.url),'utf8');assert.ok(app.includes('import.meta.env.DEV && <>'));assert.ok(app.includes('path="/merchant"'));
+const native=fs.readFileSync(new URL('../pos-app/src/MerchantBusinessApp.jsx',import.meta.url),'utf8');assert.ok(native.includes('Harga online'));assert.ok(native.includes('Simpan Publikasi'));
+for(const copy of ['URL logo','URL banner','Warna brand (#RRGGBB)','Tampilkan telepon','Kas awal','Tambah Split Payment','Tanpa Customer'])assert.ok(native.includes(copy),copy);
+assert.ok(native.includes('validMoney'));assert.ok(native.includes('can("ONLINE_STORE_MANAGE")&&can("PRODUCT_MANAGE")'));
+for(const text of ['Tambah Split Payment','BANK','QRIS','DOMPET_SANTRI','CREDIT','Customer opsional','Pembaca fisik belum terhubung'])assert.ok(native.includes(text));
 const admin=fs.readFileSync(new URL('../frontend/src/pages/PosAdminPage.jsx',import.meta.url),'utf8'),adminService=fs.readFileSync(new URL('../services/posAdminService.js',import.meta.url),'utf8');for(const text of ['Business V2','Onboarding merchant','Unit Usaha Internal','Merchant Eksternal'])assert.ok(admin.includes(text));for(const text of ['businessesV2','onboardBusiness','High-level only for EXTERNAL','pos.config.manage'])assert.ok(adminService.includes(text));assert.ok(!adminService.includes('password_hash AS'));
 console.log('MERCHANT UI: role-aware navigation, connected modules, privacy language, responsive local review route PASS.');

@@ -140,16 +140,16 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       const b = req.body, image = productImageUrl(b.image_url);
       const id = makeId();
       return (await c.query(`INSERT INTO pos_business_products(id,business_id,sku,barcode,name,category,uom,image_url,selling_price,minimum_stock,online_visible)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,sku,name,selling_price`,
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false) RETURNING id,sku,name,selling_price,online_visible`,
       [id, a.business, text(b.sku, 80), b.barcode ? text(b.barcode, 120) : null, text(b.name), b.category ? text(b.category, 120) : null,
-        b.uom ? text(b.uom, 32) : 'pcs', image, amount(b.selling_price, true).toString(), amount(b.minimum_stock || 0).toString(), b.online_visible === true])).rows[0];
+        b.uom ? text(b.uom, 32) : 'pcs', image, amount(b.selling_price, true).toString(), amount(b.minimum_stock || 0).toString()])).rows[0];
     });
   }
   async function catalog(req) {
     return run(req, 'products.read', async (c, a) => {
       const hasOnline=(await c.query("SELECT to_regclass('public.pos_online_reservations') present")).rows[0].present;
       if(hasOnline)await online.expireOnline(a.business);
-      const products=(await c.query(`SELECT p.id,p.sku,p.barcode,p.name,p.category,p.uom,p.image_url,p.selling_price,p.minimum_stock,
+      const products=(await c.query(`SELECT p.id,p.sku,p.barcode,p.name,p.category,p.uom,p.image_url,p.selling_price,p.online_price,p.minimum_stock,
       p.active,p.sellable,p.online_visible,coalesce(s.on_hand,0) on_hand FROM pos_business_products p
       LEFT JOIN(SELECT product_id,sum(quantity) on_hand FROM pos_inventory_movements WHERE business_id=$1 GROUP BY product_id)s ON s.product_id=p.id
       WHERE p.business_id=$1 ORDER BY p.name,p.id LIMIT 200`, [a.business])).rows;

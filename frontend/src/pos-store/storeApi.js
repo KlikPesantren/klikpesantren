@@ -1,7 +1,8 @@
-// LOCAL V2 only. No production API/env credential fallback.
+import { API_BASE_URL } from '../services/api';
+
 export async function storeApi(path, { body, headers = {}, signal, method } = {}) {
-  if (!import.meta.env.DEV) throw Error('LOCAL_STORE_ONLY');
-  const response = await fetch(`http://127.0.0.1:55440${path}`, {
+  if (!API_BASE_URL) throw Error('API_CONFIGURATION_REQUIRED');
+  const response = await fetch(`${API_BASE_URL}${path}`, {
     method: method || (body ? 'POST' : 'GET'), signal,
     headers: { 'Content-Type': 'application/json', ...headers },
     ...(body ? { body: JSON.stringify(body) } : {}),

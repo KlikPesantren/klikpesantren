@@ -20,14 +20,21 @@ const profile=(extra={})=>({display_name:'Synthetic Branded Store',storefront_sl
  shipping_charge:5000,reservation_minutes:30,payment_instructions:'Manual test transfer; no gateway',...extra});
 async function history(){const hash=crypto.createHash('sha256');for(const t of ['pos_business_operations','pos_business_lines','pos_business_payments','pos_inventory_movements','pos_inventory_layers','pos_inventory_allocations','pos_money_movements','pos_debt_movements','wallet_accounts','wallet_transactions'])hash.update(JSON.stringify(await q(`SELECT * FROM ${t} ORDER BY id`)));return hash.digest('hex');}
 async function all(){const hash=crypto.createHash('sha256');for(const t of ['pos_online_orders','pos_online_order_lines','pos_online_reservations','pos_online_order_events'])hash.update(JSON.stringify(await q(`SELECT * FROM ${t} ORDER BY 1,2`)));hash.update(await history());return hash.digest('hex');}
-async function newProduct(stock=20){const p=(await core.product(req({name:'Synthetic item',sku:id(),selling_price:2000,online_visible:true,category:'Synthetic category'}))).id;
- await core.adjustment(req({product_id:p,direction:'IN',quantity:stock,unit_cost:500,reason:'Synthetic opening',request_id:id()}));return p;}
+async function newProduct(stock=20,{publish=true,onlinePrice=2000}={}){const p=(await core.product(req({name:'Synthetic item',sku:id(),selling_price:2000,online_visible:true,category:'Synthetic category'}))).id;
+ await core.adjustment(req({product_id:p,direction:'IN',quantity:stock,unit_cost:500,reason:'Synthetic opening',request_id:id()}));
+ if(publish)await core.onlineProduct({...req({online_visible:true,online_price:onlinePrice,category:'Synthetic category'}),params:{businessId:biz,productId:p}});return p;}
 async function setup(){
  assert.deepEqual((await q('SELECT current_database() db,current_user,host(inet_server_addr()) host,inet_server_port() port'))[0],{db:'pos_business_v2_test',current_user:'pos_test_owner',host:'127.0.0.1',port:55439});
  await test('100 UP/DOWN/UP preserves nonempty canonical Wallet and V2 financial history',async()=>{
   const before=await history();await db.query(fs.readFileSync(path.join(__dirname,'../migrations/100_pos_business_online.sql'),'utf8'));
   await db.query(fs.readFileSync(path.join(__dirname,'../migrations/100_pos_business_online_rollback.sql'),'utf8'));assert.equal(await history(),before);
   await db.query(fs.readFileSync(path.join(__dirname,'../migrations/100_pos_business_online.sql'),'utf8'));assert.equal(await history(),before);
+ });
+ await test('102 UP/DOWN/UP adds independent online price without changing financial history',async()=>{
+  const before=await history(),up=fs.readFileSync(path.join(__dirname,'../migrations/102_pos_online_product_pricing.sql'),'utf8'),down=fs.readFileSync(path.join(__dirname,'../migrations/102_pos_online_product_pricing_rollback.sql'),'utf8');
+  if((await q("SELECT column_name FROM information_schema.columns WHERE table_name='pos_business_products' AND column_name='online_price'"))[0])await db.query(down);
+  await db.query(up);assert.ok((await q("SELECT column_name FROM information_schema.columns WHERE table_name='pos_business_products' AND column_name='online_price'"))[0]);
+  await db.query(down);assert.equal(await history(),before);await db.query(up);assert.equal(await history(),before);
  });
  const owner=(await q("SELECT id FROM pos_merchant_users WHERE login='owner'"))[0].id,cu=(await q("SELECT id FROM pos_merchant_users WHERE login='cashier'"))[0].id;
  biz=id();other=id();for(const [b,t] of [[biz,1],[other,2]]){await db.query("INSERT INTO pos_businesses(id,tenant_id,ownership,display_name,timezone) VALUES($1,$2,'EXTERNAL','Synthetic online','Asia/Jakarta')",[b,t]);
@@ -44,8 +51,21 @@ async function setup(){
 }
 async function main(){await setup();
  const walletBefore=JSON.stringify(await q('SELECT * FROM wallet_accounts ORDER BY id'));
+ await test('new products default unpublished; independent online price is server-authoritative and historically snapshotted',async()=>{
+  const p=await newProduct(5,{publish:false}),created=(await q('SELECT online_visible,online_price FROM pos_business_products WHERE id=$1',[p]))[0];assert.deepEqual(created,{online_visible:false,online_price:null});
+  await reject(()=>core.publicProduct(pub({}, {params:{slug:'synthetic-store',productId:p}})),'PRODUCT_NOT_FOUND');
+  await core.onlineProduct({...req({online_visible:true,online_price:2500}),params:{businessId:biz,productId:p}});
+  const order=await core.checkout(pub(body(p)));assert.equal(order.merchandise_total,'2500');assert.equal(order.items[0].unit_price,'2500');
+  await core.onlineProduct({...req({online_visible:true,online_price:3000}),params:{businessId:biz,productId:p}});
+  assert.equal((await core.publicProduct(pub({}, {params:{slug:'synthetic-store',productId:p}}))).selling_price,'3000');
+  assert.equal((await core.publicOrder(pub({}, {params:{slug:'synthetic-store',orderId:order.id},headers:{'x-order-access':body().order_access}})).catch(()=>null)),null);
+  assert.equal((await q('SELECT unit_price FROM pos_online_order_lines WHERE order_id=$1',[order.id]))[0].unit_price,'2500');
+  await transition(order,'CANCELLED',{reason:'Synthetic snapshot cleanup'});
+  await core.onlineProduct({...req({online_visible:false,online_price:3000}),params:{businessId:biz,productId:p}});
+  await reject(()=>core.checkout(pub(body(p))),'PRODUCT_NOT_FOUND');
+ });
  await test('branded public projection, categories/search/featured, no private fields',async()=>{
-  await core.onlineProduct({...req({online_visible:true,online_featured:true,online_sort:1,category:'Synthetic category',online_description:'Searchable safe description',online_long_description:'Synthetic detail',image_url:'https://example.com/product.png'}),params:{businessId:biz,productId:product}});
+  await core.onlineProduct({...req({online_visible:true,online_price:2000,online_featured:true,online_sort:1,category:'Synthetic category',online_description:'Searchable safe description',online_long_description:'Synthetic detail',image_url:'https://example.com/product.png'}),params:{businessId:biz,productId:product}});
   const r=await core.storefront(pub({}, {query:{search:'searchable',category:'Synthetic category',featured:'true'}}));assert.equal(r.store.name,'Synthetic Branded Store');assert.equal(r.products.length,1);assert.equal(r.products[0].id,product);
   const s=JSON.stringify(r);for(const k of ['tenant_id','unit_cost','cogs','supplier','password_hash','token_hash','wallet_account','permissions','user_id','on_hand','reserved'])assert.ok(!s.includes(k));
   assert.ok(r.categories.includes('Synthetic category'));assert.equal(r.store.phone,'000000000000');
@@ -158,6 +178,15 @@ async function main(){await setup();
  await test('merchant permissions and cross-business/order/privacy boundaries',async()=>{
   await reject(()=>core.orders(req({},cashier)),'MERCHANT_PERMISSION_DENIED');await reject(()=>core.storeProfile(req(profile(),cashier)),'MERCHANT_PERMISSION_DENIED');
   await reject(()=>core.customerAccess(req({customer_id:customer,identity_verified:true},cashier)),'MERCHANT_PERMISSION_DENIED');
+  const cashierId=(await q("SELECT id FROM pos_merchant_users WHERE login='cashier'"))[0].id;
+  try{
+   await db.query("UPDATE pos_merchant_memberships SET permissions=ARRAY['__EFFECTIVE_V1__','PRODUCT_MANAGE'] WHERE business_id=$1 AND user_id=$2",[biz,cashierId]);
+   await reject(()=>core.onlineProduct({...req({online_visible:false},cashier),params:{businessId:biz,productId:product}}),'MERCHANT_PERMISSION_DENIED');
+   await db.query("UPDATE pos_merchant_memberships SET permissions=ARRAY['__EFFECTIVE_V1__','ONLINE_STORE_MANAGE'] WHERE business_id=$1 AND user_id=$2",[biz,cashierId]);
+   await reject(()=>core.onlineProduct({...req({online_visible:false},cashier),params:{businessId:biz,productId:product}}),'MERCHANT_PERMISSION_DENIED');
+   await db.query("UPDATE pos_merchant_memberships SET permissions=ARRAY['__EFFECTIVE_V1__','ONLINE_STORE_MANAGE','PRODUCT_MANAGE'] WHERE business_id=$1 AND user_id=$2",[biz,cashierId]);
+   assert.equal((await core.onlineProduct({...req({online_visible:true,online_price:2000},cashier),params:{businessId:biz,productId:product}})).online_visible,true);
+  }finally{await db.query("UPDATE pos_merchant_memberships SET permissions='{}' WHERE business_id=$1 AND user_id=$2",[biz,cashierId]);}
   const o=await core.checkout(pub(body()));await reject(()=>core.orderDetail({...req({},token,other),params:{businessId:other,orderId:o.id}}),'ORDER_NOT_FOUND');
   await reject(()=>core.orders(req({},'tenant-admin-jwt')),'MERCHANT_AUTH_REQUIRED');await reject(()=>core.transition({...req({status:'CONFIRMED'},cashier),params:{businessId:biz,orderId:o.id}}),'MERCHANT_PERMISSION_DENIED');await transition(o,'CANCELLED',{reason:'Synthetic cleanup'});
  });
@@ -219,7 +248,7 @@ async function main(){await setup();
    GRANT UPDATE(attempts,started_at) ON pos_online_request_limits TO ${role};
    GRANT UPDATE(status,payment_state,sale_id,shipping_operation_id,shipping_refund_id,courier,tracking,updated_at,shipped_at) ON pos_online_orders TO ${role};
    GRANT UPDATE(display_name,storefront_slug,storefront_enabled,logo_url,banner_url,brand_color,description,address,phone,public_phone,hours_text,storefront_footer,shipping_charge,reservation_minutes,payment_instructions) ON pos_businesses TO ${role};
-   GRANT UPDATE(online_visible,online_description,online_long_description,online_featured,online_sort,image_url,category) ON pos_business_products TO ${role};`);
+   GRANT UPDATE(online_visible,online_price,online_description,online_long_description,online_featured,online_sort,image_url,category) ON pos_business_products TO ${role};`);
   const runtime=new Pool({host:'127.0.0.1',port:55439,user:role,database:'pos_business_v2_test'});
   try{const svc=createPosBusinessService({db:runtime});await svc.storeSettings(req());await svc.storeProfile(req(profile()));
    await svc.onlineProduct({...req({online_visible:true,online_description:'Runtime verified'}),params:{businessId:biz,productId:product}});

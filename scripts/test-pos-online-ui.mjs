@@ -16,5 +16,7 @@ assert.ok(!source.includes('DOMPET_SANTRI'));assert.ok(!source.includes('console
 const css=fs.readFileSync(new URL('../frontend/src/pos-store/storefront.css',import.meta.url),'utf8');assert.ok(css.includes('@media(max-width:700px)'));assert.ok(css.includes('minmax(0,1fr)'));
 const merchant=fs.readFileSync(new URL('../frontend/src/pos-store/MerchantStorePage.jsx',import.meta.url),'utf8');for(const text of ['orders.manage','returns.post','payment_confirmed','refund_confirmed','paymentContext','storefront_slug'])assert.ok(merchant.includes(text));
 console.log('PASS actual storefront/merchant UI source contracts: scoped cart/search/detail/checkout/order timeline, payment confirmation and role-driven management');
-const app=fs.readFileSync(new URL('../frontend/src/App.jsx',import.meta.url),'utf8');assert.ok(app.includes('import.meta.env.DEV && <>'));assert.ok(app.includes('/store/:slug/orders/:orderId'));
-console.log('PASS local route composition remains DEV-only; no production API fallback');
+const app=fs.readFileSync(new URL('../frontend/src/App.jsx',import.meta.url),'utf8');assert.ok(app.includes('/store/:slug/orders/:orderId'));assert.ok(app.indexOf('<Route path="/store/:slug"')<app.indexOf('{import.meta.env.DEV && <>'));
+const api=fs.readFileSync(new URL('../frontend/src/pos-store/storeApi.js',import.meta.url),'utf8');assert.ok(api.includes('API_BASE_URL'));assert.ok(!api.includes('LOCAL_STORE_ONLY'));assert.ok(!api.includes('127.0.0.1:55440'));
+const server=fs.readFileSync(new URL('../server.js',import.meta.url),'utf8');assert.ok(server.includes("app.use('/store-api'"));
+console.log('PASS public storefront route/API composition is environment-aware; merchant review routes remain DEV-only');

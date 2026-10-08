@@ -55,6 +55,7 @@ async function setup() {
     assert.equal((await query('SELECT count(*) count FROM tenants'))[0].count, '2');
     await db.query(up);
   });
+  await db.query(fs.readFileSync(path.join(__dirname, '../migrations/102_pos_online_product_pricing.sql'), 'utf8'));
   const pHash = await bcrypt.hash(password, 12);
   for (const [id, login] of [[owner, 'owner'], [cashier, 'cashier'], [supervisor, 'supervisor'], [otherOwner, 'other-owner']])
     await db.query('INSERT INTO pos_merchant_users(id,login,name,password_hash) VALUES($1,$2,$2,$3)', [id, login, pHash]);

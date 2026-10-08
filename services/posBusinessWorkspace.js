@@ -23,7 +23,7 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
       };
       if (sales) {
         out.sales_today = (await c.query(`SELECT count(*) transactions,coalesce(sum(total),0) sales,
-          CASE WHEN count(*)=0 THEN 0 ELSE coalesce(sum(total),0)/count(*) END average_ticket
+          CASE WHEN count(*)=0 THEN 0 ELSE trunc(coalesce(sum(total),0)/count(*))::bigint END average_ticket
           FROM pos_business_operations WHERE business_id=$1 AND kind='SALE'
           AND (created_at AT TIME ZONE $2)::date=(now() AT TIME ZONE $2)::date`, [a.business, a.member.timezone])).rows[0];
         out.sales_mix = (await c.query(`SELECT coalesce(sum(total) FILTER(WHERE channel='POS'),0) pos,
@@ -215,7 +215,7 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
 
   async function paymentAccounts(req) {
     return run(req, null, async (c, a) => {
-      const allowed = ['PURCHASE_CREATE','AP_PAY','AR_COLLECT','EXPENSE_CREATE','OTHER_INCOME_CREATE','TRANSFER_CREATE','CAPITAL_MANAGE','PRIVE_MANAGE','ONLINE_ORDER_MANAGE']
+      const allowed = ['SALE_CREATE','PURCHASE_CREATE','AP_PAY','AR_COLLECT','EXPENSE_CREATE','OTHER_INCOME_CREATE','TRANSFER_CREATE','CAPITAL_MANAGE','PRIVE_MANAGE','ONLINE_ORDER_MANAGE']
         .some(permission => permitted(a, permission));
       if (!allowed) bad('MERCHANT_PERMISSION_DENIED', 403);
       return (await c.query(`SELECT id,name,kind FROM pos_business_accounts

@@ -225,7 +225,7 @@ async function main() {
     await rejects(() => core.closeShift(req({ shift_id: shift.id, actual_cash: 100 }, cashierToken)), 'SHIFT_DENIED');
   });
   await test('cash sale uses server price/FIFO and persists branded receipt snapshot', async () => {
-    const b = { shift_id: shift.id, items: [{ product_id: product, quantity: 2, price: 1 }], total: 2,
+    const b = { shift_id: shift.id, discount: '0', items: [{ product_id: product, quantity: 2, price: 1 }], total: 2,
       payments: [{ method: 'CASH', account_id: account, amount: 8000, tendered: 10000 }], request_id: key() };
     const sale = await core.sale(req(b)); assert.equal(sale.sale.total, '8000');
     assert.equal(sale.payments[0].change, '2000'); assert.equal((await core.sale(req(b))).replay, true);

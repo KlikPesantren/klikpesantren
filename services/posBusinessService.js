@@ -404,7 +404,8 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
         return parsed;
       });
       if (new Set(payments.map(p => p.method)).size !== payments.length) bad('DUPLICATE_PAYMENT_METHOD');
-      const f = { items, payments, discount: amount(b.discount || 0), reason: b.discount ? text(b.discount_reason, 500) : null,
+      const discount=amount(b.discount || 0);
+      const f = { items, payments, discount, reason: discount > 0n ? text(b.discount_reason, 500) : null,
         party: b.customer_id ? uuid(b.customer_id) : null, due: payments.some(p => p.method === 'CREDIT') ? dueDate(b.due_date) : null,
         shift: b.shift_id ? uuid(b.shift_id) : null, channel: online ? 'ONLINE' : 'POS' };
       if (!online && !f.shift) bad('INVALID_ID');

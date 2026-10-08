@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Linking, Modal, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Linking, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
+import Constants from "expo-constants";
 import { makeApi } from "./api";
 import { Badge, Button, Card, Chip, Empty, Field, Icon, Money, Row, colors, s } from "./ui";
 const { createVault } = require("./vault.cjs");
@@ -12,7 +13,14 @@ const { rupiah } = require("./domain.cjs");
 const validMoney = value => /^(0|[1-9]\d*)$/.test(String(value ?? ""));
 const moneyValue = value => validMoney(value) ? BigInt(String(value)) : 0n;
 
-const vault = createVault(SecureStore);
+const devWebItems = new Map();
+const devWebStore = {
+  getItemAsync: async key => devWebItems.get(key) ?? null,
+  setItemAsync: async (key, value) => { devWebItems.set(key, value); },
+  deleteItemAsync: async key => { devWebItems.delete(key); },
+};
+const vaultStore = Platform.OS === "web" && Constants.expoConfig.extra.posEnvironment === "development" ? devWebStore : SecureStore;
+const vault = createVault(vaultStore);
 const LOADERS = {
   BERANDA: [["workspace", "/workspace"]],
   KASIR: [["workspace", "/workspace"], ["products", "/products", "PRODUCT_VIEW"], ["drawers", "/cash-drawers", "SHIFT_OPEN"], ["accounts", "/payment-accounts", "SALE_CREATE"], ["customers", "/parties?kind=CUSTOMER", "CUSTOMER_VIEW"]],
@@ -132,7 +140,7 @@ export default function MerchantBusinessApp() {
     });
   }
   async function submit(path, body, message, next = module) {
-    await run(async () => {
+    return run(async () => {
       const result = await api(`/pos-business/${businessId}${path}`, { method: "POST", body });
       setNotice(message); await refresh(next); return result;
     });
@@ -223,7 +231,7 @@ function Cashier({ data, context, can, submit }) {
   const invalid=!validMoney(discount)||total<=0n||paymentTotal!==total||payments.some(p=>!validMoney(p.amount)||moneyValue(p.amount)<=0n||p.method==="CASH"&&p.tendered&&!validMoney(p.tendered)||p.method==="DOMPET_SANTRI"&&(!p.credential||!context.units.length)||["BANK","QRIS"].includes(p.method)&&(!p.account_id||!p.reference)||p.method==="CREDIT"&&(!customerId||!dueDate));
   return <><Card title="Keranjang"><Row label="Item" value={cart.reduce((n,i)=>n+i.quantity,0)}/>{cart.map(i=><View key={i.id} style={s.cartItem}><Row label={i.name} value={rupiah(BigInt(i.selling_price)*BigInt(i.quantity))}/><View style={s.row}><Chip label="−" onPress={()=>quantity(i.id,-1)}/><Text style={s.text}>{i.quantity}</Text><Chip label="+" onPress={()=>quantity(i.id,1)}/><Chip label="Hapus" onPress={()=>quantity(i.id,-i.quantity)}/></View></View>)}
     {can("SALE_DISCOUNT")&&<><Field label="Diskon" numeric value={discount} onChangeText={setDiscount}/>{discountValue>0n&&<Field label="Alasan diskon" value={discountReason} onChangeText={setDiscountReason}/>}</>}<Row label="Subtotal" value={rupiah(subtotal)}/><Money value={rupiah(total)}/><SelectRows title="Customer opsional" rows={data.customers||[]} selected={customerId} label={x=>x.name} onSelect={setCustomerId}/>
-    {customerId&&<Button title="Tanpa Customer" secondary onPress={()=>setCustomerId("")}/>}<Text style={s.heading}>Pembayaran</Text>{payments.map((payment,index)=><Card key={index} title={payments.length>1?`Pembayaran ${index+1}`:undefined}><Choice options={methods.filter(m=>!payments.some((p,i)=>i!==index&&p.method===m)).map(m=>[m,m.replaceAll("_"," ")])} value={payment.method} onChange={method=>updatePayment(index,{...blankPayment(),method})}/><Field label="Nominal" numeric value={payment.amount} onChangeText={amount=>updatePayment(index,{amount})}/>{payment.method==="CASH"&&<Field label="Uang diterima" numeric value={payment.tendered} onChangeText={tendered=>updatePayment(index,{tendered})}/>} {["BANK","QRIS"].includes(payment.method)&&<><SelectRows title="Akun penerimaan" rows={accounts.filter(a=>a.kind===payment.method)} selected={payment.account_id} label={x=>x.name} onSelect={account_id=>updatePayment(index,{account_id})}/><Field label="Referensi pembayaran" value={payment.reference} onChangeText={reference=>updatePayment(index,{reference})}/></>}{payment.method==="DOMPET_SANTRI"&&<><Text style={s.muted}>Pembaca fisik belum terhubung ke aplikasi ini. Masukkan credential Dompet yang diberikan operator secara online.</Text><Field label="Kode credential Dompet" value={payment.credential} onChangeText={credential=>updatePayment(index,{credential})}/></>}{payment.method==="CREDIT"&&<Field label="Jatuh tempo YYYY-MM-DD" value={dueDate} onChangeText={setDueDate}/>} {payments.length>1&&<Button title="Hapus Pembayaran" secondary onPress={()=>setPayments(rows=>rows.filter((_,i)=>i!==index))}/>}</Card>)}
+    {customerId&&<Button title="Tanpa Customer" secondary onPress={()=>setCustomerId("")}/>}<Text style={s.heading}>Pembayaran</Text>{payments.map((payment,index)=><Card key={index} title={payments.length>1?`Pembayaran ${index+1}`:undefined}><Choice options={methods.filter(m=>!payments.some((p,i)=>i!==index&&p.method===m)).map(m=>[m,m.replaceAll("_"," ")])} value={payment.method} onChange={method=>updatePayment(index,{...blankPayment(),method})}/><Field label="Nominal" numeric value={payment.amount} onChangeText={amount=>updatePayment(index,{amount})}/>{payment.method==="CASH"&&<Field label="Uang diterima" numeric value={payment.tendered} onChangeText={tendered=>updatePayment(index,{tendered})}/>}{["BANK","QRIS"].includes(payment.method)&&<><SelectRows title="Akun penerimaan" rows={accounts.filter(a=>a.kind===payment.method)} selected={payment.account_id} label={x=>x.name} onSelect={account_id=>updatePayment(index,{account_id})}/><Field label="Referensi pembayaran" value={payment.reference} onChangeText={reference=>updatePayment(index,{reference})}/></>}{payment.method==="DOMPET_SANTRI"&&<><Text style={s.muted}>Pembaca fisik belum terhubung ke aplikasi ini. Masukkan credential Dompet yang diberikan operator secara online.</Text><Field label="Kode credential Dompet" value={payment.credential} onChangeText={credential=>updatePayment(index,{credential})}/></>}{payment.method==="CREDIT"&&<Field label="Jatuh tempo YYYY-MM-DD" value={dueDate} onChangeText={setDueDate}/>}{payments.length>1&&<Button title="Hapus Pembayaran" secondary onPress={()=>setPayments(rows=>rows.filter((_,i)=>i!==index))}/>}</Card>)}
     {payments.length<5&&methods.some(m=>!payments.some(p=>p.method===m))&&<Button title="Tambah Split Payment" secondary onPress={()=>setPayments(rows=>[...rows,{...blankPayment(),method:methods.find(m=>!rows.some(p=>p.method===m))}])}/>}<Row label="Total pembayaran" value={rupiah(paymentTotal)}/>
     <Button title="Simpan Penjualan" disabled={!cart.length||invalid||discountValue>0n&&!discountReason} onPress={()=>submit("/sales",{request_id:Crypto.randomUUID(),shift_id:shift.id,customer_id:customerId||undefined,due_date:payments.some(p=>p.method==="CREDIT")?dueDate:undefined,discount,discount_reason:discountValue>0n?discountReason:undefined,items:cart.map(i=>({product_id:i.id,quantity:i.quantity})),payments:payments.map(paymentPayload)},"Penjualan tersimpan.","KASIR").then(result=>{if(result){setReceipt(result);setCart([]);setPayments([blankPayment()]);setCustomerId("");setDueDate("");setDiscount("0");setDiscountReason("");}})}/></Card>
     <Card title="Cari Produk"><Field label="Nama, SKU, atau barcode" value={search} onChangeText={setSearch}/></Card><Text style={s.heading}>Produk</Text>{products.map(p=><Pressable key={p.id} style={s.choice} onPress={()=>add(p)}><View style={s.flex}><Text style={s.heading}>{p.name}</Text><Text style={s.muted}>Tersedia {p.available??p.on_hand}</Text></View><Text style={s.price}>{rupiah(p.selling_price)}</Text></Pressable>)}</>;
@@ -240,7 +248,7 @@ function Receipt({ value, onDone }) {
     <Card title={brand.name||"Struk Penjualan"}><Row label="Nomor struk" value={brand.receipt||value.sale?.id}/><Row label="Waktu" value={new Date(value.sale?.created_at).toLocaleString("id-ID")}/><Row label="Kasir" value={brand.cashier_name}/><Row label="Customer" value={value.sale?.party_id||"Customer Umum"}/>
       {(value.items||[]).map(item=><View key={item.product_id} style={s.cartItem}><Row label={`${item.quantity} × ${item.name}`} value={rupiah(item.total)}/>{BigInt(item.discount||0)>0n&&<Row label="Diskon" value={rupiah(item.discount)}/>}</View>)}
       {(value.payments||[]).map(payment=><Row key={payment.method} label={payment.label||payment.method} value={rupiah(payment.amount)}/>)}
-      <Text style={s.muted}>{brand.footer}</Text><Text style={s.muted}>Powered by KlikPesantren</Text></Card><Button title="Transaksi Baru" onPress={onDone}/></>;
+      <Text style={s.muted}>{brand.footer || "Powered by KlikPesantren"}</Text></Card><Button title="Transaksi Baru" onPress={onDone}/></>;
 }
 function Shifts({ data, submit }) {
   const [actual,setActual]=useState(""),open=data.workspace?.open_shift;

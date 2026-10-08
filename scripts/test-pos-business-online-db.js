@@ -161,6 +161,17 @@ async function main(){await setup();
   const o=await core.checkout(pub(body()));await reject(()=>core.orderDetail({...req({},token,other),params:{businessId:other,orderId:o.id}}),'ORDER_NOT_FOUND');
   await reject(()=>core.orders(req({},'tenant-admin-jwt')),'MERCHANT_AUTH_REQUIRED');await reject(()=>core.transition({...req({status:'CONFIRMED'},cashier),params:{businessId:biz,orderId:o.id}}),'MERCHANT_PERMISSION_DENIED');await transition(o,'CANCELLED',{reason:'Synthetic cleanup'});
  });
+ await test('online report requires canonical REPORT_ONLINE rather than generic profit permission',async()=>{
+  const cashierId=(await q("SELECT id FROM pos_merchant_users WHERE login='cashier'"))[0].id;
+  try{
+   await db.query("UPDATE pos_merchant_memberships SET permissions=ARRAY['__EFFECTIVE_V1__','REPORT_ONLINE'] WHERE business_id=$1 AND user_id=$2",[biz,cashierId]);
+   assert.ok((await core.onlineReport(req({},cashier))).order_count>=0);
+   await db.query("UPDATE pos_merchant_memberships SET permissions=ARRAY['__EFFECTIVE_V1__','REPORT_PROFIT'] WHERE business_id=$1 AND user_id=$2",[biz,cashierId]);
+   await reject(()=>core.onlineReport(req({},cashier)),'MERCHANT_PERMISSION_DENIED');
+  }finally{
+   await db.query("UPDATE pos_merchant_memberships SET permissions='{}' WHERE business_id=$1 AND user_id=$2",[biz,cashierId]);
+  }
+ });
  await test('public HTTP/local application: actual safe routes, auth/no-store, no credential logs',async()=>{
   const {app}=await createLocalPosApp(db);server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});const base=`http://127.0.0.1:${server.address().port}`,logs=[],old=console.error;console.error=(...x)=>logs.push(x);
   try{assert.equal((await fetch(base+'/store-api/synthetic-store')).status,200);assert.equal((await fetch(base+'/pos-business/'+biz+'/orders')).status,401);

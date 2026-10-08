@@ -201,7 +201,7 @@ function createBusinessOnline(h){
    await event(c,o,target,a.user,optional(b.reason,500));await afterStage('online-transition');return project(c,updated,true);
   });
  }
- const onlineReport=req=>run(req,'reports.read',async(c,a)=>{
+ const onlineReport=req=>run(req,'REPORT_ONLINE',async(c,a)=>{
   const from=req.query.from||'1970-01-01',to=req.query.to||'9999-12-31';if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||to<from)bad('INVALID_PERIOD');
   const statuses=(await c.query("SELECT status,count(*) count FROM pos_online_orders WHERE business_id=$1 AND (created_at AT TIME ZONE $4)::date BETWEEN $2 AND $3 GROUP BY status",[a.business,from,to,a.member.timezone])).rows;
   const channels=(await c.query(`SELECT channel,count(*) FILTER(WHERE kind='SALE') sale_count,coalesce(sum(total) FILTER(WHERE kind='SALE'),0) gross,

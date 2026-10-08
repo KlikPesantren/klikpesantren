@@ -1,12 +1,17 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const root=path.join(__dirname,'..'),read=p=>fs.readFileSync(path.join(root,p),'utf8');
 const app=read('pos-app/App.js'),merchant=read('pos-app/src/MerchantBusinessApp.jsx'),access=read('pos-app/src/merchantAccess.cjs');
+const review=read('pos-app/src/ReviewMerchantApp.jsx');
 const api=read('pos-app/src/api.js'),vault=read('pos-app/src/vault.cjs'),parser=require('../pos-app/node_modules/@babel/parser');
 for(const source of [app,merchant,read('pos-app/src/ui.js')]){
  const ast=parser.parse(source,{sourceType:'module',plugins:['jsx']});
  (function visit(node,parent){if(!node||typeof node!=='object')return;if(node.type==='JSXText'&&node.value.trim())assert.equal(parent?.openingElement?.name?.name,'Text',`Native literal outside Text: ${node.value.trim().slice(0,30)}`);for(const [key,value] of Object.entries(node)){if(['loc','start','end','extra'].includes(key))continue;if(Array.isArray(value))value.forEach(item=>visit(item,node));else if(value&&typeof value==='object')visit(value,node);}})(ast,null);
 }
 assert(app.includes('MerchantBusinessApp'));
+assert(app.includes('posEnvironment === "acceptance"'));
+assert(!app.includes('__DEV__'));
+assert(review.includes('MODE DEMO / REVIEW'));
+assert(review.includes('Seluruh data sintetis'));
 assert(merchant.includes('/pos-business/login'));
 assert(merchant.includes('/pos-business/memberships'));
 assert(merchant.includes('merchant-session'));

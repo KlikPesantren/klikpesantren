@@ -45,10 +45,10 @@ test("review states empty, offline, error and closed shift are deterministic", a
   assert.equal(adapter.summary().shift, null);
   assert.throws(() => adapter.setState("unknown-state"));
 });
-test("review requires both development runtime and explicit opt-in; production rejects opt-in", () => {
+test("review requires acceptance runtime and explicit opt-in; production rejects opt-in", () => {
   const app = fs.readFileSync(path.join(__dirname, "../App.js"), "utf8");
-  assert.match(app, /__DEV__\s*&&/);
-  assert.match(app, /posEnvironment\s*===\s*["']development["']/);
+  assert.doesNotMatch(app, /__DEV__/);
+  assert.match(app, /posEnvironment\s*===\s*["']acceptance["']/);
   assert.match(app, /posReview\s*===\s*true/);
   const previous = {
     POS_ENV: process.env.POS_ENV,
@@ -70,4 +70,10 @@ test("review requires both development runtime and explicit opt-in; production r
     }
     delete require.cache[configPath];
   }
+});
+test("acceptance review visibly labels synthetic mode and covers owner supervisor cashier modules", () => {
+  const review = fs.readFileSync(path.join(__dirname, "../src/ReviewMerchantApp.jsx"), "utf8");
+  for (const label of ["MODE DEMO / REVIEW","OWNER","SUPERVISOR","CASHIER","PRODUK","STOK","CUSTOMER","SUPPLIER","PEMBELIAN","UTANG","PIUTANG","KEUANGAN","LAPORAN","TOKO ONLINE","PENGGUNA","PENGATURAN"])
+    assert.ok(review.includes(label), `missing review label ${label}`);
+  assert.match(review, /Seluruh data sintetis/);
 });

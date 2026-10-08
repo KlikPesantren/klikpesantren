@@ -5,8 +5,8 @@ import MerchantBusinessApp from "./src/MerchantBusinessApp";
 import ReviewMerchantApp from "./src/ReviewMerchantApp";
 
 export default function App() {
-  const reviewEnabled = __DEV__ &&
-    Constants.expoConfig.extra.posEnvironment === "development" &&
+  const reviewEnabled =
+    Constants.expoConfig.extra.posEnvironment === "acceptance" &&
     Constants.expoConfig.extra.posReview === true;
   return (
     <SafeAreaProvider>

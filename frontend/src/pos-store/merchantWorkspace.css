@@ -1,4 +1,4 @@
-.merchant-app{min-height:100vh;background:#f6f8f7;color:#17211b;display:grid;grid-template-columns:260px 1fr;font-family:Inter,system-ui,sans-serif}
+.merchant-app{min-height:100vh;background:#f6f8f7;color:#17211b;display:grid;grid-template-columns:260px 1fr;font-family:''Plus Jakarta Sans'',system-ui,sans-serif}
 .merchant-sidebar{background:#123c27;color:#fff;padding:28px 20px;display:flex;flex-direction:column;gap:28px}
 .merchant-sidebar nav{display:grid;gap:5px}
 .merchant-sidebar button{border:0;background:transparent;color:#dcebe2;padding:11px 13px;text-align:left;border-radius:10px}
@@ -6,7 +6,7 @@
 .merchant-sidebar .muted{margin-top:auto}
 .merchant-content{padding:32px;min-width:0}
 .merchant-content>header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
-.eyebrow{text-transform:uppercase;letter-spacing:.11em;font-size:.72rem;font-weight:800;color:#5d7667}
+.eyebrow{text-transform:uppercase;letter-spacing:.08em;font-size:.72rem;font-weight:600;color:#5d7667}
 .merchant-sidebar .eyebrow{color:#a9d2b9}
 .merchant-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px}
 .merchant-card,.merchant-panel{background:#fff;border:1px solid #dfe7e2;border-radius:16px;padding:18px;box-shadow:0 5px 18px #2446310d}
@@ -29,7 +29,7 @@
 .merchant-login .merchant-card{max-width:520px;width:min(90%,520px)}
 .permission-editor{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:18px 0}
 .permission-editor fieldset{border:1px solid #dfe7e2;border-radius:12px;padding:12px;display:grid;gap:8px}
-.permission-editor legend{padding:0 6px;font-size:.78rem;font-weight:800;color:#476153}
+.permission-editor legend{padding:0 6px;font-size:.78rem;font-weight:600;color:#476153}
 .permission-editor label{display:flex;grid-template-columns:none;align-items:flex-start;gap:8px;font-weight:500}
 .permission-editor input{margin-top:2px}
 .merchant-actions{display:flex;gap:10px;flex-wrap:wrap}

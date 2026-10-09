@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Linking, Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Linking, Modal, Platform, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";
 import Constants from "expo-constants";
 import { makeApi } from "./api";
 import { Artwork, Badge, Button, Card, Chip, Empty, Field, Icon, Money, Row, colors, s } from "./ui";
+import { AppText as Text } from "./typography";
 const { createVault } = require("./vault.cjs");
 const { GROUPS, DEFAULTS, navigationItems, can } = require("./merchantAccess.cjs");
 const { rupiah } = require("./domain.cjs");

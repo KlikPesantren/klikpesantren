@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Badge, Card, Chip, Empty, Money, ReviewTools, Row, s } from "./ui";
+import { AppText as Text } from "./typography";
 const { createReviewAdapter } = require("./reviewFixtures.cjs");
 const adapter = createReviewAdapter();
 

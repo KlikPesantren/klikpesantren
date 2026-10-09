@@ -33,7 +33,7 @@ const env = {
 };
 test("standalone acceptance identity and profile are isolated; no real API or production flag", () => {
   const c = config(env);
-  assert.equal(c.name, "POS KlikPesantren");
+  assert.equal(c.name, "Suq Shogir");
   assert.equal(c.android.package, "com.klikpesantren.pos");
   assert.equal(c.extra.apiUrl, env.EXPO_PUBLIC_POS_API_URL);
   assert.throws(() => config({ ...env, POS_ENV: "production" }));

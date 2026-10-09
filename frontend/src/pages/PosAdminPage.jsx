@@ -9,14 +9,14 @@ import AppShell from '../layouts/AppShell';
 import KpiCard from '../components/ui/KpiCard';
 import KpiGrid from '../components/ui/KpiGrid';
 import '../styles/posAdmin.css';
-const titles={dashboard:'Dashboard',transactions:'Transaksi',products:'Produk',categories:'Kategori',merchants:'Merchant','business-v2':'Business V2',cashiers:'Kasir',shifts:'Shift',refunds:'Refund / Void',reconciliation:'Rekonsiliasi',settings:'Pengaturan'};
+const titles={dashboard:'Dashboard',transactions:'Transaksi',products:'Produk',categories:'Kategori',merchants:'Merchant','business-v2':'Toko & Kantin',cashiers:'Kasir',shifts:'Shift',refunds:'Refund / Void',reconciliation:'Rekonsiliasi',settings:'Pengaturan'};
 const col=(key,label,money=false)=>({key,label,money});
 const date=value=>value?new Date(value).toLocaleString('id-ID'):'—';
 const readable=(key,label)=>({key,label,render:row=>date(row[key])});
 const managementSections=['products','categories','merchants','cashiers'];
 export default function PosAdminPage(){
  const {section='dashboard'}=useParams(),{activeUnitId,allUnitsAllowed,loading,error}=useActiveUnit();
- return <AppShell title={`POS Kantin · ${titles[section]||'Halaman tidak ditemukan'}`} breadcrumb="POS Kantin" description="Konfigurasi dan monitoring. Bukan layar penjualan kasir.">
+ return <AppShell title={`Suq Shogir · ${titles[section]||'Halaman tidak ditemukan'}`} breadcrumb="Suq Shogir" description="Pengelolaan toko dan kantin dalam platform KlikPesantren.">
   <div className="pos-admin"><Feedback loading={loading} error={error}/>{!loading&&!error&&titles[section]&&(activeUnitId||allUnitsAllowed)?<Workspace key={`${section}:${activeUnitId||'all'}`} section={section} unitId={activeUnitId}/>:!loading&&!error&&<p>Pilih unit yang valid untuk membuka POS.</p>}</div>
  </AppShell>;
 }
@@ -51,7 +51,32 @@ function Workspace({section,unitId}){
   </>}
  </>;
 }
-function BusinessV2({data,unitId,onSaved}){const [show,setShow]=useState(false),[form,setForm]=useState({ownership:'EXTERNAL',timezone:'Asia/Jakarta',receipt_prefix:'POS'}),mutation=usePosMutation(()=>{setShow(false);onSaved();});const set=(k,v)=>setForm({...form,[k]:v});return <><section className="pos-panel"><h3>Business V2 · control plane</h3><p>{data?.privacy}</p><button className="pos-primary" disabled={!unitId||!hasPermission('pos.config.manage')} onClick={()=>setShow(!show)}>Onboarding merchant</button>{show&&<form className="pos-form" onSubmit={e=>{e.preventDefault();mutation.mutate('post','/pos/admin/businesses-v2',{...form,unit_id:unitId});}}>{['display_name','legal_name','address','phone','receipt_prefix','owner_name','owner_login','owner_password','cash_account_name','terminal_name'].map(k=><Text key={k} label={k.replaceAll('_',' ')} type={k==='owner_password'?'password':'text'} value={form[k]||''} onChange={v=>set(k,v)} required={['display_name','owner_name','owner_login','owner_password'].includes(k)}/>)}<Choice label="Kepemilikan" value={form.ownership} onChange={v=>set('ownership',v)} options={[{id:'INTERNAL',name:'Unit Usaha Internal'},{id:'EXTERNAL',name:'Merchant Eksternal'}]}/><button className="pos-primary" disabled={mutation.busy}>Buat business & owner</button></form>}<Feedback {...mutation}/></section><PosTable rows={data?.rows} columns={[["display_name","Business"],["ownership","Kepemilikan"],["units","Unit"],["sales","Omzet",true],["gross_profit","Laba kotor",true],["transactions","Transaksi"],["refunds","Refund",true],["wallet_volume","Dompet Santri",true],["active","Status"]].map(([key,label,isMoney])=>col(key,label,isMoney))}/></>}
+function BusinessV2({data,unitId,onSaved}){
+ const empty=()=>({ownership:'INTERNAL',timezone:'Asia/Jakarta',receipt_prefix:'SUQ',unit_ids:unitId?[Number(unitId)]:[],request_id:crypto.randomUUID()});
+ const [show,setShow]=useState(false),[selected,setSelected]=useState(null),[activation,setActivation]=useState(null),[form,setForm]=useState(empty),mutation=usePosMutation(()=>onSaved());
+ const set=(k,v)=>setForm({...form,[k]:v}),toggleUnit=id=>set('unit_ids',form.unit_ids.includes(Number(id))?form.unit_ids.filter(x=>x!==Number(id)):[...form.unit_ids,Number(id)]);
+ async function create(e){e.preventDefault();const result=await mutation.mutate('post','/pos/admin/businesses-v2',{...form,unit_id:unitId});if(result?.activation_code)setActivation({login:form.owner_login,code:result.activation_code});if(result){setShow(false);setForm(empty());}}
+ return <>
+  <section className="pos-panel"><div className="pos-toolbar"><div><h3>Toko & Kantin</h3><p className="pos-note">Buat usaha internal atau merchant eksternal, tetapkan Owner pertama, dan batasi unit yang dilayani.</p></div><button className="pos-primary" disabled={!unitId||!hasPermission('pos.config.manage')} onClick={()=>setShow(!show)}>Tambah merchant</button></div><p className="pos-note">{data?.privacy}</p>
+   {activation&&<div className="pos-activation" role="status"><strong>Kode aktivasi Owner - tampil sekali</strong><p>ID login: {activation.login}</p><code>{activation.code}</code><p>Bagikan melalui kanal aman. Owner membuat password sendiri; kode kedaluwarsa dalam 48 jam.</p><button type="button" onClick={()=>setActivation(null)}>Saya sudah menyimpan dengan aman</button></div>}
+   {show&&<form className="pos-form pos-merchant-form" onSubmit={create}>
+    <Text label="Nama usaha" value={form.display_name||''} onChange={v=>set('display_name',v)} required/><Choice label="Jenis merchant" value={form.ownership} onChange={v=>set('ownership',v)} options={[{id:'INTERNAL',name:'Internal pesantren'},{id:'EXTERNAL',name:'Eksternal / pihak ketiga'}]}/><Text label="Nama legal (opsional)" value={form.legal_name||''} onChange={v=>set('legal_name',v)}/><Text label="Kontak usaha" value={form.phone||''} onChange={v=>set('phone',v)}/><Text label="Alamat usaha" value={form.address||''} onChange={v=>set('address',v)}/><Text label="Nama Owner pertama" value={form.owner_name||''} onChange={v=>set('owner_name',v)} required/><Text label="ID login Owner" value={form.owner_login||''} onChange={v=>set('owner_login',v)} required/><Text label="Prefix struk" value={form.receipt_prefix||''} onChange={v=>set('receipt_prefix',v)} required/>
+    <fieldset className="pos-unit-grid"><legend>Unit yang dilayani</legend>{(data?.available_units||[]).map(unit=><Check key={unit.id} label={unit.nama} value={form.unit_ids.includes(Number(unit.id))} onChange={()=>toggleUnit(unit.id)}/>)}</fieldset>
+    <div className="pos-toolbar"><button className="pos-primary" disabled={mutation.busy||!form.display_name||!form.owner_name||!form.owner_login||!form.unit_ids.length}>Buat merchant & Owner</button><button type="button" onClick={()=>setShow(false)}>Batal</button></div>
+   </form>}<Feedback {...mutation}/>
+  </section>
+  <PosTable rows={data?.rows} columns={[["display_name","Merchant"],["ownership","Jenis"],["units","Unit layanan"],["activation_pending","Aktivasi Owner"],["active","Status"],["integration_enabled","Integrasi"],["wallet_enabled","Dompet"],["storefront_enabled","Toko online"]].map(([key,label])=>col(key,label))} action={row=><button onClick={()=>setSelected(row.id)}>Detail</button>}/>
+  {selected&&<BusinessDetail id={selected} unitId={unitId} onClose={()=>setSelected(null)} onSaved={onSaved}/>}
+ </>;
+}
+function BusinessDetail({id,unitId,onClose,onSaved}){
+ const [revision,setRevision]=useState(0),state=usePosResource(`/pos/admin/businesses-v2/${id}`,{unit_id:unitId},revision),mutation=usePosMutation(()=>{setRevision(x=>x+1);onSaved();}),b=state.data?.business;
+ return <section className="pos-panel"><div className="pos-toolbar"><h3>Detail merchant</h3><button onClick={onClose}>Tutup</button></div><Feedback {...state}/>{b&&<BusinessDetailEditor key={`${b.id}:${revision}`} business={b} audit={state.data.audit} privacy={state.data.privacy} busy={mutation.busy} onSave={form=>mutation.mutate('patch',`/pos/admin/businesses-v2/${id}`,{...form,unit_id:unitId})}/>}<Feedback {...mutation}/></section>;
+}
+function BusinessDetailEditor({business,audit,privacy,busy,onSave}){
+ const [form,setForm]=useState({active:business.active,integration_enabled:business.integration_enabled,wallet_enabled:business.wallet_enabled,storefront_enabled:business.storefront_enabled});
+ return <><dl className="pos-detail"><div><dt>Nama</dt><dd>{business.display_name}</dd></div><div><dt>Jenis</dt><dd>{business.ownership}</dd></div><div><dt>Unit layanan</dt><dd>{business.units}</dd></div><div><dt>Owner</dt><dd>{business.owner_name} ({business.owner_login})</dd></div><div><dt>Aktivasi</dt><dd>{business.activation_pending?'MENUNGGU AKTIVASI':'AKTIF / TIDAK MENUNGGU'}</dd></div></dl><fieldset className="pos-unit-grid"><legend>Status & integrasi</legend>{[['active','Merchant aktif'],['integration_enabled','Integrasi institusi'],['wallet_enabled','Dompet Santri'],['storefront_enabled','Toko online']].map(([key,label])=><Check key={key} label={label} value={form[key]} onChange={value=>setForm({...form,[key]:value})}/>)}</fieldset><button className="pos-primary" disabled={busy} onClick={()=>onSave(form)}>Simpan status</button><h4>Audit</h4><PosTable rows={audit} columns={[col('action','Aksi'),readable('created_at','Waktu')]}/><p className="pos-note">{privacy}</p></>;
+}
 function columns(kind){
  if(kind==='transactions')return [col('receipt','Receipt'),readable('created_at','Waktu'),col('merchant_name','Merchant'),col('unit_name','Unit'),col('cashier_name','Kasir'),col('grand_total','Total',true),col('method','Metode'),col('payment_status','Pembayaran'),col('status','Penjualan')];
  if(kind==='products')return [col('sku','SKU'),col('name','Produk'),col('merchant','Merchant'),col('category_id','Kategori'),col('price','Harga',true),col('active','Aktif'),col('available','Tersedia')];

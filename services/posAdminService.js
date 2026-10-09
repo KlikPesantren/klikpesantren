@@ -8,6 +8,8 @@ const number=(value)=>{if(!/^\d+$/.test(String(value))||!Number.isSafeInteger(Nu
 const name=value=>{const s=String(value??'').trim();if(!s||s.length>100)fail('INVALID_NAME');return s;};
 const bool=value=>{if(typeof value!=='boolean')fail('INVALID_BOOLEAN');return value;};
 const validDate=value=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||Number.isNaN(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value)fail('INVALID_DATE');return value;};
+const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
+const stable=value=>JSON.stringify(value,Object.keys(value).sort());
 
 function createPosAdminService({db=pool,permissionList=permission.getPermissionList}={}) {
  async function access(req,c,key='pos.view',write=false){
@@ -29,6 +31,7 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
   const units=a.mode==='ALL'?(await c.query('SELECT id FROM unit_pendidikan WHERE tenant_id=$1 AND is_active ORDER BY id',[tenantId])).rows.map(u=>u.id):[a.unitId];
   return {tenantId,unitId:a.unitId,units,user};
  }
+ function requireTenantSuperadmin(a){if(a.user.role!=='superadmin')fail('TENANT_SUPERADMIN_REQUIRED',403);}
  async function run(req,key,write,work){const c=await db.connect();try{await c.query(write?'BEGIN':'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');const a=await access(req,c,key,write);const r=await work(c,a);await c.query('COMMIT');return r;}catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}}
  function filter(req,a,alias='s'){
   const q=req.query||{},values=[a.tenantId,a.units],where=[`${alias}.tenant_id=$1`,`${alias}.unit_id=ANY($2::integer[])`];
@@ -163,17 +166,59 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
   if((await c.query('SELECT id FROM pos_shifts WHERE terminal_id=$1 AND tenant_id=$2 LIMIT 1',[d.id,a.tenantId])).rowCount&&Number(d.merchant_id)!==m.id)fail('TERMINAL_HISTORY_PROTECTED',409);
   return (await c.query(`UPDATE devices SET unit_id=$1,merchant_id=$2,pos_enabled=$3,location_resolution_status='resolved' WHERE id=$4 AND tenant_id=$5 RETURNING id,unit_id,merchant_id,pos_enabled`,[a.unitId,m.id,bool(req.body.pos_enabled),d.id,a.tenantId])).rows[0];
  });}
- async function businessesV2(req){return run(req,'pos.view',false,async(c,a)=>{const rows=(await c.query(`SELECT b.id,b.display_name,b.ownership,b.active,b.integration_enabled,b.wallet_enabled,b.storefront_enabled,b.storefront_slug,
-   string_agg(DISTINCT u.nama,', ' ORDER BY u.nama) units,coalesce(x.sales,0) sales,coalesce(x.refunds,0) refunds,coalesce(x.transactions,0) transactions,coalesce(x.gross_profit,0) gross_profit,coalesce(w.wallet_volume,0) wallet_volume
-   FROM pos_businesses b JOIN pos_business_units bu ON bu.business_id=b.id AND bu.tenant_id=b.tenant_id JOIN unit_pendidikan u ON u.id=bu.unit_id AND u.tenant_id=bu.tenant_id
-   LEFT JOIN(SELECT business_id,sum(total) FILTER(WHERE kind='SALE') sales,sum(total) FILTER(WHERE kind='SALE_RETURN') refunds,count(*) FILTER(WHERE kind='SALE') transactions,sum(CASE WHEN kind='SALE' THEN total-(SELECT coalesce(sum(cogs),0) FROM pos_business_lines l WHERE l.operation_id=o.id) WHEN kind='SALE_RETURN' THEN -total+(SELECT coalesce(sum(cogs),0) FROM pos_business_lines l WHERE l.operation_id=o.id) ELSE 0 END) gross_profit FROM pos_business_operations o GROUP BY business_id)x ON x.business_id=b.id
-   LEFT JOIN(SELECT business_id,sum(amount) FILTER(WHERE direction='debit') wallet_volume FROM pos_business_wallet_links GROUP BY business_id)w ON w.business_id=b.id
-   WHERE b.tenant_id=$1 AND bu.unit_id=ANY($2::integer[]) GROUP BY b.id,x.sales,x.refunds,x.transactions,x.gross_profit,w.wallet_volume ORDER BY b.display_name`,[a.tenantId,a.units])).rows;
-  return {rows,privacy:'High-level only for EXTERNAL merchants: no supplier/AP/customer debt/private expense/capital/prive/account ledger.'};});}
- async function onboardBusiness(req){return run(req,'pos.config.manage',true,async(c,a)=>{const b=req.body||{};if(!['INTERNAL','EXTERNAL'].includes(b.ownership))fail('INVALID_OWNERSHIP');const login=String(b.owner_login||'').trim().toLowerCase(),password=String(b.owner_password||'');if(!/^[a-z0-9._@+-]{3,120}$/.test(login)||password.length<12||Buffer.byteLength(password)>72)fail('INVALID_OWNER_CREDENTIAL');const business=crypto.randomUUID(),owner=crypto.randomUUID(),account=crypto.randomUUID(),terminal=crypto.randomUUID();
-  await c.query(`INSERT INTO pos_businesses(id,tenant_id,ownership,display_name,legal_name,address,phone,timezone,receipt_name,receipt_prefix) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$4,$9)`,[business,a.tenantId,b.ownership,name(b.display_name),b.legal_name||null,b.address||null,b.phone||null,b.timezone||'Asia/Jakarta',String(b.receipt_prefix||'POS').toUpperCase()]);
-  await c.query('INSERT INTO pos_business_units(business_id,tenant_id,unit_id) VALUES($1,$2,$3)',[business,a.tenantId,a.unitId]);await c.query('INSERT INTO pos_merchant_users(id,login,name,password_hash) VALUES($1,$2,$3,$4)',[owner,login,name(b.owner_name),await bcrypt.hash(password,12)]);await c.query("INSERT INTO pos_merchant_memberships(business_id,tenant_id,user_id,role) VALUES($1,$2,$3,'OWNER')",[business,a.tenantId,owner]);await c.query("INSERT INTO pos_business_accounts(id,business_id,name,kind) VALUES($1,$2,$3,'CASH')",[account,business,b.cash_account_name||'Kas Utama']);await c.query('INSERT INTO pos_business_terminals(id,business_id,name) VALUES($1,$2,$3)',[terminal,business,b.terminal_name||'Kasir Utama']);return {id:business,owner_id:owner,readiness:'READY'};});}
- async function editBusinessV2(req){return run(req,'pos.config.manage',true,async(c,a)=>{const id=String(req.params.id);if(!/^[0-9a-f-]{36}$/i.test(id))fail('INVALID_ID');const row=(await c.query(`UPDATE pos_businesses b SET active=$1,integration_enabled=$2,wallet_enabled=$3,storefront_enabled=$4 WHERE b.id=$5 AND b.tenant_id=$6 AND EXISTS(SELECT 1 FROM pos_business_units u WHERE u.business_id=b.id AND u.unit_id=$7) RETURNING id,active,integration_enabled,wallet_enabled,storefront_enabled`,[bool(req.body.active),bool(req.body.integration_enabled),bool(req.body.wallet_enabled),bool(req.body.storefront_enabled),id,a.tenantId,a.unitId])).rows[0];if(!row)fail('BUSINESS_NOT_FOUND',404);return row;});}
- return {transactions,detail,dashboard,shifts,refunds,reconciliation,management,editCategory,editMerchant,configureTerminal,businessesV2,onboardBusiness,editBusinessV2};
+ async function businessesV2(req){return run(req,'pos.view',false,async(c,a)=>{requireTenantSuperadmin(a);const rows=(await c.query(`SELECT b.id,b.display_name,b.ownership,b.active,b.integration_enabled,b.wallet_enabled,b.storefront_enabled,b.storefront_slug,
+   string_agg(DISTINCT u.nama,', ' ORDER BY u.nama) units,bool_or(owner.role='OWNER') owner_assigned,
+   bool_or(token.user_id IS NOT NULL) activation_pending,max(token.expires_at) activation_expires_at
+   FROM pos_businesses b JOIN pos_business_units bu ON bu.business_id=b.id AND bu.tenant_id=b.tenant_id
+   JOIN unit_pendidikan u ON u.id=bu.unit_id AND u.tenant_id=bu.tenant_id
+   LEFT JOIN pos_merchant_memberships owner ON owner.business_id=b.id AND owner.role='OWNER'
+   LEFT JOIN pos_merchant_activation_tokens token ON token.business_id=b.id AND token.user_id=owner.user_id
+   WHERE b.tenant_id=$1 AND bu.unit_id=ANY($2::integer[]) GROUP BY b.id ORDER BY b.display_name`,[a.tenantId,a.units])).rows;
+   const available_units=(await c.query('SELECT id,nama FROM unit_pendidikan WHERE tenant_id=$1 AND is_active ORDER BY nama,id',[a.tenantId])).rows;
+   return {rows,available_units,privacy:'Admin tenant hanya melihat identitas, status, unit layanan, dan konfigurasi integrasi. Data laba, HPP, utang, biaya, modal, prive, dan ledger merchant tidak diproyeksikan.'};});}
+ async function onboardBusiness(req){return run(req,'pos.config.manage',true,async(c,a)=>{requireTenantSuperadmin(a);const b=req.body||{};
+   if(b.owner_password!=null)fail('OWNER_PASSWORD_ASSIGNMENT_FORBIDDEN');if(!['INTERNAL','EXTERNAL'].includes(b.ownership))fail('INVALID_OWNERSHIP');
+   const requestId=String(req.headers?.['idempotency-key']||b.request_id||'').trim();if(requestId.length<8||requestId.length>160)fail('IDEMPOTENCY_KEY_REQUIRED');
+   const login=String(b.owner_login||'').trim().toLowerCase();if(!/^[a-z0-9._@+-]{3,120}$/.test(login))fail('INVALID_OWNER_IDENTITY');
+   const unitIds=[...new Set((Array.isArray(b.unit_ids)&&b.unit_ids.length?b.unit_ids:[a.unitId]).map(number))].sort((x,y)=>x-y);
+   const normalized={ownership:b.ownership,display_name:name(b.display_name),legal_name:b.legal_name||null,address:b.address||null,phone:b.phone||null,owner_name:name(b.owner_name),owner_login:login,unit_ids:unitIds};
+   const fingerprint=hash(stable(normalized));await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['pos-provision:'+a.tenantId+':'+requestId]);
+   const prior=(await c.query('SELECT request_hash,business_id FROM pos_business_provision_requests WHERE tenant_id=$1 AND request_id=$2',[a.tenantId,requestId])).rows[0];
+   if(prior){if(prior.request_hash!==fingerprint)fail('IDEMPOTENCY_CONFLICT',409);return {id:prior.business_id,replay:true,activation_code:null};}
+   const validUnits=(await c.query('SELECT id FROM unit_pendidikan WHERE tenant_id=$1 AND is_active AND id=ANY($2::integer[])',[a.tenantId,unitIds])).rows.map(row=>Number(row.id));
+   if(validUnits.length!==unitIds.length)fail('UNIT_ACCESS_DENIED',403);
+   const existing=(await c.query(`SELECT u.id,u.name,array_remove(array_agg(DISTINCT m.tenant_id),NULL) tenant_ids,
+     count(DISTINCT m.business_id)::integer membership_count,
+     EXISTS(SELECT 1 FROM pos_merchant_activation_tokens t WHERE t.user_id=u.id) activation_pending
+     FROM pos_merchant_users u LEFT JOIN pos_merchant_memberships m ON m.user_id=u.id WHERE u.login=$1 GROUP BY u.id`,[login])).rows[0];
+   if(existing&&existing.tenant_ids.some(id=>Number(id)!==a.tenantId))fail('OWNER_IDENTITY_CONFLICT',409);
+   if(existing&&existing.name!==normalized.owner_name)fail('OWNER_IDENTITY_CONFLICT',409);
+   if(existing?.activation_pending)fail('OWNER_IDENTITY_PENDING',409);
+   const business=crypto.randomUUID(),owner=existing?.id||crypto.randomUUID(),activationCode=existing?null:crypto.randomBytes(24).toString('base64url');
+   await c.query(`INSERT INTO pos_businesses(id,tenant_id,ownership,display_name,legal_name,address,phone,timezone,receipt_name,receipt_prefix)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$4,$9)`,[business,a.tenantId,b.ownership,normalized.display_name,normalized.legal_name,normalized.address,normalized.phone,b.timezone||'Asia/Jakarta',String(b.receipt_prefix||'SUQ').toUpperCase()]);
+   for(const unitId of unitIds)await c.query('INSERT INTO pos_business_units(business_id,tenant_id,unit_id) VALUES($1,$2,$3)',[business,a.tenantId,unitId]);
+   if(!existing)await c.query('INSERT INTO pos_merchant_users(id,login,name,password_hash) VALUES($1,$2,$3,$4)',[owner,login,normalized.owner_name,await bcrypt.hash(crypto.randomBytes(48).toString('base64url'),12)]);
+   await c.query("INSERT INTO pos_merchant_memberships(business_id,tenant_id,user_id,role) VALUES($1,$2,$3,'OWNER')",[business,a.tenantId,owner]);
+   if(activationCode)await c.query(`INSERT INTO pos_merchant_activation_tokens(business_id,user_id,token_hash,expires_at,created_by)
+     VALUES($1,$2,$3,now()+interval '48 hours',$4)`,[business,owner,hash(activationCode),owner]);
+   await c.query('INSERT INTO pos_business_provision_requests(tenant_id,request_id,request_hash,business_id,created_by) VALUES($1,$2,$3,$4,$5)',[a.tenantId,requestId,fingerprint,business,a.user.id]);
+   await c.query(`INSERT INTO pos_business_admin_audit(id,business_id,tenant_id,actor_user_id,action,snapshot) VALUES($1,$2,$3,$4,'MERCHANT_CREATED',$5)`,[crypto.randomUUID(),business,a.tenantId,a.user.id,JSON.stringify({ownership:b.ownership,unit_ids:unitIds,owner_id:owner,activation_required:Boolean(activationCode)})]);
+   return {id:business,owner_id:owner,replay:false,activation_required:Boolean(activationCode),activation_code:activationCode,activation_expires_in:activationCode?172800:null};});}
+ async function businessDetail(req){return run(req,'pos.view',false,async(c,a)=>{requireTenantSuperadmin(a);const id=String(req.params.id);if(!/^[0-9a-f-]{36}$/i.test(id))fail('INVALID_ID');
+   const business=(await c.query(`SELECT b.id,b.display_name,b.ownership,b.active,b.integration_enabled,b.wallet_enabled,b.storefront_enabled,b.storefront_slug,b.address,b.phone,b.accounting_start_date,
+     string_agg(DISTINCT u.nama,', ' ORDER BY u.nama) units,owner.user_id owner_id,mu.name owner_name,mu.login owner_login,
+     (token.user_id IS NOT NULL) activation_pending,token.expires_at activation_expires_at
+     FROM pos_businesses b JOIN pos_business_units bu ON bu.business_id=b.id AND bu.tenant_id=b.tenant_id JOIN unit_pendidikan u ON u.id=bu.unit_id AND u.tenant_id=bu.tenant_id
+     LEFT JOIN pos_merchant_memberships owner ON owner.business_id=b.id AND owner.role='OWNER' LEFT JOIN pos_merchant_users mu ON mu.id=owner.user_id
+     LEFT JOIN pos_merchant_activation_tokens token ON token.business_id=b.id AND token.user_id=owner.user_id WHERE b.id=$1 AND b.tenant_id=$2
+     GROUP BY b.id,owner.user_id,mu.name,mu.login,token.user_id,token.expires_at`,[id,a.tenantId])).rows[0];if(!business)fail('BUSINESS_NOT_FOUND',404);
+   const audit=(await c.query('SELECT action,snapshot,created_at FROM pos_business_admin_audit WHERE business_id=$1 AND tenant_id=$2 ORDER BY created_at DESC,id LIMIT 100',[id,a.tenantId])).rows;
+   return {business,audit,privacy:'Tidak memuat laba, HPP, utang, biaya, modal, prive, atau ledger akun merchant.'};});}
+ async function editBusinessV2(req){return run(req,'pos.config.manage',true,async(c,a)=>{requireTenantSuperadmin(a);const id=String(req.params.id);if(!/^[0-9a-f-]{36}$/i.test(id))fail('INVALID_ID');
+   const before=(await c.query('SELECT active,integration_enabled,wallet_enabled,storefront_enabled FROM pos_businesses WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[id,a.tenantId])).rows[0];if(!before)fail('BUSINESS_NOT_FOUND',404);
+   const row=(await c.query(`UPDATE pos_businesses SET active=$1,integration_enabled=$2,wallet_enabled=$3,storefront_enabled=$4 WHERE id=$5 AND tenant_id=$6 RETURNING id,active,integration_enabled,wallet_enabled,storefront_enabled`,[bool(req.body.active),bool(req.body.integration_enabled),bool(req.body.wallet_enabled),bool(req.body.storefront_enabled),id,a.tenantId])).rows[0];
+   await c.query(`INSERT INTO pos_business_admin_audit(id,business_id,tenant_id,actor_user_id,action,snapshot) VALUES($1,$2,$3,$4,$5,$6)`,[crypto.randomUUID(),id,a.tenantId,a.user.id,before.active!==row.active?'MERCHANT_STATUS_CHANGED':'INTEGRATION_CHANGED',JSON.stringify({before,after:row})]);return row;});}
+ return {transactions,detail,dashboard,shifts,refunds,reconciliation,management,editCategory,editMerchant,configureTerminal,businessesV2,onboardBusiness,businessDetail,editBusinessV2};
 }
 module.exports={createPosAdminService,...createPosAdminService()};

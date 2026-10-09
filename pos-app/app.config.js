@@ -32,7 +32,7 @@ if (
   throw new Error("Local HTTP only");
 module.exports = {
   expo: {
-    name: "POS KlikPesantren",
+    name: "Suq Shogir",
     slug: "klikpesantren-pos",
     owner: "kliksantridemo",
     version: "1.0.0",

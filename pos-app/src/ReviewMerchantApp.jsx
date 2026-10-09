@@ -51,7 +51,7 @@ export default function ReviewMerchantApp() {
     <ReviewTools states={adapter.states} busy={busy} onState={next=>{setState(next);refresh(next);}} onReset={()=>{setState("normal");refresh("normal");}}/>
     <ScrollView contentContainerStyle={s.content}>
       <Badge label="MODE DEMO / REVIEW" tone="amber"/>
-      <Text style={s.brand}>POS KlikPesantren</Text><Text style={s.muted}>Seluruh data sintetis. Tanpa jaringan, login nyata, atau financial write.</Text>
+      <Text style={s.brand}>Suq Shogir</Text><Text style={s.muted}>Mode demo / review. Seluruh data sintetis tanpa transaksi finansial nyata.</Text>
       <Card title="Peran Demo"><ScrollView horizontal showsHorizontalScrollIndicator={false}>{Object.keys(ROLE_MODULES).map(item=><Chip key={item} label={item} active={role===item} onPress={()=>{setRole(item);setModule("BERANDA");}}/>)}</ScrollView></Card>
       <Card title="Navigasi"><ScrollView horizontal showsHorizontalScrollIndicator={false}>{modules.map(item=><Chip key={item} label={item} active={module===item} onPress={()=>setModule(item)}/>)}</ScrollView></Card>
       {busy?<Empty loading title="Memuat fixture"/>:data?.error?<Empty title="Contoh kondisi gagal" note={data.error} onRetry={()=>refresh("normal")}/>:<DemoModule module={module} data={data} role={role}/>}<Text style={s.muted}>State review: {state} · Semua tombol transaksi bersifat demonstrasi.</Text>

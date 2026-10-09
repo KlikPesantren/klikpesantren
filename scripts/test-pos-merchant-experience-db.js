@@ -4,6 +4,7 @@ const test=async(name,fn)=>{await fn();passed++;console.log('PASS '+name)},rejec
 async function main(){const q=async(s,v=[])=>(await db.query(s,v)).rows;
  const before=(await q('SELECT count(*) n FROM pos_business_operations'))[0].n,up=fs.readFileSync(path.join(__dirname,'../migrations/101_pos_merchant_permission_audit.sql'),'utf8'),down=fs.readFileSync(path.join(__dirname,'../migrations/101_pos_merchant_permission_audit_rollback.sql'),'utf8');
  if(!(await q("SELECT to_regclass('pos_merchant_permission_audit') present"))[0].present){await db.query(up);await db.query(down);assert.equal((await q('SELECT count(*) n FROM pos_business_operations'))[0].n,before);await db.query(up);}
+ if(!(await q("SELECT 1 FROM information_schema.columns WHERE table_name='pos_businesses' AND column_name='accounting_start_date'"))[0])await db.query(fs.readFileSync(path.join(__dirname,'../migrations/104_suq_shogir_merchant_onboarding.sql'),'utf8'));
  await test('101 UP/DOWN/UP is additive and preserves posted financial history',async()=>{assert.equal((await q("SELECT to_regclass('pos_merchant_permission_audit') present"))[0].present,'pos_merchant_permission_audit');assert.equal((await q('SELECT count(*) n FROM pos_business_operations'))[0].n,before);});
  await test('101 runtime grant is append/read-only and cannot mutate protected audit history or DDL',async()=>{
   await db.query('GRANT SELECT,INSERT ON pos_merchant_permission_audit TO pos_business_v2_fixture_runtime');
@@ -25,7 +26,7 @@ async function main(){const q=async(s,v=[])=>(await db.query(s,v)).rows;
  require.cache[require.resolve('../db')]={id:require.resolve('../db'),filename:require.resolve('../db'),loaded:true,exports:db};
  const {createPosAdminService}=require('../services/posAdminService');
  const admin=createPosAdminService({db,permissionList:async()=>['pos.view','pos.config.manage']});
- const adminReq=(body={},unit_id=2)=>({user:{id:99,tenant_id:1,role:'superadmin'},tenantId:1,query:{unit_id},headers:{},body,params:{}});
+ const adminReq=(body={},unit_id=2)=>({user:{id:99,tenant_id:1,role:'superadmin'},tenantId:1,query:{unit_id},headers:{'idempotency-key':body.request_id||''},body,params:{}});
  const req=(body={},token=owner,query={})=>({headers:{authorization:'Bearer '+token},params:{businessId:business},body,query});
  await test('owner workspace uses canonical integer Rupiah ledgers; cashier without report grants gets readiness only',async()=>{const o=await service.workspace(req()),c=await service.workspace(req({},cashier));assert.ok(o.finance&&o.attention);assert.match(o.sales_today.average_ticket,/^\d+$/);assert.equal(c.finance,undefined);assert.equal(c.sales_today,undefined);assert.ok(c.readiness);});
  await test('cashier SALE_CREATE permission can load payment accounts for operational checkout',async()=>{const accounts=await service.paymentAccounts(req({},cashier));assert.ok(accounts.length);assert.ok(accounts.every(x=>['CASH','BANK','QRIS'].includes(x.kind)));});
@@ -35,43 +36,18 @@ async function main(){const q=async(s,v=[])=>(await db.query(s,v)).rows;
  await test('profile onboarding updates canonical business fields without parallel profile',async()=>{const row=await service.profile(req({display_name:'Synthetic Merchant Experience',legal_name:'Synthetic Legal',description:'Fixture',address:'Fixture address',phone:'0800000000',logo_url:null,banner_url:null,brand_color:'#167342',receipt_name:'Synthetic Store',receipt_header:'Terima kasih',receipt_footer:'Powered by KlikPesantren',receipt_logo:false,receipt_prefix:'SYN',timezone:'Asia/Jakarta'}));assert.equal(row.display_name,'Synthetic Merchant Experience');assert.equal((await q('SELECT count(*) n FROM pos_businesses WHERE id=$1',[business]))[0].n,'1');});
  await test('owner creates activation-only user; employee chooses password; reissue revokes old code and sessions',async()=>{const login='fixture-'+crypto.randomUUID(),created=await service.member(req({login,name:'Fixture Supervisor',role:'SUPERVISOR',permissions:['REPORT_SALES']}));let members=await service.members(req());assert.equal(members.find(x=>x.id===created.id).activation_pending,true);assert.ok(!JSON.stringify(members).includes('password'));assert.equal((await q('SELECT token_hash=$1 plaintext FROM pos_merchant_activation_tokens WHERE user_id=$2',[created.activation_code,created.id]))[0].plaintext,false);await reject(()=>service.login({body:{login,password:'Synthetic-secure-password'}}),'INVALID_CREDENTIALS');await service.activate({body:{login,activation_code:created.activation_code,password:'Employee-owned-password'}});const firstToken=(await service.login({body:{login,password:'Employee-owned-password'}})).token;const reissued=await service.reissueMemberActivation({...req(),params:{businessId:business,userId:created.id}});await reject(()=>service.context(req({},firstToken)),'MERCHANT_SESSION_INVALID');await reject(()=>service.activate({body:{login,activation_code:created.activation_code,password:'Another-secure-password'}}),'ACTIVATION_INVALID');await service.activate({body:{login,activation_code:reissued.activation_code,password:'Another-secure-password'}});const changed=await service.updateMember({...req({role:'CASHIER',permissions:['SALE_CREATE','SALE_VIEW','SALE_REFUND','PRODUCT_COST_VIEW'],active:true}),params:{businessId:business,userId:created.id}});assert.deepEqual(changed.permissions,['PRODUCT_COST_VIEW','SALE_CREATE','SALE_REFUND','SALE_VIEW']);const ownerId=(await q("SELECT id FROM pos_merchant_users WHERE login='owner'"))[0].id;await reject(()=>service.updateMember({...req({role:'CASHIER',permissions:[],active:false}),params:{businessId:business,userId:ownerId}}),'SELF_PERMISSION_CHANGE_DENIED');assert.equal((await q('SELECT count(*) n FROM pos_merchant_permission_audit WHERE target_user_id=$1',[created.id]))[0].n,'3');});
  await test('role is a template while explicit grants/removals are deterministic',async()=>{assert.ok(permissionModel.effective('CASHIER',[]).includes('SALE_CREATE'));assert.ok(!permissionModel.effective('CASHIER',[]).includes('PRODUCT_COST_VIEW'));const exact=permissionModel.encodeExplicit(['SALE_REFUND']);assert.deepEqual(permissionModel.effective('CASHIER',exact),['SALE_REFUND']);assert.ok(!permissionModel.effective('CASHIER',exact).includes('SALE_CREATE'));assert.ok(permissionModel.effective('OWNER',[]).includes('PERMISSION_MANAGE'));});
- await test('full Tenant Admin onboarding creates INTERNAL/EXTERNAL owners, cash account and terminal without granting Admin private-book access',async()=>{
-  const suffix=crypto.randomUUID().slice(0,8),ownerPassword='Synthetic-owner-password';
-  const internal=await admin.onboardBusiness(adminReq({unit_id:2,ownership:'INTERNAL',display_name:'Fixture Internal '+suffix,owner_login:'internal-'+suffix,owner_password:ownerPassword,owner_name:'Fixture Internal Owner',cash_account_name:'Kas Fixture',terminal_name:'Terminal Fixture'}));
-  const external=await admin.onboardBusiness(adminReq({unit_id:2,ownership:'EXTERNAL',display_name:'Fixture External '+suffix,owner_login:'external-'+suffix,owner_password:ownerPassword,owner_name:'Fixture External Owner',cash_account_name:'Kas External',terminal_name:'Terminal External'}));
-  for(const created of [internal,external]){
-   assert.equal(created.readiness,'READY');
-   assert.equal((await q('SELECT count(*) n FROM pos_business_accounts WHERE business_id=$1',[created.id]))[0].n,'1');
-   assert.equal((await q('SELECT count(*) n FROM pos_business_terminals WHERE business_id=$1',[created.id]))[0].n,'1');
-  }
-  const summary=await admin.businessesV2(adminReq());
-  const projected=summary.rows.find(row=>row.id===external.id);
-  assert.equal(projected.ownership,'EXTERNAL');
-  assert.ok(!/account|supplier|payable|expense|capital|prive/.test(JSON.stringify(projected)));
-  await reject(()=>service.books({headers:{authorization:'Bearer tenant-admin-token'},params:{businessId:external.id},body:{},query:{}}),'MERCHANT_AUTH_REQUIRED');
-  const internalToken=(await service.login({body:{login:'internal-'+suffix,password:ownerPassword}})).token;
-  const externalToken=(await service.login({body:{login:'external-'+suffix,password:ownerPassword}})).token;
-  const ireq=(body={},token=internalToken)=>({headers:{authorization:'Bearer '+token},params:{businessId:internal.id},body,query:{}});
-  const employeePassword='Synthetic-employee-password';
-  const employee=await service.member(ireq({login:'cashier-'+suffix,name:'Fixture Cashier',role:'CASHIER',permissions:['SALE_VIEW']}));
-  await service.activate({body:{login:'cashier-'+suffix,activation_code:employee.activation_code,password:employeePassword}});
-  let employeeToken=(await service.login({body:{login:'cashier-'+suffix,password:employeePassword}})).token;
-  const ereq=(body={})=>({headers:{authorization:'Bearer '+employeeToken},params:{businessId:internal.id},body,query:{}});
-  assert.deepEqual(await service.sales(ereq()),[]);
-  await reject(()=>service.inventory(ereq()),'MERCHANT_PERMISSION_DENIED');
-  await service.updateMember({...ireq({name:'Fixture Cashier',role:'CASHIER',permissions:['SALE_VIEW','INVENTORY_VIEW'],active:true}),params:{businessId:internal.id,userId:employee.id}});
-  assert.deepEqual(await service.inventory(ereq()),{products:[],movements:[],cost_visible:false});
-  await service.updateMember({...ireq({name:'Fixture Cashier',role:'CASHIER',permissions:['SALE_VIEW'],active:true}),params:{businessId:internal.id,userId:employee.id}});
-  await reject(()=>service.inventory(ereq()),'MERCHANT_PERMISSION_DENIED');
-  const supervisor=await service.member(ireq({login:'supervisor-'+suffix,name:'Fixture Supervisor',role:'SUPERVISOR',permissions:permissionModel.DEFAULTS.SUPERVISOR}));
-  await service.activate({body:{login:'supervisor-'+suffix,activation_code:supervisor.activation_code,password:employeePassword}});
-  const supervisorToken=(await service.login({body:{login:'supervisor-'+suffix,password:employeePassword}})).token;
-  assert.equal((await service.context({headers:{authorization:'Bearer '+supervisorToken},params:{businessId:internal.id},body:{},query:{}})).role,'SUPERVISOR');
-  await reject(()=>service.context({headers:{authorization:'Bearer '+internalToken},params:{businessId:external.id},body:{},query:{}}),'MERCHANT_ACCESS_DENIED');
-  assert.equal((await service.context({headers:{authorization:'Bearer '+externalToken},params:{businessId:external.id},body:{},query:{}})).business.ownership,'EXTERNAL');
-  await service.updateMember({...ireq({name:'Fixture Cashier',role:'CASHIER',permissions:['SALE_VIEW'],active:false}),params:{businessId:internal.id,userId:employee.id}});
-  await reject(()=>service.context(ereq()),'MERCHANT_ACCESS_DENIED');
-  assert.equal((await q('SELECT count(*) n FROM pos_merchant_permission_audit WHERE business_id=$1 AND target_user_id IN($2,$3)',[internal.id,employee.id,supervisor.id]))[0].n,'5');
+ await test('Tenant Admin onboarding is activation-only, minimal, idempotent and privacy-safe',async()=>{
+  const suffix=crypto.randomUUID().slice(0,8),body={request_id:'merchant-'+suffix,unit_ids:[2],ownership:'INTERNAL',display_name:'Fixture Internal '+suffix,owner_login:'internal-'+suffix,owner_name:'Fixture Internal Owner'};
+  const internal=await admin.onboardBusiness(adminReq(body));assert.equal(internal.activation_required,true);assert.ok(internal.activation_code);
+  assert.equal((await q('SELECT count(*) n FROM pos_business_accounts WHERE business_id=$1',[internal.id]))[0].n,'0');
+  assert.equal((await q('SELECT count(*) n FROM pos_business_terminals WHERE business_id=$1',[internal.id]))[0].n,'0');
+  const replay=await admin.onboardBusiness(adminReq(body));assert.equal(replay.id,internal.id);assert.equal(replay.activation_code,null);
+  const summary=await admin.businessesV2(adminReq());const projected=summary.rows.find(row=>row.id===internal.id);
+  assert.ok(!/gross_profit|wallet_volume|supplier|payable|expense|capital|prive/.test(JSON.stringify(projected)));
+  await reject(()=>service.books({headers:{authorization:'Bearer tenant-admin-token'},params:{businessId:internal.id},body:{},query:{}}),'MERCHANT_AUTH_REQUIRED');
+  await service.activate({body:{login:body.owner_login,activation_code:internal.activation_code,password:'Synthetic-owner-password'}});
+  const internalToken=(await service.login({body:{login:body.owner_login,password:'Synthetic-owner-password'}})).token;
+  assert.equal((await service.context({headers:{authorization:'Bearer '+internalToken},params:{businessId:internal.id},body:{},query:{}})).business.ownership,'INTERNAL');
  });
  await test('customer/supplier directories expose scoped CRM/AP history metrics only',async()=>{const customers=await service.directory(req({},owner,{kind:'CUSTOMER'})),suppliers=await service.directory(req({},owner,{kind:'SUPPLIER'}));assert.ok(customers.every(x=>x.kind==='CUSTOMER'&&Object.hasOwn(x,'transaction_count')&&Object.hasOwn(x,'average_ticket')));assert.ok(suppliers.every(x=>x.kind==='SUPPLIER'&&Object.hasOwn(x,'total_spend')));assert.ok(!JSON.stringify(customers).includes('tenant_id'));});
  await test('customer profile update is merchant-scoped and permission-enforced without touching history',async()=>{const customer=(await service.directory(req({},owner,{kind:'CUSTOMER'})))[0],before=(await q('SELECT count(*) n FROM pos_business_operations'))[0].n;const updated=await service.updateParty({...req({name:customer.name,phone:customer.phone,address:customer.address,notes:customer.notes,active:customer.active,credit_allowed:customer.credit_allowed,credit_limit:customer.credit_limit,due_days:customer.due_days}),params:{businessId:business,partyId:customer.id}});assert.equal(updated.id,customer.id);await reject(()=>service.updateParty({...req({name:customer.name,active:true},cashier),params:{businessId:business,partyId:customer.id}}),'MERCHANT_PERMISSION_DENIED');assert.equal((await q('SELECT count(*) n FROM pos_business_operations'))[0].n,before);});

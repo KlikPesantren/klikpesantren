@@ -128,7 +128,8 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       permission_groups: merchantPermissions.GROUPS,
       business: { id: a.business, display_name: a.member.display_name, ownership: a.member.ownership, logo_url: a.member.logo_url,
         timezone: a.member.timezone, currency: a.member.currency, receipt_name: a.member.receipt_name,
-        receipt_header: a.member.receipt_header, receipt_footer: a.member.receipt_footer, receipt_prefix: a.member.receipt_prefix },
+        receipt_header: a.member.receipt_header, receipt_footer: a.member.receipt_footer, receipt_prefix: a.member.receipt_prefix,
+        accounting_start_date: a.member.accounting_start_date },
       units: (await c.query(`SELECT bu.unit_id,coalesce(to_jsonb(u)->>'nama',bu.unit_id::text) AS nama_unit FROM pos_business_units bu
         JOIN unit_pendidikan u ON u.id=bu.unit_id AND u.tenant_id=bu.tenant_id
         WHERE bu.business_id=$1 AND u.is_active ORDER BY nama_unit,u.id`, [a.business])).rows,

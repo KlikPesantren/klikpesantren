@@ -14,7 +14,10 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
         EXISTS(SELECT 1 FROM pos_business_accounts WHERE business_id=$1 AND active) account,
         EXISTS(SELECT 1 FROM pos_business_terminals WHERE business_id=$1 AND active) terminal,
         EXISTS(SELECT 1 FROM pos_business_products WHERE business_id=$1 AND active) product,
-        storefront_enabled,storefront_slug FROM pos_businesses WHERE id=$1`, [a.business])).rows[0];
+        EXISTS(SELECT 1 FROM pos_money_movements m JOIN pos_business_operations o ON o.id=m.operation_id WHERE m.business_id=$1 AND o.kind='OPENING') opening_balance,
+        EXISTS(SELECT 1 FROM pos_inventory_movements WHERE business_id=$1) opening_inventory,
+        EXISTS(SELECT 1 FROM pos_merchant_memberships WHERE business_id=$1 AND role<>'OWNER' AND active) employee,
+        accounting_start_date,storefront_enabled,storefront_slug FROM pos_businesses WHERE id=$1`, [a.business])).rows[0];
       const out = {
         role: a.member.role,
         permissions: a.member.effective_permissions,
@@ -55,13 +58,15 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
     return run(req, 'BUSINESS_SETTINGS_MANAGE', async (c, a) => {
       const b = req.body || {}, color = b.brand_color || null;
       if (color && !/^#[0-9a-f]{6}$/i.test(color)) bad('INVALID_BRAND_COLOR');
+      const accountingStart=b.accounting_start_date==null||b.accounting_start_date===''?null:String(b.accounting_start_date);
+      if(accountingStart&&(!/^\d{4}-\d{2}-\d{2}$/.test(accountingStart)||Number.isNaN(Date.parse(accountingStart))))bad('INVALID_ACCOUNTING_START_DATE');
       return (await c.query(`UPDATE pos_businesses SET display_name=$1,legal_name=$2,description=$3,address=$4,phone=$5,
         logo_url=$6,banner_url=$7,brand_color=$8,receipt_name=$9,receipt_header=$10,receipt_footer=$11,receipt_logo=$12,
-        receipt_prefix=$13,timezone=$14 WHERE id=$15 RETURNING id,display_name,ownership,timezone,currency`,
+        receipt_prefix=$13,timezone=$14,accounting_start_date=COALESCE(accounting_start_date,$15::date) WHERE id=$16 RETURNING id,display_name,ownership,timezone,currency,accounting_start_date`,
       [text(b.display_name), optional(b.legal_name, 160), optional(b.description, 500), optional(b.address, 1000),
         optional(b.phone, 80), productImageUrl(b.logo_url), productImageUrl(b.banner_url), color,
         optional(b.receipt_name, 160), optional(b.receipt_header, 300), optional(b.receipt_footer, 300),
-        b.receipt_logo === true, text(b.receipt_prefix, 16).toUpperCase(), text(b.timezone, 80), a.business])).rows[0];
+        b.receipt_logo === true, text(b.receipt_prefix, 16).toUpperCase(), text(b.timezone, 80), accountingStart, a.business])).rows[0];
     });
   }
 

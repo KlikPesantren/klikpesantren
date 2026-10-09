@@ -24,7 +24,7 @@ export function usePosMutation(onSaved){
    if(retry.current?.fingerprint!==fingerprint)retry.current={fingerprint,key:crypto.randomUUID()};
    body={...body,request_id:retry.current.key};
   }
-  try{await api.request({method,url,data:body});retry.current=null;if(mounted.current){setMessage('Berhasil disimpan.');onSaved?.();}return true;}
+  try{const response=await api.request({method,url,data:body});retry.current=null;if(mounted.current){setMessage('Berhasil disimpan.');onSaved?.();}return response.data.data;}
   catch(e){if(mounted.current)setError(e.response?.data?.code||e.message||'Gagal menyimpan.');return false;}
   finally{lock.current=false;if(mounted.current)setBusy(false);}
  }

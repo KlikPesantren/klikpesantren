@@ -659,6 +659,78 @@
       "notes": "nullable public URL only; no inventory, money or ownership change",
       "recommended_action": "APPLY_ORIGINAL",
       "execution_order": 260
+    },
+    {
+      "filename": "097_pos_business_core_v2.sql",
+      "checksum": "c758917d3fc0fe03ea828e37f258a6c753541f714fa8661b780ca165b4bf9736",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated PostgreSQL UP/DOWN/UP plus 40 financial, inventory, concurrency, isolation and least-privilege groups",
+      "notes": "additive canonical merchant business, inventory, AP/AR and money-ledger foundation; requires 094",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 270
+    },
+    {
+      "filename": "098_pos_business_returns.sql",
+      "checksum": "f92fe37c384d85bbdd054343ebd6d9f2a8f11a39a1ee21c31fb692fa068b87c5",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated PostgreSQL UP/DOWN/UP plus 24 return, rollback, concurrency and Rp0 reconciliation groups",
+      "notes": "additive return reconciliation guards over the 097 canonical ledgers",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 280
+    },
+    {
+      "filename": "099_pos_business_wallet.sql",
+      "checksum": "e5834bde99b67543b334621131bcc6fbba93038de2bf810e03d9ace95c616ed5",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated PostgreSQL UP/DOWN/UP plus 25 canonical Wallet boundary and Rp0 reconciliation groups",
+      "notes": "additive Wallet credential/link and deferred reconciliation schema; no UID or balance backfill",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 290
+    },
+    {
+      "filename": "100_pos_business_online.sql",
+      "checksum": "f3580cbff2acb07e81ea9bf1d561aadbc5af11d01d8351c25ea7c1b1945341ab",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated PostgreSQL UP/DOWN/UP plus 37 storefront, reservation, shared-stock and Rp0 reconciliation groups",
+      "notes": "additive online order/reservation/event schema sharing the 097 product and inventory domain",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 300
+    },
+    {
+      "filename": "101_pos_merchant_permission_audit.sql",
+      "checksum": "245651bc7d717339eb437894b30d9a12d23dd71da10128333faf009fad24e05e",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated merchant experience and runtime privilege regression",
+      "notes": "append-only merchant membership permission audit over 097 memberships",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 310
+    },
+    {
+      "filename": "102_pos_online_product_pricing.sql",
+      "checksum": "db38249ed6385724d72f3e1c20c7b0d7148cec1ad5ea504cf4fdae37e546af91",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated online pricing UP/DOWN/UP and historical price snapshot regression",
+      "notes": "adds independent online price after 100 while preserving published effective price",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 320
+    },
+    {
+      "filename": "103_pos_merchant_account_activation.sql",
+      "checksum": "d40a25dfa8301c61bf5c6970b96bc62af0c311e36fee4f6b23387af04a79db42",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated activation-only owner and employee account regression",
+      "notes": "one-time hashed merchant activation tokens over canonical 097 memberships",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 330
+    },
+    {
+      "filename": "104_suq_shogir_merchant_onboarding.sql",
+      "checksum": "674b4736c5ea64612c4a76ceaf07105451e1bbbfa2d6425d8abf6795df44b605",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated PostgreSQL UP/DOWN/UP and 6 tenant-admin onboarding, activation, privacy and idempotency groups",
+      "notes": "additive Suq Shogir provisioning/audit controls; requires 097 and 103",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 340
     }
   ]
 }

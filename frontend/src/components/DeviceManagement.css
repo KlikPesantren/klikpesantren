@@ -1,0 +1,26 @@
+.device-management { min-width: 0; }
+.device-provision { background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:20px;margin:20px 0; }
+.device-management h2 { font-size:17px;margin:0 0 10px; }
+.device-management p { margin:10px 0;color:var(--text-secondary); }
+.device-management label { display:flex;flex-direction:column;gap:8px;font-size:13px;font-weight:600;min-width:0; }
+.device-management input,.device-management select { width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text-primary);min-width:0; }
+.device-provision form { display:flex;align-items:end;gap:12px;max-width:720px; }
+.device-provision label { flex:1; }
+.device-management .device-helper,.device-subtext { font-size:12px;color:var(--text-secondary); }
+.device-subtext { display:block;margin-top:5px;overflow-wrap:anywhere; }
+.device-search { padding:12px 16px;max-width:420px; }
+.device-actions { position:relative;min-width:120px; }
+.device-actions summary { cursor:pointer;list-style:none;display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:22px; }
+.device-action-list { display:flex;flex-direction:column;gap:3px;min-width:190px;padding:6px;margin-top:6px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface); }
+.device-action-list button { text-align:left;padding:9px;border:0;background:transparent;color:var(--text-primary);font:inherit;font-size:13px;cursor:pointer; }
+.device-action-list button:hover { background:var(--neutral-subtle); }
+.device-action-list button:disabled { opacity:.6;cursor:not-allowed; }
+.device-action-list .device-danger { color:var(--danger);border-top:1px solid var(--border);margin-top:4px; }
+.device-overlay { position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1200;display:flex;align-items:center;justify-content:center;padding:16px; }
+.device-dialog { background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius-md);padding:24px;width:min(520px,100%);max-height:calc(100dvh - 32px);overflow:auto;box-sizing:border-box; }
+.device-dialog-footer { display:flex;justify-content:flex-end;gap:10px;margin-top:20px; }
+.device-pairing { display:flex;align-items:center;gap:12px;margin:14px 0; }
+.device-pairing code { flex:1;min-width:0;overflow-wrap:anywhere;padding:12px;background:var(--neutral-subtle);border-radius:var(--radius-sm);user-select:all; }
+.device-management .device-error { color:var(--danger); }
+.device-management .device-notice { color:var(--primary); }
+@media(max-width:639px) { .device-provision { padding:16px; }.device-provision form { flex-direction:column;align-items:stretch; }.device-dialog { padding:18px; }.device-pairing { flex-direction:column;align-items:stretch; }.device-dialog-footer { flex-wrap:wrap; } }

@@ -90,6 +90,7 @@ function PlatformTenantDetailPage() {
   const [billingForm, setBillingForm] = useState({
     plan_code: "premium",
     billing_status: "active",
+    subscription_amount: "",
     subscription_expires_at: "",
     billing_notes: "",
   });
@@ -137,6 +138,8 @@ function PlatformTenantDetailPage() {
   }, [id]);
 
   useEffect(() => {
+    // Existing async loader owns its state transitions.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
   }, [loadData]);
 
@@ -154,7 +157,11 @@ function PlatformTenantDetailPage() {
     }
   }, [id]);
 
-  useEffect(() => { loadTenantDomain(); }, [loadTenantDomain]);
+  useEffect(() => {
+    // Existing async loader owns its state transitions.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadTenantDomain();
+  }, [loadTenantDomain]);
 
   const generateTenantDomain = async () => {
     setDomainLoading(true);
@@ -203,6 +210,8 @@ function PlatformTenantDetailPage() {
   }, [id]);
 
   useEffect(() => {
+    // Existing async loader owns its state transitions.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadFeatures();
   }, [loadFeatures]);
 
@@ -212,6 +221,7 @@ function PlatformTenantDetailPage() {
     setBillingForm({
       plan_code: safeBilling.plan_code || "premium",
       billing_status: safeBilling.billing_status || "active",
+      subscription_amount: safeBilling.subscription_amount ?? "",
       subscription_expires_at: toDateTimeInputValue(
         safeBilling.subscription_expires_at
       ),
@@ -233,6 +243,8 @@ function PlatformTenantDetailPage() {
   }, [id]);
 
   useEffect(() => {
+    // Existing async loader owns its state transitions.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadBilling();
   }, [loadBilling]);
 
@@ -503,6 +515,9 @@ function PlatformTenantDetailPage() {
     saveBilling({
       plan_code: billingForm.plan_code,
       billing_status: billingForm.billing_status,
+      subscription_amount: billingForm.subscription_amount === ""
+        ? null
+        : Number(billingForm.subscription_amount),
       subscription_expires_at: billingForm.subscription_expires_at
         ? new Date(billingForm.subscription_expires_at).toISOString()
         : null,
@@ -810,6 +825,23 @@ function PlatformTenantDetailPage() {
                   label="Started At"
                   value={formatDateTime(billing?.subscription_started_at)}
                 />
+                <div>
+                  <div style={infoLabelStyle}>Nominal Langganan</div>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={billingForm.subscription_amount}
+                    onChange={(e) =>
+                      setBillingForm((form) => ({
+                        ...form,
+                        subscription_amount: e.target.value,
+                      }))
+                    }
+                    style={billingInputStyle}
+                    disabled={billingSaving}
+                  />
+                </div>
                 <div>
                   <div style={infoLabelStyle}>Expires At</div>
                   <input

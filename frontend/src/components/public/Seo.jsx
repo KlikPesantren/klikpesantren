@@ -45,9 +45,10 @@ function ensureJsonLd(id, data) {
   element.textContent = JSON.stringify(data);
 }
 
-export function buildCanonical(path = "/") {
-  if (path === "/") return `${siteUrl}/`;
-  return `${siteUrl}${path}`;
+export function buildCanonical(path = "/", baseUrl = siteUrl) {
+  const normalizedBase = String(baseUrl || siteUrl).replace(/\/$/, "");
+  if (path === "/") return `${normalizedBase}/`;
+  return `${normalizedBase}${path}`;
 }
 
 export function breadcrumbJsonLd(items) {
@@ -108,9 +109,10 @@ export default function Seo({
   image = defaultImage,
   imageAlt = "Dashboard admin KlikPesantren",
   jsonLd,
+  canonicalBaseUrl = siteUrl,
 }) {
   useEffect(() => {
-    const canonical = buildCanonical(path);
+    const canonical = buildCanonical(path, canonicalBaseUrl);
 
     document.title = title;
     ensureMeta('meta[name="description"]', {
@@ -175,7 +177,7 @@ export default function Seo({
     if (jsonLd) {
       ensureJsonLd("kp-route-jsonld", jsonLd);
     }
-  }, [description, image, imageAlt, jsonLd, path, title]);
+  }, [canonicalBaseUrl, description, image, imageAlt, jsonLd, path, title]);
 
   return null;
 }

@@ -692,6 +692,10 @@ app.use(
   rfidRoutes
 );
 
+app.use('/pos', require('./routes/posRoutes'));
+app.use('/pos-business', require('./routes/posBusinessRoutes').createPosBusinessRouter({ db: require('./db') }));
+app.use('/store-api', require('./routes/posStorefrontRoutes').createPosStorefrontRouter({ db: require('./db') }));
+
 app.use(
   "/rfid/merchant",
   rfidMerchantRoutes

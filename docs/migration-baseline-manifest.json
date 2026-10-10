@@ -632,6 +632,33 @@
       "notes": "nullable device attendance mode and hashed one-time pairing only; no historical backfill",
       "recommended_action": "APPLY_ORIGINAL",
       "execution_order": 230
+    },
+    {
+      "filename": "094_pos_v1_foundation.sql",
+      "checksum": "0605eef6c75d82d076269aa12aac4f52aede96b74add5a48a7188f886fb30e51",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated local PostgreSQL UP/DOWN/UP and domain, concurrent wallet debit, rollback and least-privilege fixture tests",
+      "notes": "additive POS domain only; no legacy ownership assignment, balance backfill or production grants",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 240
+    },
+    {
+      "filename": "095_pos_admin_control_center.sql",
+      "checksum": "8cd8d6e2ff84b4bf1bd83613d2b872dfbc6ab68f4667e1349184d35dee2e3f10",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated POS Admin PostgreSQL rehearsal and generated scoped reporting fixtures; never production",
+      "notes": "additive reporting indexes and pos.reconcile only; 094 unchanged",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 250
+    },
+    {
+      "filename": "096_pos_product_image_url.sql",
+      "checksum": "a6b7f48a79a3a6776b797cc4de5cd7c81fc700f8517408b31b5e777d755f93a2",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated local PostgreSQL image URL rehearsal; never production",
+      "notes": "nullable public URL only; no inventory, money or ownership change",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 260
     }
   ]
 }

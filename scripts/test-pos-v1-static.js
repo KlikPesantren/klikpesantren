@@ -1,0 +1,23 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const {readMigration,loadMigrationPolicy,checksumMatches}=require('../utils/migrationLedger');
+const read=file=>fs.readFileSync(path.join(__dirname,'..',file),'utf8');
+const service=read('services/posService.js'),routes=read('routes/posRoutes.js');
+const migration=readMigration('094_pos_v1_foundation.sql');
+assert(checksumMatches(migration.sql,loadMigrationPolicy().get(migration.filename).checksum));
+for(const table of ['pos_categories','pos_products','pos_cashier_assignments','pos_shifts','pos_sales','pos_sale_items','pos_payments','pos_refunds'])
+  assert(migration.sql.includes(`CREATE TABLE ${table}`));
+assert(!/GRANT\s|santri\.saldo|transaksi_rfid|buku_kas|attendance_events|attendance_results|UPDATE\s+santri\b/i.test(migration.sql));
+assert(!/santri\.saldo|transaksi_rfid|buku_kas|\/rfid\/payment|\/rfid\/refund|console\.(log|error)/i.test(service));
+assert(service.includes('FOR UPDATE'));assert(service.includes('pg_advisory_xact_lock'));assert(service.includes('crypto.randomUUID()'));
+assert(service.includes("'wallet'"));assert(service.includes("'rfid'"));assert(service.includes("w.status !== 'active'"));
+assert(service.includes("scope(req, c, 'pos.sell')"));assert(service.includes('IDEMPOTENCY_CONFLICT'));
+assert(!/router\.delete\b/.test(routes));assert(routes.includes('router.use(authenticate, tenantContext)'));
+assert(!/console\.(log|error).*req\.(body|query)/.test(routes));
+assert(read('server.js').includes("app.use('/pos', require('./routes/posRoutes'))"));
+assert(migration.sql.includes('DEFERRABLE INITIALLY DEFERRED'));
+assert(migration.sql.includes('pos_items_immutable BEFORE UPDATE'));
+assert(!/BEFORE DELETE|AFTER DELETE/i.test(migration.sql));
+assert(read('migrations/094_pos_v1_foundation_rollback.sql').includes('POS_HISTORY_PRESENT_ROLLBACK_FORBIDDEN'));
+console.log('PASS POS migration manifest, financial isolation, route boundary, immutable snapshots and no normal DELETE path');

@@ -38,9 +38,19 @@ module.exports = {
     version: "1.0.0",
     orientation: "portrait",
     userInterfaceStyle: "light",
+    icon: "./assets/suq-shogir-icon.png",
+    splash: {
+      image: "./assets/suq-shogir-splash.png",
+      resizeMode: "contain",
+      backgroundColor: "#0E5A37",
+    },
     android: {
       package: "com.klikpesantren.pos",
       versionCode: 1,
+      adaptiveIcon: {
+        foregroundImage: "./assets/suq-shogir-adaptive-foreground.png",
+        backgroundColor: "#0E5A37",
+      },
       blockedPermissions: [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES",

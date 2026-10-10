@@ -17,6 +17,7 @@ assert.ok(native.includes('Platform.OS === "web"')&&native.includes('posEnvironm
 assert.ok(!native.includes('localStorage')&&!native.includes('sessionStorage'));
 for(const text of ['Tambah Split Payment','BANK','QRIS','DOMPET_SANTRI','CREDIT','Customer opsional','Pembaca fisik belum terhubung'])assert.ok(native.includes(text));
 const admin=fs.readFileSync(new URL('../frontend/src/pages/PosAdminPage.jsx',import.meta.url),'utf8'),adminService=fs.readFileSync(new URL('../services/posAdminService.js',import.meta.url),'utf8');for(const text of ['Toko & Kantin','Tambah merchant','Internal pesantren','Eksternal / pihak ketiga'])assert.ok(admin.includes(text));for(const text of ['businessesV2','onboardBusiness','Admin tenant hanya melihat','pos.config.manage'])assert.ok(adminService.includes(text));assert.ok(!adminService.includes('password_hash AS'));
+assert.match(admin,/section==='business-v2'\?'businesses-v2'/,'Toko & Kantin must use the canonical businesses-v2 API route');
 for(const text of ['Aktivasi akun','Kode aktivasi sekali pakai','Pengguna membuat password sendiri','accounting_start_date','Stok awal'])assert.ok(page.includes(text),text);
 assert.ok(!page.includes('name:form.name,password:form.password'));
 assert.ok(adminService.includes('OWNER_PASSWORD_ASSIGNMENT_FORBIDDEN'));

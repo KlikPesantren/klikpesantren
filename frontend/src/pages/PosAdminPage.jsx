@@ -24,7 +24,7 @@ function Workspace({section,unitId}){
  const [filters,setFilters]=useState({from:'',to:'',search:'',merchant_id:'',cashier_id:'',terminal_id:'',shift_id:'',method:'',payment_status:'',sale_status:'',category_id:'',active:'',available:'',status:''});
  const [page,setPage]=useState(1),[revision,setRevision]=useState(0),[edit,setEdit]=useState(null),[detail,setDetail]=useState(null);
  const scope=unitId?{unit_id:unitId}:{scope:'all'},params={...scope,...Object.fromEntries(Object.entries(filters).filter(([,v])=>v!=='')),page,page_size:25};
- const path=managementSections.includes(section)?`management/${section}`:section==='settings'?'management/merchants':section;
+ const path=managementSections.includes(section)?`management/${section}`:section==='settings'?'management/merchants':section==='business-v2'?'businesses-v2':section;
  const state=usePosResource(`/pos/admin/${path}`,params,revision);
  const merchants=usePosResource('/pos/admin/management/merchants',{...scope,page_size:100},revision);
  const setFilter=(key,value)=>{setFilters({...filters,[key]:value});setPage(1);};

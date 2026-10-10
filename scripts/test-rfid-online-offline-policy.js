@@ -53,8 +53,8 @@ syncState = sync(syncState, "trx-retry");
 assert(syncState.processed.has("trx-retry"), "retry setelah reconnect berhasil");
 
 const firmwareFiles = [
-  "KasirRFID_V3 EDC01/KasirRFID_V3/KasirRFID_V3.ino",
-  "KasirRFID_V3 EDC02/KasirRFID_V3_Edc02/KasirRFID_V3_Edc02.ino",
+  "archive/firmware/EDC01/KasirRFID_V3.ino.source.txt",
+  "archive/firmware/EDC02/KasirRFID_V3_Edc02.ino.source.txt",
 ];
 for (const file of firmwareFiles) {
   const source = fs.readFileSync(path.join(__dirname, "..", file), "utf8");

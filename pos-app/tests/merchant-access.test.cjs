@@ -1,0 +1,5 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const {navigation,ownerCards}=require('../src/merchantAccess.cjs');
+test('one APK navigation is derived from effective permissions, not role labels',()=>{const cashier=navigation(['SALE_CREATE','SALE_VIEW','SHIFT_OPEN','PRODUCT_VIEW']);assert.deepEqual(cashier,['BERANDA','KASIR','TRANSAKSI','PRODUK']);const supervisor=navigation(['PRODUCT_VIEW','INVENTORY_VIEW','PURCHASE_VIEW','REPORT_SALES']);assert.deepEqual(supervisor,['BERANDA','PRODUK','STOK','PEMBELIAN','LAPORAN']);});
+test('profit and finance cards are omitted without their exact permission',()=>{const data={omzet:'1',transaction_count:'1',average_ticket:'1',payment_mix:[],pos_vs_online:{},gross_profit:'1',outstanding_receivable:'1'},cards=ownerCards(data,['REPORT_SALES','AR_VIEW']);assert.ok(cards.includes('omzet'));assert.ok(cards.includes('outstanding_receivable'));assert.ok(!cards.includes('gross_profit'));});
+test('cashier permission removal changes navigation immediately',()=>{assert.ok(navigation(['SALE_CREATE','SALE_REFUND']).includes('KASIR'));assert.ok(!navigation(['SALE_REFUND']).includes('KASIR'));});

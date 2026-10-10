@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import ProtectedRoute from "./components/ProtectedRoute";
-import { BrowserRouter, Navigate, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Routes, Route } from "react-router-dom";
 import { TenantProfileProvider } from "./context/TenantProfileContext";
 import { ActiveUnitProvider } from "./context/ActiveUnitContext";
 
@@ -11,6 +11,9 @@ import axios from "axios";
 import { API_BASE_URL } from "./services/api";
 
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const LocalStorefrontPage = lazy(() => import("./pos-store/StorefrontPage"));
+const LocalMerchantStorePage = lazy(() => import("./pos-store/MerchantStorePage"));
+const LocalMerchantWorkspacePage = lazy(() => import("./pos-store/MerchantWorkspacePage"));
 const PembayaranPage = lazy(() => import("./pages/PembayaranPage"));
 const PengumumanPage = lazy(() => import("./pages/PengumumanPage"));
 const WaliHomeLinksPage = lazy(() => import("./pages/WaliHomeLinksPage"));
@@ -22,6 +25,7 @@ const RFIDTopupPage = lazy(() => import("./pages/RFIDTopupPage"));
 const WalletWithdrawalPage = lazy(() => import("./pages/WalletWithdrawalPage"));
 const RFIDMerchantPage = lazy(() => import("./pages/RFIDMerchantPage"));
 const RFIDDevicePage = lazy(() => import("./pages/RFIDDevicePage"));
+const PosAdminPage = lazy(() => import("./pages/PosAdminPage"));
 const RFIDMutasiPage = lazy(() => import("./pages/RFIDMutasiPage"));
 const RFIDRefundPage = lazy(() => import("./pages/RFIDRefundPage"));
 
@@ -73,6 +77,9 @@ import AboutKlikPesantrenPage from "./pages/AboutKlikPesantrenPage";
 import PlatformInfoAnnouncementsPage from "./pages/PlatformInfoAnnouncementsPage";
 import LandingPage from "./pages/LandingPage";
 import FoundingPartnerPage from "./pages/FoundingPartnerPage";
+import { WebsiteContentProvider } from "./context/WebsiteContentContext";
+import WebsitePreviewPage from "./pages/platform/WebsitePreviewPage";
+import WebsitePreviewRenderPage from "./pages/platform/WebsitePreviewRenderPage";
 
 const FeaturesPage = lazy(() =>
   import("./pages/OfficialWebsitePages").then((module) => ({
@@ -107,6 +114,11 @@ const BlogPage = lazy(() =>
 const PrivacyPolicyPage = lazy(() =>
   import("./pages/OfficialWebsitePages").then((module) => ({
     default: module.PrivacyPolicyPage,
+  }))
+);
+const WaliSantriPrivacyPolicyPage = lazy(() =>
+  import("./pages/OfficialWebsitePages").then((module) => ({
+    default: module.WaliSantriPrivacyPolicyPage,
   }))
 );
 const TermsOfServicePage = lazy(() =>
@@ -187,17 +199,30 @@ function App() {
       <TenantProfileProvider>
       <ActiveUnitProvider>
       <Routes>
-        <Route path="/" element={<RootRoute />} />
-        <Route path="/landing" element={<Navigate to="/founding-partner" replace />} />
-        <Route path="/founding-partner" element={<FoundingPartnerPage />} />
-        <Route path="/fitur" element={<LazyPage><FeaturesPage /></LazyPage>} />
-        <Route path="/harga" element={<LazyPage><PricingPage /></LazyPage>} />
-        <Route path="/demo" element={<LazyPage><DemoPage /></LazyPage>} />
-        <Route path="/tentang" element={<LazyPage><AboutPage /></LazyPage>} />
-        <Route path="/blog" element={<LazyPage><BlogPage /></LazyPage>} />
-        <Route path="/kontak" element={<LazyPage><ContactPage /></LazyPage>} />
-        <Route path="/privacy-policy" element={<LazyPage><PrivacyPolicyPage /></LazyPage>} />
-        <Route path="/terms-of-service" element={<LazyPage><TermsOfServicePage /></LazyPage>} />
+        <Route path="/store/:slug" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
+        <Route path="/store/:slug/products/:productId" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
+        <Route path="/store/:slug/orders/:orderId" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
+        {import.meta.env.DEV && <>
+          <Route path="/merchant-store" element={<LazyPage><LocalMerchantStorePage /></LazyPage>} />
+          <Route path="/merchant" element={<LazyPage><LocalMerchantWorkspacePage /></LazyPage>} />
+        </>}
+        <Route element={<WebsiteContentProvider><Outlet /></WebsiteContentProvider>}>
+          <Route path="/" element={<RootRoute />} />
+          <Route path="/landing" element={<Navigate to="/founding-partner" replace />} />
+          <Route path="/founding-partner" element={<FoundingPartnerPage />} />
+          <Route path="/fitur" element={<LazyPage><FeaturesPage /></LazyPage>} />
+          <Route path="/harga" element={<LazyPage><PricingPage /></LazyPage>} />
+          <Route path="/demo" element={<LazyPage><DemoPage /></LazyPage>} />
+          <Route path="/tentang" element={<LazyPage><AboutPage /></LazyPage>} />
+          <Route path="/blog" element={<LazyPage><BlogPage /></LazyPage>} />
+          <Route path="/kontak" element={<LazyPage><ContactPage /></LazyPage>} />
+          <Route path="/privacy-policy" element={<LazyPage><PrivacyPolicyPage /></LazyPage>} />
+          <Route path="/privacy/walisantri" element={<LazyPage><WaliSantriPrivacyPolicyPage /></LazyPage>} />
+          <Route path="/terms-of-service" element={<LazyPage><TermsOfServicePage /></LazyPage>} />
+        </Route>
+
+        <Route path="/platform/website/preview" element={<PlatformProtectedRoute><WebsitePreviewPage /></PlatformProtectedRoute>} />
+        <Route path="/platform/website/preview/render" element={<PlatformProtectedRoute><WebsitePreviewRenderPage /></PlatformProtectedRoute>} />
 
         {/* Platform Console — auth terpisah dari tenant admin */}
         <Route path="/platform/login" element={<PlatformLoginPage />} />
@@ -285,6 +310,8 @@ function App() {
         />
 
         <Route path="/alumni" element={<ProtectedRoute><AlumniPage /></ProtectedRoute>} />
+        <Route path="/pos" element={<Navigate to="/pos/dashboard" replace/>}/>
+        <Route path="/pos/:section" element={<ProtectedRoute><LazyPage><PosAdminPage/></LazyPage></ProtectedRoute>}/>
 
         <Route
           path="/kelas"

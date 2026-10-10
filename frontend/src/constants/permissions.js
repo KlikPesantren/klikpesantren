@@ -5,6 +5,16 @@
 
 // Map: path frontend → permission yang dibutuhkan untuk membukanya
 export const ROUTE_PERMISSIONS = {
+  '/pos/dashboard': 'pos.view',
+  '/pos/transactions': 'pos.view',
+  '/pos/products': 'pos.view',
+  '/pos/categories': 'pos.view',
+  '/pos/merchants': 'pos.view',
+  '/pos/cashiers': 'pos.view',
+  '/pos/shifts': 'pos.view',
+  '/pos/refunds': 'pos.view',
+  '/pos/reconciliation': 'pos.reconcile',
+  '/pos/settings': 'pos.view',
   "/dashboard":         "dashboard.view",
   "/santri":            "santri.view",
   "/alumni":            "alumni.view",
@@ -38,7 +48,7 @@ export const ROUTE_PERMISSIONS = {
   "/rfid-topup":        ["wallet.view", "rfid.view"],
   "/wallet-withdrawal": ["wallet.manage", "rfid.manage"],
   "/rfid-merchant":     "rfid.view",
-  "/rfid-devices":      "rfid.view",
+  "/rfid-devices":      ["rfid.view", "pos.view"],
   "/rfid-mutasi":       ["wallet.view", "rfid.view"],
   "/rfid-refund":       "rfid.view",
   "/users":             "user.view",
@@ -66,7 +76,8 @@ export const ROUTE_UNIT_FEATURES = {
   "/rfid-mutasi": "wallet",
   "/rfid-monitor": "rfid",
   "/rfid-merchant": "rfid",
-  "/rfid-devices": "rfid",
+  // Registry contains independently permission-gated Attendance and POS panels.
+  "/rfid-devices": null,
   "/rfid-refund": "rfid",
 };
 
@@ -103,7 +114,7 @@ export const ROUTE_FEATURES = {
   "/rfid-topup":        null,
   "/wallet-withdrawal": null,
   "/rfid-merchant":     "rfid",
-  "/rfid-devices":      "rfid",
+  "/rfid-devices":      null,
   "/rfid-mutasi":       null,
   "/rfid-refund":       "rfid",
   "/users":             "sistem",

@@ -19,8 +19,6 @@ const deviceMiddleware =
 
       } = req.body;
 
-      console.log(req.body);
-
       const result =
         await pool.query(
 

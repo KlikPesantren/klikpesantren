@@ -46,6 +46,8 @@ function PlatformProfilePage() {
   }, []);
 
   useEffect(() => {
+    // Existing async loader owns its state transitions.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSettings();
   }, [loadSettings]);
 
@@ -142,7 +144,7 @@ function PlatformProfilePage() {
                   {field.type === "textarea" ? (
                     <textarea
                       className="theme-field"
-                      value={form[field.key] || ""}
+                      value={form[field.key] ?? ""}
                       onChange={(e) =>
                         setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
                       }
@@ -153,7 +155,10 @@ function PlatformProfilePage() {
                       type={field.type}
                       value={form[field.key] || ""}
                       onChange={(e) =>
-                        setForm((prev) => ({ ...prev, [field.key]: e.target.value }))
+                        setForm((prev) => ({
+                          ...prev,
+                          [field.key]: e.target.value,
+                        }))
                       }
                     />
                   )}

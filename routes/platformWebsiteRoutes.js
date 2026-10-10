@@ -1,5 +1,7 @@
 const express = require("express");
+const multer = require("multer");
 const platformAuthMiddleware = require("../middleware/platformAuthMiddleware");
+const { uploadImageBuffer } = require("../services/cloudinaryUploadService");
 const {
   getPublishedWebsiteContent,
   getWebsiteSettingsForPlatform,
@@ -9,6 +11,15 @@ const {
 
 const platformRouter = express.Router();
 const publicRouter = express.Router();
+const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, callback) => {
+    const allowed = ALLOWED_IMAGE_TYPES.has(file.mimetype);
+    callback(allowed ? null : new Error("Format gambar tidak didukung"), allowed);
+  },
+});
 
 publicRouter.get("/content", async (_req, res) => {
   try {
@@ -35,6 +46,38 @@ platformRouter.get("/content", async (_req, res) => {
     console.error("[platformWebsiteContent]", err);
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+platformRouter.post("/assets", (req, res) => {
+  upload.single("file")(req, res, async (uploadError) => {
+    if (uploadError) {
+      const message = uploadError instanceof multer.MulterError && uploadError.code === "LIMIT_FILE_SIZE"
+        ? "Ukuran gambar maksimal 5MB"
+        : uploadError.message || "Upload gambar gagal";
+      return res.status(400).json({ success: false, error: message });
+    }
+    if (!req.file?.buffer) {
+      return res.status(400).json({ success: false, error: "File gambar wajib dipilih" });
+    }
+
+    try {
+      const result = await uploadImageBuffer(req.file.buffer, {
+        originalName: req.file.originalname,
+      });
+      return res.json({
+        success: true,
+        data: { url: result.secure_url, public_id: result.public_id },
+      });
+    } catch (error) {
+      console.error("[platformWebsiteAssetUpload]", error);
+      return res.status(500).json({
+        success: false,
+        error: error.code === "CLOUDINARY_NOT_CONFIGURED"
+          ? error.message
+          : "Upload gambar gagal",
+      });
+    }
+  });
 });
 
 platformRouter.put("/content", async (req, res) => {

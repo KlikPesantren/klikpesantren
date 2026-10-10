@@ -6,7 +6,7 @@ exports.getMonitor = async (req, res) => {
 
     await pool.query(`
       UPDATE devices
-      SET status = 'offline'
+      SET status = 'offline', connection_state = 'offline'
       WHERE tenant_id = $1
         AND last_ping IS NOT NULL
         AND last_ping < NOW() - INTERVAL '60 seconds'
@@ -14,7 +14,7 @@ exports.getMonitor = async (req, res) => {
 
     await pool.query(`
       UPDATE devices
-      SET status = 'online'
+      SET status = 'online', connection_state = 'online'
       WHERE tenant_id = $1
         AND last_ping IS NOT NULL
         AND last_ping >= NOW() - INTERVAL '60 seconds'
@@ -26,6 +26,8 @@ exports.getMonitor = async (req, res) => {
         d.id,
         d.device_id,
         d.nama_device,
+        d.enabled,
+        d.connection_state,
         d.status,
         d.last_ping,
         d.last_sync,

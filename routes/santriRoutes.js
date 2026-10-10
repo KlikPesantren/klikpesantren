@@ -1,6 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const pool = require("../db");
+const {canonicalAttendanceUid,attendanceUidSql}=require("../utils/attendanceRfidUid");
 const authMiddleware = require("../middleware/authMiddleware");
 const tenantMiddleware = require("../middleware/tenantMiddleware");
 const requirePermission = require("../middleware/requirePermission");
@@ -259,7 +260,7 @@ router.post(
       const conflict = await findIdentityConflict(req.tenantId, {
         santriId: existing_santri_id || null,
         nis,
-        uidRfid: uid_rfid,
+        uidRfid: canonicalAttendanceUid(uid_rfid),
       }, client);
 
       let santri;
@@ -294,7 +295,7 @@ router.post(
              to_char(tanggal_lahir, 'YYYY-MM-DD') AS tanggal_lahir,
              to_char(tanggal_masuk_pesantren, 'YYYY-MM-DD') AS tanggal_masuk_pesantren`,
           [nis, nama, tempat_lahir || null, tanggal_lahir || null,
-            jenis_kelamin || null, tanggal_masuk_pesantren || null, uid_rfid,
+            jenis_kelamin || null, tanggal_masuk_pesantren || null, canonicalAttendanceUid(uid_rfid) || null,
             alamat, orang_tua, nomor_hp_ortu, kelas_id || null, kamar || null,
             foto, normalizedLimitHarian, req.tenantId],
         );
@@ -422,7 +423,7 @@ router.put(
       await getClassInUnit(req.tenantId, kelas_id, workspace.unitId, client);
 
       const existing = await client.query(
-        `SELECT id, status
+        `SELECT id, status, uid_rfid
          FROM santri
          WHERE id = $1 AND tenant_id = $2`,
         [id, req.tenantId],
@@ -434,6 +435,15 @@ router.put(
       }
 
       const nextStatus = status ?? existing.rows[0].status ?? "aktif";
+      // Unrelated edits preserve the exact existing value, including legacy case.
+      const nextUid = uid_rfid === undefined || uid_rfid === existing.rows[0].uid_rfid
+        ? existing.rows[0].uid_rfid : canonicalAttendanceUid(uid_rfid) || null;
+      if(nextUid && nextUid!==existing.rows[0].uid_rfid){
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))",[`santri-uid:${req.tenantId}:${nextUid}`]);
+        const collision=await client.query(`SELECT s.id FROM santri s WHERE s.tenant_id=$1 AND s.id<>$2
+          AND (${attendanceUidSql("s.uid_rfid")})=$3 LIMIT 1`,[req.tenantId,id,nextUid]);
+        if(collision.rows[0])throw Object.assign(new Error("UID sudah terdaftar pada identitas lain"),{status:409,code:"RFID_CREDENTIAL_CONFLICT"});
+      }
       const wasAktif = !isSantriNonAktif(existing.rows[0].status);
       const willNonAktif = isSantriNonAktif(nextStatus);
       const remainingMemberships = willNonAktif
@@ -474,7 +484,7 @@ router.put(
           tanggal_lahir || null,
           jenis_kelamin || null,
           tanggal_masuk_pesantren || null,
-          uid_rfid,
+          nextUid,
           alamat,
           orang_tua,
           nomor_hp_ortu,

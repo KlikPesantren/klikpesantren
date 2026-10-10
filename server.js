@@ -693,8 +693,10 @@ app.use(
 );
 
 app.use('/pos', require('./routes/posRoutes'));
-app.use('/pos-business', require('./routes/posBusinessRoutes').createPosBusinessRouter({ db: require('./db') }));
-app.use('/store-api', require('./routes/posStorefrontRoutes').createPosStorefrontRouter({ db: require('./db') }));
+const posBusinessDb = require('./db');
+const posBusinessService = require('./services/posBusinessService').createPosBusinessService({ db: posBusinessDb });
+app.use('/pos-business', require('./routes/posBusinessRoutes').createPosBusinessRouter({ db: posBusinessDb, service: posBusinessService }));
+app.use('/store-api', require('./routes/posStorefrontRoutes').createPosStorefrontRouter({ service: posBusinessService }));
 
 app.use(
   "/rfid/merchant",

@@ -61,3 +61,31 @@ reconciliation-only tables must not be added to the runtime role without a prove
 application request. Capture before/after `has_table_privilege` and
 `has_sequence_privilege` evidence when changing any grant. A missing privilege
 should be traced to a concrete query before another operation-specific grant.
+
+## POS V1/V2 release grants
+
+Migrations 094–104 intentionally remain environment-neutral and do not embed a Railway
+role name. Their immutable checksums must not be changed after rehearsal. The reviewed
+normal-runtime privilege contract is versioned in `config/posRuntimePrivileges.js` and
+is audited/applied by `scripts/manage-pos-runtime-privileges.js`.
+
+The command requires an owner/migration connection plus explicit project, branch,
+endpoint, database and runtime-role guards. `audit` is read-only. `apply` additionally
+requires `CONFIRM_POS_GRANT_TARGET` to equal the full non-secret target identity emitted
+by the audit. It grants schema USAGE, operation-specific table privileges and
+column-specific UPDATE privileges. It never grants to PUBLIC, never changes ownership,
+and refuses unexpected POS tables, sequences, broad existing privileges, or an unsafe
+runtime role. Migrations 094–104 create no POS sequences.
+
+Run against rehearsal first:
+
+```text
+node scripts/manage-pos-runtime-privileges.js audit
+node scripts/manage-pos-runtime-privileges.js apply
+node scripts/manage-pos-runtime-privileges.js audit
+```
+
+Supply credentials and target guards through the approved secret workflow. Do not put
+passwords, connection strings, role-specific SQL, or confirmation values in Git. A
+production grant is a separate owner-authorized release operation; rehearsal success
+does not authorize it.

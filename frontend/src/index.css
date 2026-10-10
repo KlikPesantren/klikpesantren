@@ -13,6 +13,18 @@ body {
   color: var(--text-primary);
 }
 
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.store-page,
+.merchant-app {
+  font-variant-numeric: tabular-nums;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
 }

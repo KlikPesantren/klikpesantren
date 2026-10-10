@@ -11,6 +11,9 @@ import axios from "axios";
 import { API_BASE_URL } from "./services/api";
 
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const LocalStorefrontPage = lazy(() => import("./pos-store/StorefrontPage"));
+const LocalMerchantStorePage = lazy(() => import("./pos-store/MerchantStorePage"));
+const LocalMerchantWorkspacePage = lazy(() => import("./pos-store/MerchantWorkspacePage"));
 const PembayaranPage = lazy(() => import("./pages/PembayaranPage"));
 const PengumumanPage = lazy(() => import("./pages/PengumumanPage"));
 const WaliHomeLinksPage = lazy(() => import("./pages/WaliHomeLinksPage"));
@@ -22,6 +25,7 @@ const RFIDTopupPage = lazy(() => import("./pages/RFIDTopupPage"));
 const WalletWithdrawalPage = lazy(() => import("./pages/WalletWithdrawalPage"));
 const RFIDMerchantPage = lazy(() => import("./pages/RFIDMerchantPage"));
 const RFIDDevicePage = lazy(() => import("./pages/RFIDDevicePage"));
+const PosAdminPage = lazy(() => import("./pages/PosAdminPage"));
 const RFIDMutasiPage = lazy(() => import("./pages/RFIDMutasiPage"));
 const RFIDRefundPage = lazy(() => import("./pages/RFIDRefundPage"));
 
@@ -195,6 +199,13 @@ function App() {
       <TenantProfileProvider>
       <ActiveUnitProvider>
       <Routes>
+        <Route path="/store/:slug" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
+        <Route path="/store/:slug/products/:productId" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
+        <Route path="/store/:slug/orders/:orderId" element={<LazyPage><LocalStorefrontPage /></LazyPage>} />
+        {import.meta.env.DEV && <>
+          <Route path="/merchant-store" element={<LazyPage><LocalMerchantStorePage /></LazyPage>} />
+          <Route path="/merchant" element={<LazyPage><LocalMerchantWorkspacePage /></LazyPage>} />
+        </>}
         <Route element={<WebsiteContentProvider><Outlet /></WebsiteContentProvider>}>
           <Route path="/" element={<RootRoute />} />
           <Route path="/landing" element={<Navigate to="/founding-partner" replace />} />
@@ -299,6 +310,8 @@ function App() {
         />
 
         <Route path="/alumni" element={<ProtectedRoute><AlumniPage /></ProtectedRoute>} />
+        <Route path="/pos" element={<Navigate to="/pos/dashboard" replace/>}/>
+        <Route path="/pos/:section" element={<ProtectedRoute><LazyPage><PosAdminPage/></LazyPage></ProtectedRoute>}/>
 
         <Route
           path="/kelas"

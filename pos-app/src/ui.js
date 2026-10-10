@@ -1,0 +1,513 @@
+import React, { useState } from "react";
+import {
+  View,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  Image,
+  ScrollView,
+  ActivityIndicator,
+  Platform,
+} from "react-native";
+import Feather from "@expo/vector-icons/Feather";
+import { AppText as Text, fontFamilies, typography } from "./typography";
+export const colors = {
+  green: "#157347",
+  greenDark: "#0E5A37",
+  navy: "#0F172A",
+  background: "#F8FAFC",
+  soft: "#E8F5EC",
+  surface: "#FFFFFF",
+  line: "#E2E8F0",
+  muted: "#64748B",
+  red: "#B91C1C",
+  amber: "#92400E",
+};
+export function Icon({ name, size = 20, color = colors.green }) {
+  return <Feather name={name} size={size} color={color} />;
+}
+export function Button({
+  title,
+  onPress,
+  disabled,
+  secondary = false,
+  icon,
+  danger = false,
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      disabled={disabled}
+      onPress={onPress}
+      style={[
+        s.button,
+        secondary && s.secondary,
+        danger && s.danger,
+        disabled && s.disabled,
+      ]}
+    >
+      {icon && (
+        <Icon name={icon} color={secondary ? colors.green : colors.surface} />
+      )}
+      <Text style={[s.buttonText, secondary && { color: colors.green }]}>
+        {title}
+      </Text>
+    </Pressable>
+  );
+}
+export function Field({
+  label,
+  value,
+  onChangeText,
+  secret = false,
+  numeric = false,
+}) {
+  return (
+    <View style={s.field}>
+      <Text style={s.label}>{label}</Text>
+      <TextInput
+        accessibilityLabel={label}
+        style={s.input}
+        value={value}
+        onChangeText={onChangeText}
+        secureTextEntry={secret}
+        keyboardType={numeric ? "number-pad" : "default"}
+        inputMode={numeric ? "numeric" : "text"}
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+    </View>
+  );
+}
+export function Card({ title, children }) {
+  return (
+    <View style={s.card}>
+      {title && <Text style={s.heading}>{title}</Text>}
+      {children}
+    </View>
+  );
+}
+export function Row({ label, value }) {
+  return (
+    <View style={s.row}>
+      <Text style={s.label}>{label}</Text>
+      <Text style={s.value}>{value ?? "—"}</Text>
+    </View>
+  );
+}
+export function Money({ value, label }) {
+  return (
+    <View>
+      {label && <Text style={s.label}>{label}</Text>}
+      <Text
+        style={s.money}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.45}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+export function Badge({ label, tone = "green" }) {
+  return (
+    <View
+      style={[
+        s.badge,
+        tone === "amber" && { backgroundColor: "#FEF3C7" },
+        tone === "red" && { backgroundColor: "#FEE2E2" },
+      ]}
+    >
+      <Text
+        style={[
+          s.badgeText,
+          tone === "amber" && { color: colors.amber },
+          tone === "red" && { color: colors.red },
+        ]}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+export function Chip({ label, active, onPress }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!active }}
+      onPress={onPress}
+      style={[s.chip, active && s.chipActive]}
+    >
+      <Text style={[s.chipText, active && { color: colors.surface }]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+export function Empty({
+  icon = "inbox",
+  title,
+  note,
+  onRetry,
+  loading = false,
+}) {
+  return (
+    <View style={s.empty}>
+      {loading ? (
+        <ActivityIndicator color={colors.green} />
+      ) : (
+        <Icon name={icon} size={30} />
+      )}
+      <Text style={s.heading}>{title}</Text>
+      {note && <Text style={[s.muted, { textAlign: "center" }]}>{note}</Text>}
+      {onRetry && <Button title="Coba lagi" secondary onPress={onRetry} />}
+    </View>
+  );
+}
+export function Artwork({ url, compact = false }) {
+  const [failed, setFailed] = useState(false);
+  return url && /^https:\/\//.test(url) && !failed ? (
+    <Image
+      source={{ uri: url }}
+      onError={() => setFailed(true)}
+      style={[s.artwork, compact && s.artworkCompact]}
+      resizeMode="cover"
+    />
+  ) : (
+    <View style={[s.artwork, compact && s.artworkCompact, s.placeholder]}>
+      <Icon name="coffee" size={24} />
+    </View>
+  );
+}
+export function ReviewTools({ states, onState, busy, onReset }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <View style={s.dev}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => setExpanded(!expanded)}
+        style={s.devToggle}
+      >
+        <Icon name="tool" size={13} />
+        <Text style={s.muted}>
+          Review sintetis · {expanded ? "tutup" : "buka"}
+        </Text>
+      </Pressable>
+      {expanded && (
+        <>
+          <Text style={s.muted}>UI saja · financial write dinonaktifkan</Text>
+          {busy && <ActivityIndicator color={colors.green} />}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {states?.map((name) => (
+              <Chip
+                key={name}
+                label={name}
+                onPress={() => !busy && onState(name)}
+              />
+            ))}
+          </ScrollView>
+          {onReset && (
+            <Button
+              title="Reset review"
+              secondary
+              disabled={busy}
+              onPress={onReset}
+            />
+          )}
+        </>
+      )}
+    </View>
+  );
+}
+export const s = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: colors.background,
+    width: "100%",
+    maxWidth: 560,
+    alignSelf: "center",
+  },
+  loginRoot: { flex: 1, backgroundColor: colors.navy, width: "100%", maxWidth: 520, alignSelf: "center" },
+  loginContent: { flexGrow: 1, justifyContent: "center", padding: 24, gap: 22, backgroundColor: colors.background, borderTopLeftRadius: 34, borderTopRightRadius: 34, marginTop: 208 },
+  loginBrand: { position: "absolute", top: -184, left: 24, right: 24, gap: 5 },
+  logoMark: { width: 48, height: 48, borderRadius: 15, backgroundColor: colors.green, alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  loginKicker: { ...typography.caption, color: "#C8E6D3", letterSpacing: 1.6, fontWeight: "600" },
+  loginTitle: { ...typography.pageTitle, color: colors.surface, fontSize: 24, lineHeight: 30, fontWeight: "700" },
+  loginSubtitle: { color: "#D5DED9", fontSize: 13, lineHeight: 19, maxWidth: 410 },
+  loginFoot: { color: colors.muted, fontSize: 11, lineHeight: 17, textAlign: "center", paddingHorizontal: 12 },
+  flex: { flex: 1, minWidth: 0 },
+  content: { padding: 14, gap: 10, paddingBottom: 22 },
+  header: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderColor: colors.line,
+  },
+  brand: { ...typography.sectionTitle, fontWeight: "600", color: colors.navy },
+  eyebrow: { ...typography.caption, fontWeight: "600", letterSpacing: 1, color: colors.muted },
+  heading: { ...typography.bodyEmphasis, fontWeight: "600", color: colors.navy },
+  text: { ...typography.body, color: colors.navy },
+  muted: { ...typography.small, color: colors.muted },
+  card: {
+    padding: 13,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    gap: 8,
+  },
+  field: { gap: 6, marginBottom: 4 },
+  label: { ...typography.small, color: colors.muted, flexShrink: 1 },
+  value: { ...typography.body, ...typography.numeric, fontWeight: "600", color: colors.navy, flexShrink: 1 },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    minHeight: 44,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    fontSize: 15,
+    fontFamily: fontFamilies.regular,
+    color: colors.navy,
+    backgroundColor: colors.surface,
+  },
+  button: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 13,
+    backgroundColor: colors.green,
+    borderRadius: 10,
+  },
+  secondary: { backgroundColor: colors.soft },
+  danger: { backgroundColor: colors.red },
+  buttonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.surface,
+    flexShrink: 1,
+    textAlign: "center",
+  },
+  disabled: { opacity: 0.45 },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  money: { fontSize: 24, lineHeight: 30, fontWeight: "700", color: colors.navy, ...typography.numeric },
+  price: {
+    fontSize: 16,
+    fontWeight: "600",
+    ...typography.numeric,
+    color: colors.green,
+    flexShrink: 1,
+  },
+  filters: { padding: 10, gap: 7, backgroundColor: colors.surface },
+  chip: {
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    minHeight: 36,
+    justifyContent: "center",
+    backgroundColor: colors.background,
+    borderRadius: 18,
+    marginRight: 6,
+  },
+  chipActive: { backgroundColor: colors.green },
+  chipText: { fontSize: 12, fontWeight: "600", color: colors.navy },
+  product: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 12,
+    gap: 9,
+  },
+  artwork: { width: "100%", height: 68, borderRadius: 10 },
+  artworkCompact: { width: 52, height: 52, flexShrink: 0 },
+  placeholder: {
+    backgroundColor: colors.soft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  productName: {
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "600",
+    color: colors.navy,
+    minHeight: 38,
+  },
+  gridRow: { gap: 10, marginBottom: 10 },
+  footer: {
+    padding: 12,
+    gap: 8,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderColor: colors.line,
+  },
+  cartBar: {
+    padding: 12,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderColor: colors.line,
+    gap: 8,
+  },
+  cartItem: {
+    gap: 8,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderColor: colors.line,
+  },
+  pager: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    gap: 8,
+  },
+  tabs: {
+    flexDirection: "row",
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderColor: colors.line,
+    paddingBottom: 4,
+    shadowColor: "#0B2417",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: -3 },
+    elevation: 8,
+  },
+  tab: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 56,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 4,
+  },
+  tabActive: { borderTopWidth: 2, borderTopColor: colors.green, backgroundColor: "#F5FBF7" },
+  tabText: { ...typography.caption, fontWeight: "500", color: colors.muted },
+  activeTab: { color: colors.green },
+  badge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: colors.soft,
+  },
+  badgeText: { ...typography.caption, fontWeight: "600", color: colors.green },
+  feedback: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 7,
+    backgroundColor: "#F0FDF4",
+  },
+  alertError: { padding: 11, borderRadius: 10, backgroundColor: "#FEF2F2" },
+  alertSuccess: { padding: 11, borderRadius: 10, backgroundColor: "#ECFDF3" },
+  error: { fontSize: 13, color: colors.red, lineHeight: 19 },
+  success: { fontSize: 13, color: colors.green, lineHeight: 19 },
+  empty: { padding: 22, gap: 10, alignItems: "center" },
+  dev: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: "#FAFAFA",
+    gap: 5,
+  },
+  devToggle: {
+    minHeight: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  hero: { padding: 14, borderRadius: 12, backgroundColor: colors.green, gap: 8 },
+  heroLabel: { color: colors.soft, fontSize: 12 },
+  heroMoney: { color: colors.surface, fontSize: 30, lineHeight: 36, fontWeight: "700", ...typography.numeric },
+  stats: { flexDirection: "row", gap: 8 },
+  stat: {
+    flex: 1,
+    minWidth: 0,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    gap: 5,
+  },
+  choice: {
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "center",
+    backgroundColor: colors.surface,
+  },
+  choiceActive: { borderColor: colors.green, backgroundColor: "#F0FDF4" },
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.45)",
+    justifyContent: "center",
+    padding: 22,
+  },
+  dialog: {
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    padding: 20,
+    gap: 14,
+  },
+  receiptHero: { alignItems: "center", gap: 9, paddingVertical: 14 },
+  qty: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+    backgroundColor: colors.soft,
+  },
+  sectionTitle: { ...typography.sectionTitle, fontWeight: "600", color: colors.navy },
+  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingVertical: 4 },
+  avatar: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.soft, alignItems: "center", justifyContent: "center" },
+  avatarText: { color: colors.greenDark, fontSize: 15, fontWeight: "600" },
+  userRow: { flexDirection: "row", alignItems: "center", gap: 11 },
+  actionRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  activationCode: { padding: 14, borderRadius: 10, backgroundColor: colors.navy, color: colors.surface, fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }), letterSpacing: 1, fontSize: 14 },
+  menuSection: { gap: 7 },
+  menuGrid: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, overflow: "hidden", backgroundColor: colors.surface },
+  menuItem: { minHeight: 52, paddingHorizontal: 11, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.line, backgroundColor: colors.surface, flexDirection: "row", alignItems: "center", gap: 10 },
+  menuItemActive: { backgroundColor: "#F2FAF5" },
+  menuIcon: { width: 32, height: 32, borderRadius: 9, backgroundColor: colors.soft, alignItems: "center", justifyContent: "center" },
+  menuLabel: { flex: 1, color: colors.navy, fontSize: 14, fontWeight: "600" },
+  menuDescription: { color: colors.muted, fontSize: 11, lineHeight: 15 },
+  headerAccount: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.line, alignItems: "center", justifyContent: "center" },
+  roleBadge: { alignSelf: "flex-start", color: colors.greenDark, fontSize: 11, fontWeight: "500" },
+  accountOverlay: { flex: 1, backgroundColor: "rgba(15,23,42,0.28)", alignItems: "flex-end", paddingTop: 66, paddingHorizontal: 14 },
+  accountPanel: { width: "100%", maxWidth: 330, padding: 14, gap: 10, borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, shadowColor: colors.navy, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
+  listSurface: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, overflow: "hidden", backgroundColor: colors.surface },
+  listRow: { paddingHorizontal: 12, paddingVertical: 10, gap: 6, backgroundColor: colors.surface },
+  listRowDivider: { borderTopWidth: 1, borderTopColor: colors.line },
+  kpiGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  kpiTile: { width: "48.7%", minHeight: 96, padding: 12, gap: 5, borderRadius: 12, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface },
+  kpiValue: { color: colors.navy, ...typography.kpi, fontWeight: "700", ...typography.numeric },
+  kpiValueNegative: { color: colors.red },
+  sectionCompact: { gap: 7 },
+  inlineAction: { minHeight: 34, paddingHorizontal: 10, borderRadius: 9, backgroundColor: colors.soft, flexDirection: "row", alignItems: "center", gap: 6 },
+  inlineActionText: { color: colors.greenDark, fontSize: 12, fontWeight: "600" },
+  financeAccount: { flexDirection: "row", alignItems: "center", gap: 10 },
+  financeIcon: { width: 34, height: 34, borderRadius: 9, backgroundColor: colors.soft, alignItems: "center", justifyContent: "center" },
+  negativeText: { color: colors.red },
+  permissionSection: { paddingVertical: 7, gap: 8, borderBottomWidth: 1, borderBottomColor: colors.line },
+});

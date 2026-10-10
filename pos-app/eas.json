@@ -1,0 +1,18 @@
+{
+  "cli": { "version": ">=20.5.1", "appVersionSource": "local" },
+  "build": {
+    "acceptance": {
+      "distribution": "internal",
+      "developmentClient": false,
+      "environment": "preview",
+      "autoIncrement": false,
+      "android": { "buildType": "apk" },
+      "env": {
+        "POS_ENV": "acceptance",
+        "POS_REVIEW": "1",
+        "EXPO_PUBLIC_POS_ACCEPTANCE": "1",
+        "EXPO_PUBLIC_POS_API_URL": "https://pos-acceptance.invalid"
+      }
+    }
+  }
+}

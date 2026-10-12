@@ -16,6 +16,9 @@ function createPosAdminRouter({admin=service}={}){
  router.post('/businesses-v2',handle('onboardBusiness'));
  router.get('/businesses-v2/:id',handle('businessDetail'));
  router.patch('/businesses-v2/:id',handle('editBusinessV2'));
+ router.post('/businesses-v2/:id/owner-login',handle('changeBusinessOwnerLogin'));
+ router.post('/businesses-v2/:id/reissue-activation',handle('reissueBusinessOwnerActivation'));
+ router.delete('/businesses-v2/:id',handle('deleteBusinessV2'));
  router.patch('/categories/:id',handle('editCategory'));
  router.patch('/merchants/:id',handle('editMerchant'));
  router.patch('/terminals/:id',handle('configureTerminal'));

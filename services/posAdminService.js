@@ -10,6 +10,9 @@ const bool=value=>{if(typeof value!=='boolean')fail('INVALID_BOOLEAN');return va
 const validDate=value=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||Number.isNaN(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value)fail('INVALID_DATE');return value;};
 const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
 const stable=value=>JSON.stringify(value,Object.keys(value).sort());
+const optionalText=(value,max=255)=>{const s=String(value??'').trim();if(s.length>max)fail('INVALID_TEXT');return s||null;};
+const businessId=value=>{const id=String(value||'');if(!/^[0-9a-f-]{36}$/i.test(id))fail('INVALID_ID');return id;};
+const ownerLogin=value=>{const login=String(value||'').trim().toLowerCase();if(!/^[a-z0-9._@+-]{3,120}$/.test(login))fail('INVALID_OWNER_IDENTITY');return login;};
 
 function createPosAdminService({db=pool,permissionList=permission.getPermissionList}={}) {
  async function access(req,c,key='pos.view',write=false){
@@ -179,7 +182,7 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
  async function onboardBusiness(req){return run(req,'pos.config.manage',true,async(c,a)=>{requireTenantSuperadmin(a);const b=req.body||{};
    if(b.owner_password!=null)fail('OWNER_PASSWORD_ASSIGNMENT_FORBIDDEN');if(!['INTERNAL','EXTERNAL'].includes(b.ownership))fail('INVALID_OWNERSHIP');
    const requestId=String(req.headers?.['idempotency-key']||b.request_id||'').trim();if(requestId.length<8||requestId.length>160)fail('IDEMPOTENCY_KEY_REQUIRED');
-   const login=String(b.owner_login||'').trim().toLowerCase();if(!/^[a-z0-9._@+-]{3,120}$/.test(login))fail('INVALID_OWNER_IDENTITY');
+   const login=ownerLogin(b.owner_login);
    const unitIds=[...new Set((Array.isArray(b.unit_ids)&&b.unit_ids.length?b.unit_ids:[a.unitId]).map(number))].sort((x,y)=>x-y);
    const normalized={ownership:b.ownership,display_name:name(b.display_name),legal_name:b.legal_name||null,address:b.address||null,phone:b.phone||null,owner_name:name(b.owner_name),owner_login:login,unit_ids:unitIds};
    const fingerprint=hash(stable(normalized));await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['pos-provision:'+a.tenantId+':'+requestId]);
@@ -206,7 +209,7 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
    await c.query(`INSERT INTO pos_business_admin_audit(id,business_id,tenant_id,actor_user_id,action,snapshot) VALUES($1,$2,$3,$4,'MERCHANT_CREATED',$5)`,[crypto.randomUUID(),business,a.tenantId,a.user.id,JSON.stringify({ownership:b.ownership,unit_ids:unitIds,owner_id:owner,activation_required:Boolean(activationCode)})]);
    return {id:business,owner_id:owner,replay:false,activation_required:Boolean(activationCode),activation_code:activationCode,activation_expires_in:activationCode?172800:null};});}
  async function businessDetail(req){return run(req,'pos.view',false,async(c,a)=>{requireTenantSuperadmin(a);const id=String(req.params.id);if(!/^[0-9a-f-]{36}$/i.test(id))fail('INVALID_ID');
-   const business=(await c.query(`SELECT b.id,b.display_name,b.ownership,b.active,b.integration_enabled,b.wallet_enabled,b.storefront_enabled,b.storefront_slug,b.address,b.phone,b.accounting_start_date,
+   const business=(await c.query(`SELECT b.id,b.display_name,b.legal_name,b.ownership,b.active,b.integration_enabled,b.wallet_enabled,b.storefront_enabled,b.storefront_slug,b.address,b.phone,b.accounting_start_date,
      string_agg(DISTINCT u.nama,', ' ORDER BY u.nama) units,owner.user_id owner_id,mu.name owner_name,mu.login owner_login,
      (token.user_id IS NOT NULL) activation_pending,token.expires_at activation_expires_at
      FROM pos_businesses b JOIN pos_business_units bu ON bu.business_id=b.id AND bu.tenant_id=b.tenant_id JOIN unit_pendidikan u ON u.id=bu.unit_id AND u.tenant_id=bu.tenant_id
@@ -215,10 +218,37 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
      GROUP BY b.id,owner.user_id,mu.name,mu.login,token.user_id,token.expires_at`,[id,a.tenantId])).rows[0];if(!business)fail('BUSINESS_NOT_FOUND',404);
    const audit=(await c.query('SELECT action,snapshot,created_at FROM pos_business_admin_audit WHERE business_id=$1 AND tenant_id=$2 ORDER BY created_at DESC,id LIMIT 100',[id,a.tenantId])).rows;
    return {business,audit,privacy:'Tidak memuat laba, HPP, utang, biaya, modal, prive, atau ledger akun merchant.'};});}
- async function editBusinessV2(req){return run(req,'pos.config.manage',true,async(c,a)=>{requireTenantSuperadmin(a);const id=String(req.params.id);if(!/^[0-9a-f-]{36}$/i.test(id))fail('INVALID_ID');
-   const before=(await c.query('SELECT active,integration_enabled,wallet_enabled,storefront_enabled FROM pos_businesses WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[id,a.tenantId])).rows[0];if(!before)fail('BUSINESS_NOT_FOUND',404);
-   const row=(await c.query(`UPDATE pos_businesses SET active=$1,integration_enabled=$2,wallet_enabled=$3,storefront_enabled=$4 WHERE id=$5 AND tenant_id=$6 RETURNING id,active,integration_enabled,wallet_enabled,storefront_enabled`,[bool(req.body.active),bool(req.body.integration_enabled),bool(req.body.wallet_enabled),bool(req.body.storefront_enabled),id,a.tenantId])).rows[0];
+ async function editBusinessV2(req){return run(req,'pos.config.manage',true,async(c,a)=>{requireTenantSuperadmin(a);const id=businessId(req.params.id);
+   if(req.body.id!=null||req.body.ownership!=null)fail('IMMUTABLE_BUSINESS_IDENTITY',409);
+   const before=(await c.query('SELECT display_name,legal_name,address,phone,active,integration_enabled,wallet_enabled,storefront_enabled FROM pos_businesses WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[id,a.tenantId])).rows[0];if(!before)fail('BUSINESS_NOT_FOUND',404);
+   const row=(await c.query(`UPDATE pos_businesses SET display_name=$1,legal_name=$2,address=$3,phone=$4,active=$5,integration_enabled=$6,wallet_enabled=$7,storefront_enabled=$8 WHERE id=$9 AND tenant_id=$10 RETURNING id,display_name,legal_name,address,phone,active,integration_enabled,wallet_enabled,storefront_enabled`,[name(req.body.display_name),optionalText(req.body.legal_name,160),optionalText(req.body.address,1000),optionalText(req.body.phone,40),bool(req.body.active),bool(req.body.integration_enabled),bool(req.body.wallet_enabled),bool(req.body.storefront_enabled),id,a.tenantId])).rows[0];
    await c.query(`INSERT INTO pos_business_admin_audit(id,business_id,tenant_id,actor_user_id,action,snapshot) VALUES($1,$2,$3,$4,$5,$6)`,[crypto.randomUUID(),id,a.tenantId,a.user.id,before.active!==row.active?'MERCHANT_STATUS_CHANGED':'INTEGRATION_CHANGED',JSON.stringify({before,after:row})]);return row;});}
- return {transactions,detail,dashboard,shifts,refunds,reconciliation,management,editCategory,editMerchant,configureTerminal,businessesV2,onboardBusiness,businessDetail,editBusinessV2};
+ async function changeBusinessOwnerLogin(req){return run(req,'pos.config.manage',true,async(c,a)=>{requireTenantSuperadmin(a);const id=businessId(req.params.id),login=ownerLogin(req.body.owner_login);
+   const owner=(await c.query(`SELECT u.id,u.login FROM pos_businesses b JOIN pos_merchant_memberships m ON m.business_id=b.id AND m.tenant_id=b.tenant_id AND m.role='OWNER' JOIN pos_merchant_users u ON u.id=m.user_id WHERE b.id=$1 AND b.tenant_id=$2 FOR UPDATE OF b,m,u`,[id,a.tenantId])).rows[0];if(!owner)fail('BUSINESS_OWNER_NOT_FOUND',404);
+   if(owner.login===login)return {business_id:id,owner_login:login,changed:false};
+   if((await c.query('SELECT 1 FROM pos_merchant_users WHERE login=$1 AND id<>$2 LIMIT 1',[login,owner.id])).rowCount)fail('OWNER_IDENTITY_CONFLICT',409);
+   const memberships=(await c.query('SELECT count(*)::integer n FROM pos_merchant_memberships WHERE user_id=$1',[owner.id])).rows[0].n;if(memberships!==1)fail('OWNER_SHARED_IDENTITY',409);
+   await c.query('UPDATE pos_merchant_users SET login=$1 WHERE id=$2',[login,owner.id]);
+   await c.query(`INSERT INTO pos_business_admin_audit(id,business_id,tenant_id,actor_user_id,action,snapshot) VALUES($1,$2,$3,$4,'OWNER_ACTIVATION_REISSUED',$5)`,[crypto.randomUUID(),id,a.tenantId,a.user.id,JSON.stringify({kind:'OWNER_LOGIN_CHANGED',before:{owner_login:owner.login},after:{owner_login:login}})]);
+   return {business_id:id,owner_login:login,changed:true};});}
+ async function reissueBusinessOwnerActivation(req){return run(req,'pos.config.manage',true,async(c,a)=>{requireTenantSuperadmin(a);const id=businessId(req.params.id);
+   const owner=(await c.query(`SELECT u.id,u.login,b.active FROM pos_businesses b JOIN pos_merchant_memberships m ON m.business_id=b.id AND m.tenant_id=b.tenant_id AND m.role='OWNER' AND m.active JOIN pos_merchant_users u ON u.id=m.user_id AND u.active WHERE b.id=$1 AND b.tenant_id=$2 FOR UPDATE OF b,m,u`,[id,a.tenantId])).rows[0];if(!owner)fail('BUSINESS_OWNER_NOT_FOUND',404);if(!owner.active)fail('BUSINESS_INACTIVE',409);
+   const activationCode=crypto.randomBytes(24).toString('base64url');
+   await c.query(`INSERT INTO pos_merchant_activation_tokens(business_id,user_id,token_hash,expires_at,created_by) VALUES($1,$2,$3,now()+interval '48 hours',$2) ON CONFLICT(business_id,user_id) DO UPDATE SET token_hash=excluded.token_hash,expires_at=excluded.expires_at,created_by=excluded.created_by,created_at=now()`,[id,owner.id,hash(activationCode)]);
+   await c.query('DELETE FROM pos_merchant_sessions WHERE user_id=$1',[owner.id]);
+   await c.query(`INSERT INTO pos_business_admin_audit(id,business_id,tenant_id,actor_user_id,action,snapshot) VALUES($1,$2,$3,$4,'OWNER_ACTIVATION_REISSUED',$5)`,[crypto.randomUUID(),id,a.tenantId,a.user.id,JSON.stringify({owner_id:owner.id,login:owner.login,expires_in:172800})]);
+   return {business_id:id,owner_login:owner.login,activation_code:activationCode,activation_expires_in:172800};});}
+ async function deleteBusinessV2(req){return run(req,'pos.config.manage',true,async(c,a)=>{requireTenantSuperadmin(a);const id=businessId(req.params.id);if(req.body.confirmation!=='DELETE'||String(req.body.business_id)!==id)fail('DELETE_CONFIRMATION_REQUIRED',400);
+   const business=(await c.query('SELECT id,display_name,active FROM pos_businesses WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[id,a.tenantId])).rows[0];if(!business)fail('BUSINESS_NOT_FOUND',404);if(business.active)fail('BUSINESS_MUST_BE_INACTIVE',409);
+   const referenceTables=['pos_business_products','pos_business_parties','pos_business_accounts','pos_business_terminals','pos_business_shifts','pos_business_operations','pos_business_payments','pos_business_lines','pos_inventory_movements','pos_inventory_layers','pos_inventory_allocations','pos_money_movements','pos_debt_movements','pos_wallet_credentials','pos_wallet_credential_audits','pos_business_wallet_links','pos_online_customer_access','pos_online_orders','pos_online_order_lines','pos_online_reservations','pos_online_order_events','pos_merchant_permission_audit'];
+   const blockers=[];for(const table of referenceTables){if(!(await c.query('SELECT to_regclass($1) present',['public.'+table])).rows[0].present)fail('BUSINESS_DELETE_SCHEMA_INCOMPLETE',500);const column=table==='pos_wallet_credentials'?'created_business_id':'business_id';const count=(await c.query(`SELECT count(*)::integer n FROM ${table} WHERE ${column}=$1`,[id])).rows[0].n;if(count)blockers.push({table,count});}
+   const ownerHistory=(await c.query(`SELECT count(*)::integer n FROM pos_business_admin_audit WHERE business_id=$1 AND tenant_id=$2 AND (action='OWNER_ACTIVATION_REISSUED' OR snapshot->>'kind'='OWNER_LOGIN_CHANGED')`,[id,a.tenantId])).rows[0].n;if(ownerHistory)blockers.push({table:'pos_business_admin_audit',count:ownerHistory});
+   if(blockers.length)fail('BUSINESS_ARCHIVE_REQUIRED',409);
+   const ownerIds=(await c.query("SELECT user_id FROM pos_merchant_memberships WHERE business_id=$1 AND tenant_id=$2 AND role='OWNER' ORDER BY user_id",[id,a.tenantId])).rows.map(row=>row.user_id);
+   const auditHistory=(await c.query('SELECT action,snapshot,created_at FROM pos_business_admin_audit WHERE business_id=$1 AND tenant_id=$2 ORDER BY created_at,id',[id,a.tenantId])).rows;
+   await c.query(`INSERT INTO audit_logs(device_id,event_type,detail,tenant_id) VALUES($1,'POS_BUSINESS_DELETED',$2,$3)`,[`admin:${a.user.id}`,JSON.stringify({business_id:id,display_name:business.display_name,owner_ids:ownerIds,admin_history:auditHistory}),a.tenantId]);
+   await c.query('DELETE FROM pos_businesses WHERE id=$1 AND tenant_id=$2',[id,a.tenantId]);
+   return {deleted:true,business_id:id,owner_account_deleted:false};});}
+ return {transactions,detail,dashboard,shifts,refunds,reconciliation,management,editCategory,editMerchant,configureTerminal,businessesV2,onboardBusiness,businessDetail,editBusinessV2,changeBusinessOwnerLogin,reissueBusinessOwnerActivation,deleteBusinessV2};
 }
 module.exports={createPosAdminService,...createPosAdminService()};

@@ -13,6 +13,19 @@
         "EXPO_PUBLIC_POS_ACCEPTANCE": "1",
         "EXPO_PUBLIC_POS_API_URL": "https://pos-acceptance.invalid"
       }
+    },
+    "production-apk": {
+      "distribution": "internal",
+      "developmentClient": false,
+      "environment": "production",
+      "autoIncrement": true,
+      "android": { "buildType": "apk" },
+      "env": {
+        "POS_ENV": "production",
+        "POS_REVIEW": "0",
+        "EXPO_PUBLIC_POS_ACCEPTANCE": "0",
+        "EXPO_PUBLIC_POS_API_URL": "https://api.klikpesantren.com"
+      }
     }
   }
 }

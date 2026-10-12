@@ -12,6 +12,7 @@ const ids = Array.from({ length: 8 }, () => crypto.randomUUID());
 const [existingBusiness, existingOwner, pendingBusiness, pendingOwner] = ids;
 let db;
 let passed = 0;
+let primaryBusiness;
 const test = async (name, work) => { await work(); passed++; console.log('PASS ' + name); };
 const rejects = (work, code) => assert.rejects(work, error => error.code === code);
 const request = (body = {}, user = { id: 1, tenant_id: 1, role: 'superadmin' }, query = { unit_id: 2 }, params = {}, headers = {}) => ({
@@ -35,6 +36,7 @@ async function setup() {
     CREATE TABLE unit_pendidikan(id integer PRIMARY KEY,tenant_id integer NOT NULL,kode text,nama text,unit_type text,preset_key text,is_active boolean NOT NULL DEFAULT true,sort_order integer NOT NULL DEFAULT 0,UNIQUE(id,tenant_id));
     CREATE TABLE users(id integer PRIMARY KEY,tenant_id integer NOT NULL,nama text,username text,role text,status text);
     CREATE TABLE user_unit_scope(user_id integer,tenant_id integer,unit_id integer,status text);
+    CREATE TABLE audit_logs(id bigserial PRIMARY KEY,created_at timestamptz NOT NULL DEFAULT now(),device_id text,event_type text,detail text,tenant_id integer);
     CREATE TABLE legacy_fixture(id integer PRIMARY KEY,value text);
     INSERT INTO tenants VALUES(1,'active','synthetic-suq'),(2,'active','foreign-suq');
     INSERT INTO unit_pendidikan VALUES(2,1,'U2','Unit Dua','pesantren','pesantren',true,1),(3,1,'U3','Unit Tiga','sekolah','sekolah',true,2),(4,2,'U4','Unit Asing','pesantren','pesantren',true,1);
@@ -54,6 +56,10 @@ async function main() {
     assert.equal((await db.query("SELECT to_regclass('public.pos_business_admin_audit') table_name")).rows[0].table_name, null);
     assert.deepEqual((await db.query('SELECT * FROM legacy_fixture')).rows, [{ id: 1, value: 'preserve' }]);
     await db.query(migration('104_suq_shogir_merchant_onboarding.sql'));
+    for (const table of ['pos_wallet_credentials','pos_wallet_credential_audits','pos_business_wallet_links','pos_online_customer_access','pos_online_orders','pos_online_order_lines','pos_online_reservations','pos_online_order_events','pos_merchant_permission_audit']) {
+      if (!(await db.query('SELECT to_regclass($1) present', ['public.' + table])).rows[0].present)
+        await db.query(`CREATE TABLE ${table}(${table === 'pos_wallet_credentials' ? 'created_business_id' : 'business_id'} uuid NOT NULL)`);
+    }
   });
 
   require.cache[require.resolve('../db')] = { id: require.resolve('../db'), filename: require.resolve('../db'), loaded: true, exports: db };
@@ -67,6 +73,7 @@ async function main() {
     const body = { request_id: 'synthetic-onboarding-001', ownership: 'INTERNAL', display_name: 'Toko Sintetis',
       legal_name: 'Toko Sintetis Legal', owner_name: 'Pemilik Sintetis', owner_login: 'owner.synthetic', unit_ids: [2, 3] };
     const created = await admin.onboardBusiness(request(body, undefined, { unit_id: 2 }, {}, { 'idempotency-key': body.request_id }));
+    primaryBusiness = created.id;
     assert.equal(created.replay, false); assert.equal(created.activation_required, true); assert.equal(typeof created.activation_code, 'string');
     const counts = (await db.query(`SELECT
       (SELECT count(*)::integer FROM pos_businesses WHERE id=$1) businesses,
@@ -115,6 +122,7 @@ async function main() {
       owner_name: 'Existing Owner', owner_login: 'existing.owner', unit_ids: [2] }));
     assert.equal(result.owner_id, existingOwner); assert.equal(result.activation_required, false); assert.equal(result.activation_code, null);
     assert.equal((await db.query('SELECT password_hash FROM pos_merchant_users WHERE id=$1', [existingOwner])).rows[0].password_hash, oldHash);
+    await rejects(() => admin.changeBusinessOwnerLogin(request({ owner_login: 'shared-owner-change' }, undefined, { unit_id: 2 }, { id: result.id })), 'OWNER_SHARED_IDENTITY');
   });
 
   await test('admin projections remain privacy-safe and audit status/config changes', async () => {
@@ -123,9 +131,47 @@ async function main() {
     const id = list.rows[0].id;
     const detail = await admin.businessDetail(request({}, undefined, { unit_id: 2 }, { id }));
     assert(!/gross_profit|wallet_volume|capital|prive|supplier|payable/.test(JSON.stringify(detail.business)));
-    await admin.editBusinessV2(request({ active: false, integration_enabled: false, wallet_enabled: false, storefront_enabled: false }, undefined, { unit_id: 2 }, { id }));
+    await admin.editBusinessV2(request({ display_name: detail.business.display_name, legal_name: detail.business.legal_name, address: detail.business.address, phone: detail.business.phone, active: false, integration_enabled: false, wallet_enabled: false, storefront_enabled: false }, undefined, { unit_id: 2 }, { id }));
     assert.equal((await db.query('SELECT active FROM pos_businesses WHERE id=$1', [id])).rows[0].active, false);
     assert.equal((await db.query("SELECT count(*)::integer count FROM pos_business_admin_audit WHERE business_id=$1 AND action='MERCHANT_STATUS_CHANGED'", [id])).rows[0].count, 1);
+  });
+
+  await test('Tenant Admin safely edits owner identity, reissues activation and archives history', async () => {
+    const id = primaryBusiness, params = { id }, originalLogin = 'owner.synthetic', changedLogin = 'owner.synthetic.changed';
+    const changed = await admin.changeBusinessOwnerLogin(request({ owner_login: changedLogin }, undefined, { unit_id: 2 }, params));
+    assert.deepEqual(changed, { business_id: id, owner_login: changedLogin, changed: true });
+    await rejects(() => merchant.login({ body: { login: originalLogin, password: 'Synthetic-password-1234' } }), 'INVALID_CREDENTIALS');
+    const live = await merchant.login({ body: { login: changedLogin, password: 'Synthetic-password-1234' } });
+    const reissued = await admin.reissueBusinessOwnerActivation(request({}, undefined, { unit_id: 2 }, params));
+    assert.equal(typeof reissued.activation_code, 'string');
+    await rejects(() => merchant.context({ headers: { authorization: 'Bearer ' + live.token }, params: { businessId: id }, body: {}, query: {} }), 'MERCHANT_SESSION_INVALID');
+    const second = await admin.reissueBusinessOwnerActivation(request({}, undefined, { unit_id: 2 }, params));
+    await rejects(() => merchant.activate({ body: { login: changedLogin, activation_code: reissued.activation_code, password: 'Synthetic-password-old-code' } }), 'ACTIVATION_INVALID');
+    await merchant.activate({ body: { login: changedLogin, activation_code: second.activation_code, password: 'Synthetic-password-new-code' } });
+    assert.equal(typeof (await merchant.login({ body: { login: changedLogin, password: 'Synthetic-password-new-code' } })).token, 'string');
+    await db.query('INSERT INTO pos_business_products(id,business_id,sku,name,selling_price) VALUES($1,$2,$3,$4,$5)', [crypto.randomUUID(), id, 'SAFE-ARCHIVE', 'Synthetic History Guard', 1000]);
+    const detail = await admin.businessDetail(request({}, undefined, { unit_id: 2 }, params));
+    await admin.editBusinessV2(request({ display_name: 'Toko Sintetis Diedit', legal_name: detail.business.legal_name, address: 'Alamat sintetis', phone: '0800000000', active: false, integration_enabled: false, wallet_enabled: false, storefront_enabled: false }, undefined, { unit_id: 2 }, params));
+    await rejects(() => admin.deleteBusinessV2(request({ confirmation: 'DELETE', business_id: id }, undefined, { unit_id: 2 }, params)), 'BUSINESS_ARCHIVE_REQUIRED');
+    assert.equal((await db.query('SELECT active FROM pos_businesses WHERE id=$1', [id])).rows[0].active, false);
+    assert.equal((await db.query("SELECT count(*)::integer n FROM pos_business_admin_audit WHERE business_id=$1 AND snapshot->>'kind'='OWNER_LOGIN_CHANGED'", [id])).rows[0].n, 1);
+  });
+
+  await test('hard delete is confirmation-gated, tenant-scoped, removes only an empty merchant and preserves Owner identity', async () => {
+    const body = { request_id: 'synthetic-delete-empty', ownership: 'INTERNAL', display_name: 'Disposable Empty Merchant', owner_name: 'Disposable Owner', owner_login: 'disposable.owner', unit_ids: [2] };
+    const created = await admin.onboardBusiness(request(body, undefined, { unit_id: 2 }, {}, { 'idempotency-key': body.request_id }));
+    const params = { id: created.id }, detail = await admin.businessDetail(request({}, undefined, { unit_id: 2 }, params));
+    await rejects(() => admin.deleteBusinessV2(request({ confirmation: 'DELETE', business_id: created.id }, undefined, { unit_id: 2 }, params)), 'BUSINESS_MUST_BE_INACTIVE');
+    await rejects(() => admin.deleteBusinessV2(request({ confirmation: 'DELETE', business_id: created.id }, { id: 2, tenant_id: 1, role: 'operator' }, { unit_id: 2 }, params)), 'TENANT_SUPERADMIN_REQUIRED');
+    await admin.editBusinessV2(request({ display_name: detail.business.display_name, legal_name: null, address: null, phone: null, active: false, integration_enabled: false, wallet_enabled: false, storefront_enabled: false }, undefined, { unit_id: 2 }, params));
+    await rejects(() => admin.deleteBusinessV2(request({ confirmation: 'delete', business_id: created.id }, undefined, { unit_id: 2 }, params)), 'DELETE_CONFIRMATION_REQUIRED');
+    await rejects(() => admin.deleteBusinessV2(request({ confirmation: 'DELETE', business_id: created.id }, { id: 3, tenant_id: 2, role: 'superadmin' }, { unit_id: 4 }, params)), 'BUSINESS_NOT_FOUND');
+    const deleted = await admin.deleteBusinessV2(request({ confirmation: 'DELETE', business_id: created.id }, undefined, { unit_id: 2 }, params));
+    assert.equal(deleted.deleted, true); assert.equal(deleted.owner_account_deleted, false);
+    assert.equal((await db.query('SELECT count(*)::integer n FROM pos_businesses WHERE id=$1', [created.id])).rows[0].n, 0);
+    assert.equal((await db.query('SELECT count(*)::integer n FROM pos_merchant_users WHERE login=$1', [body.owner_login])).rows[0].n, 1);
+    const audit = (await db.query("SELECT detail::jsonb detail FROM audit_logs WHERE event_type='POS_BUSINESS_DELETED' AND tenant_id=1 ORDER BY id DESC LIMIT 1")).rows[0].detail;
+    assert.equal(audit.business_id, created.id); assert.equal(audit.owner_ids.length, 1); assert.ok(audit.admin_history.length >= 2);
   });
 
   console.log(`Suq Shogir onboarding PostgreSQL: ${passed} test groups PASS`);

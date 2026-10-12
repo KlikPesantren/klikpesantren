@@ -62,6 +62,10 @@ const MENU_DESCRIPTIONS = {
 };
 const primaryFor = (role, navigation) => (role === "OWNER" ? ["BERANDA","KASIR","TRANSAKSI","LAPORAN"] : ["BERANDA","KASIR","TRANSAKSI"]).filter(id => navigation.some(item => item.id === id));
 const errorText = e => ({
+  REVIEW_NETWORK_DISABLED: "Aplikasi ini adalah build demo/review dan tidak dapat login ke server. Instal build operasional Suq Shogir.",
+  NETWORK: "Tidak dapat terhubung ke server. Periksa internet lalu coba lagi.",
+  INVALID_CREDENTIALS: "ID login atau password salah.",
+  LOGIN_RATE_LIMITED: "Terlalu banyak percobaan login. Tunggu 15 menit lalu coba lagi.",
   MERCHANT_SESSION_INVALID: "Sesi berakhir. Silakan masuk kembali.",
   MERCHANT_PERMISSION_DENIED: "Akun tidak memiliki izin untuk tindakan ini.",
   MERCHANT_ACCESS_DENIED: "Akses ke usaha ini sudah tidak aktif.",

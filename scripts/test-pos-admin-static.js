@@ -7,7 +7,9 @@ assert(checksumMatches(readMigration('094_pos_v1_foundation.sql').sql,'0605eef6c
 for(const name of ['dashboard','transactions','products','categories','merchants','cashiers','shifts','refunds','reconciliation','settings'])assert(page.includes(name));
 assert(admin.includes('REPEATABLE READ READ ONLY'));assert(admin.includes("run(req,'pos.reconcile'"));assert(admin.includes('page_size'));assert(admin.includes('a.units'));
 assert(admin.includes('resolveActiveUnit(req,c)'));assert(!admin.includes('resolveActiveUnit({...req'));
-assert(!/router\.delete|wallet_accounts\s+SET|wallet_transactions\s+SET|santri\.saldo|uid_rfid|device_secret/i.test(admin+route));
+assert(!/wallet_accounts\s+SET|wallet_transactions\s+SET|santri\.saldo|uid_rfid|device_secret/i.test(admin+route));
+assert.equal((route.match(/router\.delete/g)||[]).length,1);assert(route.includes("router.delete('/businesses-v2/:id',handle('deleteBusinessV2'))"));
+for(const contract of ['BUSINESS_MUST_BE_INACTIVE','DELETE_CONFIRMATION_REQUIRED','BUSINESS_ARCHIVE_REQUIRED','OWNER_SHARED_IDENTITY'])assert(admin.includes(contract));
 assert(admin.includes('ATTENDANCE_TERMINAL_FROZEN'));assert(admin.includes('TERMINAL_HISTORY_PROTECTED'));assert(admin.includes('MERCHANT_UNIT_CHANGE_FORBIDDEN'));
 assert(!/\/rfid\/(payment|refund)|checkout|stock_quantity/.test(page));
 assert(hooks.includes('AbortController'));assert(hooks.includes('controller.signal.aborted'));assert(hooks.includes('lock.current'));assert(hooks.includes('retry.current.key'));assert(hooks.indexOf("setMessage('Berhasil disimpan.')")<hooks.indexOf('onSaved?.()'));

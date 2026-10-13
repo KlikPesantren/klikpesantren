@@ -38,7 +38,7 @@ for (const [table, operations] of required) {
     else assert.equal(rule[operation], true, `${table} requires ${operation.toUpperCase()}`);
   }
 }
-assert.deepStrictEqual(Object.entries(manifest.tables).filter(([, rule]) => rule.delete).map(([table]) => table).sort(), ["pos_merchant_activation_tokens", "pos_merchant_sessions"]);
+assert.deepStrictEqual(Object.entries(manifest.tables).filter(([, rule]) => rule.delete).map(([table]) => table).sort(), ["pos_businesses", "pos_merchant_activation_tokens", "pos_merchant_sessions"]);
 assert.equal(manifest.tables.pos_merchant_permission_audit.update, undefined);
 assert.equal(manifest.tables.pos_merchant_permission_audit.delete, undefined);
 assert.equal(manifest.tables.pos_wallet_credential_audits.update, undefined);

@@ -36,5 +36,6 @@ for(const [file,expected] of [['094_pos_v1_foundation.sql','0605eef6c75d82d07626
  const normalized=read('migrations/'+file).replace(/\r\n/g,'\n');assert.equal(crypto.createHash('sha256').update(normalized).digest('hex'),expected);
 }
 const config=read('pos-app/app.config.js');assert(config.includes('com.klikpesantren.pos'));assert(!config.includes('com.klikpesantren.wali'));
-const build=JSON.parse(read('pos-app/eas.json')).build;assert.deepEqual(Object.keys(build),['acceptance']);assert.equal(build.acceptance.android.buildType,'apk');
+const build=JSON.parse(read('pos-app/eas.json')).build,production=build['production-apk'];assert.deepEqual(Object.keys(build).sort(),['acceptance','production-apk']);assert.equal(build.acceptance.android.buildType,'apk');assert.equal(production.android.buildType,'apk');assert.equal(production.env.POS_ENV,'production');assert.equal(production.env.POS_REVIEW,'0');assert.equal(production.env.EXPO_PUBLIC_POS_ACCEPTANCE,'0');assert.equal(production.env.EXPO_PUBLIC_POS_API_URL,'https://api.klikpesantren.com');
+for(const code of ['REVIEW_NETWORK_DISABLED','NETWORK','INVALID_CREDENTIALS','LOGIN_RATE_LIMITED'])assert(merchant.includes(code));
 console.log('PASS canonical merchant auth, deterministic multi-business selector, operational permission-derived native modules, secure session vault, receipt and frozen Android identity');

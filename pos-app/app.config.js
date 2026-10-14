@@ -56,7 +56,24 @@ module.exports = {
         "android.permission.READ_MEDIA_IMAGES",
       ],
     },
-    plugins: ["expo-secure-store"],
+    plugins: [
+      "expo-font",
+      "expo-secure-store",
+      ["expo-camera", {
+        cameraPermission: "Pindai barcode kartu Dompet Santri untuk pembayaran.",
+        microphonePermission: false,
+        recordAudioAndroid: false,
+        barcodeScannerEnabled: true,
+      }],
+      ["react-native-nfc-manager", {
+        nfcPermission: "Baca UID kartu Dompet Santri untuk pembayaran.",
+      }],
+      ["expo-image-picker", {
+        photosPermission: "Pilih foto produk untuk katalog Suq Shogir.",
+        cameraPermission: "Ambil foto produk untuk katalog Suq Shogir.",
+        microphonePermission: false,
+      }],
+    ],
     extra: {
       posEnvironment: mode,
       apiUrl: api,

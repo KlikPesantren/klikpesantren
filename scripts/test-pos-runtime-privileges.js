@@ -55,4 +55,7 @@ assert.match(manager, /rolbypassrls/);
 assert.match(manager, /rolcreaterole/);
 assert.match(manager, /CONFIRM_POS_GRANT_TARGET/);
 assert.match(manager, /BEGIN READ ONLY/);
+assert.match(manager, /hasOwnProperty\.call\(manifest\.tables, table\)/,
+  "external canonical tables must not make unrelated existing app privileges look like POS grant drift");
+assert.doesNotMatch(manager, /GRANT\s+ALL/i);
 console.log(`PASS POS runtime privilege manifest: ${created.size} POS tables, 2 canonical treasury dependencies, destructive grants bounded`);

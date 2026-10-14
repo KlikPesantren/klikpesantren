@@ -36,21 +36,27 @@ async function audit(client, runtimeRole) {
   if (schemaCreate) excessive.push({ object: manifest.schema, privilege: "CREATE" });
   const grantTables={...manifest.tables,...(manifest.externalTables||{})};
   for (const [table, rule] of Object.entries(grantTables)) {
+    // POS-owned tables are governed exclusively by this manifest, while
+    // canonical KlikPesantren tables may legitimately carry privileges for
+    // unrelated runtime modules. For external dependencies, require only the
+    // minimum POS privileges and never classify pre-existing app privileges as
+    // POS grant drift.
+    const strict = Object.prototype.hasOwnProperty.call(manifest.tables, table);
     for (const operation of ["SELECT", "INSERT", "DELETE"]) {
       const allowed = (await client.query("SELECT has_table_privilege($1,$2,$3) allowed", [runtimeRole, `${manifest.schema}.${table}`, operation])).rows[0].allowed;
       const wanted = Boolean(rule[operation.toLowerCase()]);
       if (wanted && !allowed) missing.push({ object: table, privilege: operation });
-      if (!wanted && allowed) excessive.push({ object: table, privilege: operation });
+      if (strict && !wanted && allowed) excessive.push({ object: table, privilege: operation });
     }
     for (const operation of ["TRUNCATE", "REFERENCES", "TRIGGER"]) {
-      if ((await client.query("SELECT has_table_privilege($1,$2,$3) allowed", [runtimeRole, `${manifest.schema}.${table}`, operation])).rows[0].allowed) excessive.push({ object: table, privilege: operation });
+      if (strict && (await client.query("SELECT has_table_privilege($1,$2,$3) allowed", [runtimeRole, `${manifest.schema}.${table}`, operation])).rows[0].allowed) excessive.push({ object: table, privilege: operation });
     }
     const columns = (await client.query("SELECT column_name FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 ORDER BY ordinal_position", [manifest.schema, table])).rows.map(r => r.column_name);
     const wantedUpdates = new Set(rule.update || []);
     for (const column of columns) {
       const allowed = (await client.query("SELECT has_column_privilege($1,$2,$3,'UPDATE') allowed", [runtimeRole, `${manifest.schema}.${table}`, column])).rows[0].allowed;
       if (wantedUpdates.has(column) && !allowed) missing.push({ object: `${table}.${column}`, privilege: "UPDATE" });
-      if (!wantedUpdates.has(column) && allowed) excessive.push({ object: `${table}.${column}`, privilege: "UPDATE" });
+      if (strict && !wantedUpdates.has(column) && allowed) excessive.push({ object: `${table}.${column}`, privilege: "UPDATE" });
     }
     for (const column of wantedUpdates) if (!columns.includes(column)) throw new Error(`Unknown update column in manifest: ${table}.${column}`);
   }

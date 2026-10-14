@@ -14,6 +14,7 @@ export const ROUTE_PERMISSIONS = {
   '/pos/shifts': 'pos.view',
   '/pos/refunds': 'pos.view',
   '/pos/reconciliation': 'pos.reconcile',
+  '/pos/settlements': 'pos.reconcile',
   '/pos/settings': 'pos.view',
   "/dashboard":         "dashboard.view",
   "/santri":            "santri.view",

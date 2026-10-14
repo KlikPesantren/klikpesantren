@@ -14,7 +14,7 @@ const db = new Pool(options);
 const ids = Array.from({ length: 12 }, () => crypto.randomUUID());
 const [business, external, foreign, owner, cashier, supervisor, otherOwner] = ids;
 const password = 'Synthetic-only-V2-password';
-let passed = 0, server, ownerToken, cashierToken, supervisorToken, product, supplier, account, bank, purchase, customer, shift, creditSale;
+let passed = 0, server, ownerToken, cashierToken, supervisorToken, product, product2, supplier, account, bank, qris, purchase, customer, shift, creditSale;
 const test = async (name, work) => { await work(); passed++; console.log('PASS ' + name); };
 const rejects = (work, code) => assert.rejects(work, e => e.code === code);
 const query = async (sql, values = []) => (await db.query(sql, values)).rows;
@@ -61,6 +61,18 @@ async function setup() {
   await db.query(activationUp); await db.query(activationDown);
   assert.equal((await query("SELECT to_regclass('pos_merchant_activation_tokens') value"))[0].value, null);
   await db.query(activationUp);
+  await db.query(fs.readFileSync(path.join(__dirname, '../migrations/104_suq_shogir_merchant_onboarding.sql'), 'utf8'));
+  const initializationUp = fs.readFileSync(path.join(__dirname, '../migrations/105_pos_business_initialization.sql'), 'utf8');
+  const initializationDown = fs.readFileSync(path.join(__dirname, '../migrations/105_pos_business_initialization_rollback.sql'), 'utf8');
+  await db.query(initializationUp); await db.query(initializationDown);
+  assert.equal((await query("SELECT to_regclass('pos_business_initializations') value"))[0].value, null);
+  assert.equal((await query("SELECT position('pos_business_initialization_corrections' in pg_get_functiondef('pos_business_reconciles()'::regprocedure)) value"))[0].value, 0);
+  await db.query(initializationUp);
+  const productReferenceUp = fs.readFileSync(path.join(__dirname, '../migrations/106_pos_product_reference_purchase_price.sql'), 'utf8');
+  const productReferenceDown = fs.readFileSync(path.join(__dirname, '../migrations/106_pos_product_reference_purchase_price_rollback.sql'), 'utf8');
+  await db.query(productReferenceUp); await db.query(productReferenceDown);
+  assert.equal((await query("SELECT 1 FROM information_schema.columns WHERE table_name='pos_business_products' AND column_name='reference_purchase_price'"))[0], undefined);
+  await db.query(productReferenceUp);
   const pHash = await bcrypt.hash(password, 12);
   for (const [id, login] of [[owner, 'owner'], [cashier, 'cashier'], [supervisor, 'supervisor'], [otherOwner, 'other-owner']])
     await db.query('INSERT INTO pos_merchant_users(id,login,name,password_hash) VALUES($1,$2,$2,$3)', [id, login, pHash]);
@@ -84,11 +96,14 @@ async function main() {
     await rejects(() => core.books(req({}, 'tenant-admin-token')), 'MERCHANT_AUTH_REQUIRED');
     await rejects(() => core.books(req({}, ownerToken, foreign)), 'MERCHANT_ACCESS_DENIED');
     await rejects(() => core.books(req({}, ownerToken, external)), 'MERCHANT_ACCESS_DENIED');
+    await rejects(() => core.terminals(req({}, ownerToken, foreign)), 'MERCHANT_ACCESS_DENIED');
+    await rejects(() => core.cashDrawers(req({}, ownerToken, external)), 'MERCHANT_ACCESS_DENIED');
     await rejects(() => core.books(req({ tenant_id: 2 })), 'CLIENT_AUTHORITY_REJECTED');
   });
   await test('cashier cannot read HPP/AP/money/private books or manage user roles', async () => {
     await rejects(() => core.books(req({}, cashierToken)), 'MERCHANT_PERMISSION_DENIED');
     await rejects(() => core.account(req({ kind: 'CASH', name: 'spoof' }, cashierToken)), 'MERCHANT_PERMISSION_DENIED');
+    await rejects(() => core.terminal(req({ name: 'spoof' }, cashierToken)), 'MERCHANT_PERMISSION_DENIED');
     await rejects(() => core.member(req({ role: 'OWNER' }, cashierToken)), 'MERCHANT_PERMISSION_DENIED');
   });
   await test('supervisor explicit subset; no implied owner escalation', async () => {
@@ -114,14 +129,71 @@ async function main() {
     await db.query('UPDATE pos_businesses SET active=true WHERE id=$1', [business]);
   });
   await test('product/account/supplier/customer masters without santri copy', async () => {
-    product = (await core.product(req({ sku: 'SYN-01', name: 'Synthetic noodles', selling_price: '4000', minimum_stock: 10 }))).id;
+    const productRow = await core.product(req({ sku: 'SYN-01', name: 'Synthetic noodles', selling_price: '4000', reference_purchase_price: '2500', minimum_stock: 10 }));
+    product = productRow.id; assert.equal(productRow.reference_purchase_price, '2500');
+    product2 = (await core.product(req({ sku: 'SYN-02', name: 'Synthetic drink', selling_price: '2500', reference_purchase_price: '700', minimum_stock: 5 }))).id;
     account = (await core.account(req({ name: 'Drawer funding account', kind: 'CASH' }))).id;
     bank = (await core.account(req({ name: 'Synthetic bank', kind: 'BANK' }))).id;
+    qris = (await core.account(req({ name: 'Synthetic QRIS', kind: 'QRIS' }))).id;
     supplier = (await core.party(req({ kind: 'SUPPLIER', name: 'Synthetic supplier' }))).id;
     const customerRow = await core.party(req({ kind: 'CUSTOMER', name: 'Synthetic registered customer', credit_allowed: true, credit_limit: 10000 }));
     customer = customerRow.id; assert.equal(customerRow.kind, 'CUSTOMER');
     const cat = await core.catalog(req({}, cashierToken));
     assert.equal(cat[0].on_hand, '0'); assert.ok(!JSON.stringify(cat).includes('unit_cost'));
+  });
+  await test('existing-business initialization is owner-only, isolated, balanced, atomic and retry-safe', async () => {
+    const otherToken = (await core.login({ body: { login: 'other-owner', password } })).token;
+    const otherReq = (body = {}, target = external) => req(body, otherToken, target);
+    const otherAccount = (await core.account(otherReq({ name: 'Opening cash', kind: 'CASH' }))).id;
+    const otherBank = (await core.account(otherReq({ name: 'Opening bank', kind: 'BANK' }))).id;
+    const otherProduct = (await core.product(otherReq({ sku: 'OPEN-01', name: 'Opening product', selling_price: 5000, minimum_stock: 0 }))).id;
+    const otherCustomer = (await core.party(otherReq({ kind: 'CUSTOMER', name: 'Opening customer', credit_allowed: true, credit_limit: 1000000 }))).id;
+    const otherSupplier = (await core.party(otherReq({ kind: 'SUPPLIER', name: 'Opening supplier' }))).id;
+    const opening = { request_id: key(), accounting_start_date: '2026-01-01', confirmation: 'FINALIZE',
+      accounts: [{ account_id: otherAccount, amount: '500000' }, { account_id: otherBank, amount: '250000' }],
+      inventory: [{ product_id: otherProduct, quantity: '10', unit_cost: '2000' }],
+      receivables: [{ party_id: otherCustomer, amount: '30000', due_date: '2026-02-01' }],
+      payables: [{ party_id: otherSupplier, amount: '100000', due_date: '2026-02-01' }] };
+    await rejects(() => core.finalizeInitialization(req(opening, cashierToken)), 'MERCHANT_PERMISSION_DENIED');
+    await db.query("UPDATE pos_merchant_memberships SET permissions=ARRAY['__EFFECTIVE_V1__','BUSINESS_SETTINGS_MANAGE'] WHERE business_id=$1 AND user_id=$2", [business, cashier]);
+    await rejects(() => core.finalizeInitialization(req(opening, cashierToken)), 'OWNER_REQUIRED');
+    await db.query("UPDATE pos_merchant_memberships SET permissions='{}' WHERE business_id=$1 AND user_id=$2", [business, cashier]);
+    await rejects(() => core.finalizeInitialization(otherReq({ ...opening, accounts: [{ account_id: account, amount: '1' }] })), 'OPENING_ACCOUNT_DENIED');
+    assert.equal((await query('SELECT count(*) n FROM pos_business_initializations WHERE business_id=$1', [external]))[0].n, '0');
+    const [first, concurrentRetry] = await Promise.all([core.finalizeInitialization(otherReq(opening)), core.finalizeInitialization(otherReq(opening))]);
+    assert.equal(Number(first.replay) + Number(concurrentRetry.replay), 1);
+    assert.equal(first.equation.assets, '800000'); assert.equal(first.equation.liabilities, '100000');
+    assert.equal(first.equation.equity, '700000'); assert.equal(first.equation.balanced, true);
+    assert.equal((await core.aging({ ...otherReq({}, external), query: { kind: 'AR', as_of: '2026-01-15' } })).outstanding, '30000');
+    assert.equal((await core.aging({ ...otherReq({}, external), query: { kind: 'AP', as_of: '2026-01-15' } })).outstanding, '100000');
+    const retry = await core.finalizeInitialization(otherReq(opening)); assert.equal(retry.replay, true);
+    await rejects(() => core.finalizeInitialization(otherReq({ ...opening, request_id: key() })), 'INITIALIZATION_FINALIZED');
+    const correction = { request_id: key(), kind: 'ACCOUNT', target_id: otherAccount, amount_delta: '1000', reason: 'Synthetic opening correction', confirmation: 'CORRECT' };
+    await rejects(() => core.correctInitialization(req(correction, cashierToken)), 'MERCHANT_PERMISSION_DENIED');
+    await db.query("UPDATE pos_merchant_memberships SET permissions=ARRAY['__EFFECTIVE_V1__','BUSINESS_SETTINGS_MANAGE'] WHERE business_id=$1 AND user_id=$2", [business, cashier]);
+    await rejects(() => core.correctInitialization(req(correction, cashierToken)), 'OWNER_REQUIRED');
+    await db.query("UPDATE pos_merchant_memberships SET permissions='{}' WHERE business_id=$1 AND user_id=$2", [business, cashier]);
+    const corrected = await core.correctInitialization(otherReq(correction)); assert.equal(corrected.corrections.length, 1);
+    assert.equal((await core.correctInitialization(otherReq(correction))).replay, true);
+    await rejects(() => core.correctInitialization(otherReq({ ...correction, request_id: key(), target_id: account })), 'OPENING_ITEM_NOT_FOUND');
+    await core.correctInitialization(otherReq({ request_id: key(), kind: 'INVENTORY', target_id: otherProduct, quantity_delta: '-2', reason: 'Synthetic stock opening correction', confirmation: 'CORRECT' }));
+    await core.correctInitialization(otherReq({ request_id: key(), kind: 'RECEIVABLE', target_id: otherCustomer, amount_delta: '-5000', reason: 'Synthetic receivable correction', confirmation: 'CORRECT' }));
+    await core.correctInitialization(otherReq({ request_id: key(), kind: 'PAYABLE', target_id: otherSupplier, amount_delta: '1000', reason: 'Synthetic payable correction', confirmation: 'CORRECT' }));
+    assert.equal((await core.aging({ ...otherReq({}, external), query: { kind: 'AR', as_of: '2099-01-01' } })).outstanding, '25000');
+    assert.equal((await core.aging({ ...otherReq({}, external), query: { kind: 'AP', as_of: '2099-01-01' } })).outstanding, '101000');
+    await rejects(() => db.query('UPDATE pos_business_initializations SET opening_equity=opening_equity+1 WHERE business_id=$1', [external]), '23514');
+    assert.deepEqual((await query('SELECT cash_bank_total,inventory_total,receivable_total,payable_total,opening_equity FROM pos_business_initializations WHERE business_id=$1', [external]))[0],
+      { cash_bank_total: '750000', inventory_total: '20000', receivable_total: '30000', payable_total: '100000', opening_equity: '700000' });
+    assert.equal((await query("SELECT count(*) n FROM pos_business_operations WHERE business_id=$1 AND kind IN('SALE','PURCHASE')", [external]))[0].n, '0');
+    assert.equal((await query('SELECT sum(quantity) quantity FROM pos_inventory_movements WHERE business_id=$1 AND product_id=$2', [external, otherProduct]))[0].quantity, '8');
+    assert.equal((await query("SELECT coalesce(sum(total),0) turnover FROM pos_business_operations WHERE business_id=$1 AND kind='SALE'", [external]))[0].turnover, '0');
+    const report = await core.report({ ...otherReq({}, external), query: { from: '2020-01-01', to: '2099-12-31' } });
+    assert.equal(report.kpi.sales, '0'); assert.equal(report.kpi.gross_profit, '0');
+    const terminal = await core.terminal(otherReq({ name: 'Opening terminal' }));
+    const open = await core.openShift(otherReq({ terminal_id: terminal.id, cash_account_id: otherAccount, opening_cash: 0 }));
+    assert.equal((await core.closeShift(otherReq({ shift_id: open.id, actual_cash: 0 }))).difference, '0');
+    const zero = await core.finalizeInitialization(otherReq({ request_id: key(), accounting_start_date: '2026-01-01', confirmation: 'FINALIZE', accounts: [], inventory: [], receivables: [], payables: [] }, foreign));
+    assert.equal(zero.equation.assets, '0'); assert.equal(zero.equation.equity, '0');
   });
   await test('integer Rupiah only; malformed/fractional/unsafe numeric input rejected', async () => {
     for (const value of [0.1, -1, '1.5', '01', Number.MAX_SAFE_INTEGER + 1])
@@ -136,10 +208,18 @@ async function main() {
   await test('credit purchase 100 x 2500 -> stock +100, AP 250000, cash unchanged', async () => {
     const b = { items: [{ product_id: product, quantity: 100, unit_cost: 2500 }], supplier_id: supplier, paid: 0, due_date: '2026-11-01', request_id: key() };
     purchase = await core.purchase(req(b)); assert.equal(purchase.payable, '250000');
-    const books = await core.books(req()); assert.equal(books.stock[0].on_hand, '100');
+    const books = await core.books(req()); assert.equal(books.stock.find(row => row.id === product).on_hand, '100');
     assert.equal(books.debts[0].outstanding, '250000'); assert.equal(books.accounts.find(a => a.id === account).balance, '1000000');
     assert.equal((await core.purchase(req(b))).replay, true);
     await rejects(() => core.purchase(req({ ...b, paid: 1, account_id: account })), 'IDEMPOTENCY_CONFLICT');
+  });
+  await test('reference purchase price is informational and cannot rewrite historical FIFO cost', async () => {
+    const before = await query('SELECT unit_cost,received_quantity FROM pos_inventory_layers WHERE business_id=$1 AND product_id=$2 ORDER BY created_at,id', [business, product]);
+    const current = (await core.catalog(req())).find(row => row.id === product);
+    await core.updateProduct({ ...req({ ...current, name: current.name, selling_price: current.selling_price,
+      reference_purchase_price: '9999', minimum_stock: current.minimum_stock, active: true, sellable: true }), params: { businessId: business, productId: product } });
+    assert.equal((await core.catalog(req())).find(row => row.id === product).reference_purchase_price, '9999');
+    assert.deepEqual(await query('SELECT unit_cost,received_quantity FROM pos_inventory_layers WHERE business_id=$1 AND product_id=$2 ORDER BY created_at,id', [business, product]), before);
   });
   await test('AP partial payment/retry does not create purchase twice', async () => {
     const b = { kind: 'AP', source_id: purchase.id, account_id: account, amount: 50000, request_id: key() };
@@ -163,14 +243,14 @@ async function main() {
   });
   await test('FIFO adjustment consumes original exact cost; no stock overwrite', async () => {
     await core.adjustment(req({ direction: 'OUT', product_id: product, quantity: 105, reason: 'Synthetic stock count correction', request_id: key() }));
-    assert.equal((await core.books(req())).stock[0].on_hand, '5');
-    assert.equal((await query("SELECT cost FROM pos_inventory_movements WHERE kind='ADJUSTMENT_OUT'"))[0].cost, '265000');
+    assert.equal((await core.books(req())).stock.find(row => row.id === product).on_hand, '5');
+    assert.equal((await query("SELECT cost FROM pos_inventory_movements WHERE business_id=$1 AND kind='ADJUSTMENT_OUT'", [business]))[0].cost, '265000');
   });
   await test('concurrent inventory depletion cannot oversell; one succeeds', async () => {
     const results = await Promise.allSettled([1, 2].map(() => core.adjustment(req({ direction: 'DAMAGE', product_id: product, quantity: 4, reason: 'Synthetic damage', request_id: key() }))));
     assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
     assert.equal(results.find(r => r.status === 'rejected').reason.code, 'INSUFFICIENT_STOCK');
-    assert.equal((await core.books(req())).stock[0].on_hand, '1');
+    assert.equal((await core.books(req())).stock.find(row => row.id === product).on_hand, '1');
   });
   await test('concurrent identical purchase creates one operation/movement', async () => {
     const b = { items: [{ product_id: product, quantity: 2, unit_cost: 3200 }], supplier_id: supplier, paid: 0, due_date: '2026-11-02', request_id: key() };
@@ -182,6 +262,16 @@ async function main() {
     const failing = createPosBusinessService({ db, afterStage: async stage => { if (stage === 'stock') throw Object.assign(new Error('fixture'), { code: 'FORCED_TEST' }); } });
     await rejects(() => failing.purchase(req({ items: [{ product_id: product, quantity: 1, unit_cost: 1234 }], supplier_id: supplier, paid: 0, due_date: '2026-11-01', request_id: key() })), 'FORCED_TEST');
     assert.deepEqual(await fingerprint(), before);
+  });
+  await test('one atomic multi-product partially paid invoice creates exact stock layers and payable', async () => {
+    const request_id = key(), body = { request_id, supplier_id: supplier, account_id: account, paid: '1000', due_date: '2026-12-01',
+      reference: 'SYNTHETIC-MULTI', items: [{ product_id: product, quantity: '2', unit_cost: '1100' }, { product_id: product2, quantity: '3', unit_cost: '700' }] };
+    const result = await core.purchase(req(body));
+    assert.deepEqual({ total: result.total, paid: result.paid, payable: result.payable }, { total: '4300', paid: '1000', payable: '3300' });
+    assert.equal((await query('SELECT count(*) n FROM pos_business_lines WHERE operation_id=$1', [result.id]))[0].n, '2');
+    assert.deepEqual(await query('SELECT unit_cost,received_quantity FROM pos_inventory_layers WHERE movement_id IN(SELECT id FROM pos_inventory_movements WHERE operation_id=$1) ORDER BY unit_cost', [result.id]),
+      [{ unit_cost: '700', received_quantity: '3' }, { unit_cost: '1100', received_quantity: '2' }]);
+    const retry = await core.purchase(req(body)); assert.equal(retry.id, result.id); assert.equal(retry.replay, true);
   });
   await test('expense vs withdrawal vs capital classification retained; transfer net zero', async () => {
     await money('EXPENSE', 10000); await money('WITHDRAWAL', 5000); await money('OTHER_INCOME', 7000);
@@ -204,13 +294,28 @@ async function main() {
     await rejects(() => core.purchase(req({ items: [{ product_id: product, quantity: 1, unit_cost: 1 }], supplier_id: supplier, paid: 0, due_date: '2026-11-01', request_id: key() }, otherToken, external)), 'SUPPLIER_DENIED');
   });
   await test('HTTP real router: no auth 401, cashier private report 403, owner 200, no-store', async () => {
-    const app = express(); app.use('/business', createPosBusinessRouter({ db }));
+    const app = express(); app.use('/business', createPosBusinessRouter({ db, uploadImage: async (buffer, options) => {
+      assert.ok(buffer.length); assert.match(options.folder, new RegExp('^pos-products/' + business.replaceAll('-', '\\-') + '$'));
+      assert.equal(options.productImage, true); return { secure_url: 'https://res.cloudinary.com/synthetic/image/upload/product.jpg' };
+    } }));
     server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
     const url = 'http://127.0.0.1:' + server.address().port + '/business/' + business + '/books';
     assert.equal((await fetch(url)).status, 401);
     assert.equal((await fetch(url, { headers: { authorization: 'Bearer ' + cashierToken } })).status, 403);
     const response = await fetch(url, { headers: { authorization: 'Bearer ' + ownerToken } });
     assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
+  });
+  await test('merchant product upload route is permission and tenant scoped without exposing credentials', async () => {
+    const base = 'http://127.0.0.1:' + server.address().port + '/business/' + business + '/product-assets';
+    const body = () => { const form = new FormData(); form.append('file', new Blob(['synthetic-image'], { type: 'image/jpeg' }), 'fixture.jpg'); return form; };
+    assert.equal((await fetch(base, { method: 'POST', body: body() })).status, 401);
+    assert.equal((await fetch(base, { method: 'POST', headers: { authorization: 'Bearer ' + cashierToken }, body: body() })).status, 403);
+    const response = await fetch(base, { method: 'POST', headers: { authorization: 'Bearer ' + ownerToken }, body: body() });
+    assert.equal(response.status, 200); const json = await response.json();
+    assert.equal(json.data.url, 'https://res.cloudinary.com/synthetic/image/upload/product.jpg');
+    assert.ok(!JSON.stringify(json).match(/secret|credential|api.?key/i));
+    const foreignUrl = 'http://127.0.0.1:' + server.address().port + '/business/' + foreign + '/product-assets';
+    assert.equal((await fetch(foreignUrl, { method: 'POST', headers: { authorization: 'Bearer ' + ownerToken }, body: body() })).status, 403);
   });
   await test('failed login throttle persists; logout invalidates token', async () => {
     for (let i = 0; i < 10; i++) await rejects(() => core.login({ body: { login: 'missing', password } }), 'INVALID_CREDENTIALS');
@@ -225,6 +330,13 @@ async function main() {
   });
   await test('own shift locks a business terminal and physical CASH account', async () => {
     const t = await core.terminal(req({ name: 'Synthetic cashier terminal' }));
+    const terminalReplay = await core.terminal(req({ name: 'synthetic cashier terminal' }));
+    assert.equal(terminalReplay.id, t.id); assert.equal(terminalReplay.replay, true);
+    const setupCash = await core.account(req({ kind: 'CASH', name: 'Synthetic retry drawer' }));
+    const accountReplay = await core.account(req({ kind: 'CASH', name: 'synthetic retry drawer' }));
+    assert.equal(accountReplay.id, setupCash.id); assert.equal(accountReplay.replay, true);
+    assert.equal((await query("SELECT count(*) n FROM pos_business_terminals WHERE business_id=$1 AND lower(name)='synthetic cashier terminal'", [business]))[0].n, '1');
+    assert.equal((await query("SELECT count(*) n FROM pos_business_accounts WHERE business_id=$1 AND kind='CASH' AND lower(name)='synthetic retry drawer'", [business]))[0].n, '1');
     shift = await core.openShift(req({ terminal_id: t.id, cash_account_id: account, opening_cash: 100 }));
     await rejects(() => core.openShift(req({ terminal_id: t.id, cash_account_id: account, opening_cash: 100 })), '23505');
     await rejects(() => core.closeShift(req({ shift_id: shift.id, actual_cash: 100 }, cashierToken)), 'SHIFT_DENIED');
@@ -275,9 +387,22 @@ async function main() {
   });
   await test('manual bank payment requires evidence; non-CASH does not enter drawer', async () => {
     const b = { shift_id: shift.id, items: [{ product_id: product, quantity: 1 }],
-      payments: [{ method: 'BANK', account_id: bank, amount: 4000, reference: 'Synthetic reviewed evidence' }], request_id: key() };
+      payments: [{ method: 'BANK', account_id: bank, amount: 4000, reference: 'Synthetic reviewed evidence', manual_confirmed: true, confirmation_mode: 'MANUAL' }], request_id: key() };
     const s = await core.sale(req(b)); assert.equal(s.payments[0].method, 'BANK');
     await rejects(() => core.sale(req({ ...b, payments: [{ ...b.payments[0], reference: '' }], request_id: key() })), 'INVALID_TEXT');
+    await rejects(() => core.sale(req({ ...b, payments: [{ ...b.payments[0], manual_confirmed: false }], request_id: key() })), 'PAYMENT_CONFIRMATION_REQUIRED');
+    await rejects(() => core.sale(req({ ...b, payments: [{ ...b.payments[0], confirmation_mode: 'PROVIDER' }], request_id: key() })), 'PAYMENT_CONFIRMATION_REQUIRED');
+  });
+  await test('QRIS stays unposted until explicit manual verification; retries cannot duplicate it', async () => {
+    const request_id = key(), base = { shift_id: shift.id, items: [{ product_id: product, quantity: 1 }],
+      payments: [{ method: 'QRIS', account_id: qris, amount: 4000, reference: 'Synthetic QRIS evidence' }], request_id };
+    const before = await fingerprint();
+    await rejects(() => core.sale(req(base)), 'PAYMENT_CONFIRMATION_REQUIRED');
+    assert.deepEqual(await fingerprint(), before);
+    const confirmed = { ...base, payments: [{ ...base.payments[0], manual_confirmed: true, confirmation_mode: 'MANUAL' }] };
+    const one = await core.sale(req(confirmed)), replay = await core.sale(req(confirmed));
+    assert.equal(one.sale.id, replay.sale.id); assert.equal(replay.replay, true);
+    await rejects(() => core.sale(req({ ...confirmed, payments: [{ ...confirmed.payments[0], reference: 'Changed forged evidence' }] })), 'IDEMPOTENCY_CONFLICT');
   });
   await test('failed sale after stock rolls back all financial/stock legs', async () => {
     const before = await fingerprint();
@@ -294,10 +419,24 @@ async function main() {
   });
   await test('report uses classified income/expense, excludes capital/prive from operating result', async () => {
     const result = await core.report({ ...req(), query: { from: '2020-01-01', to: '2099-12-31' } });
-    assert.equal(result.kpi.sales, '24000');
+    assert.equal(result.kpi.sales, '28000');
     assert.equal(result.kpi.operating_result, (BigInt(result.kpi.sales) - BigInt(result.kpi.cogs) + 7000n - 10000n).toString());
     assert.equal(result.kpi.capital, '1000000'); assert.equal(result.kpi.withdrawals, '5000');
+    assert.equal(result.profit_loss.net_revenue, '28000');
+    assert.equal(result.profit_loss.cogs, result.kpi.cogs);
+    assert.equal(result.sales.products.reduce((sum, row) => sum + BigInt(row.net_revenue), 0n), 28000n);
+    assert.equal(result.sales.categories.reduce((sum, row) => sum + BigInt(row.net_revenue), 0n), 28000n);
+    assert.equal(result.sales.channels.reduce((sum, row) => sum + BigInt(row.net_sales), 0n), 28000n);
+    assert.equal(result.sales.payment_methods.reduce((sum, row) => sum + BigInt(row.net_amount), 0n), 28000n);
+    assert.equal(result.inventory.valuation,
+      (await query("SELECT coalesce(sum(CASE WHEN quantity>0 THEN cost ELSE -cost END),0) value FROM pos_inventory_movements WHERE business_id=$1", [business]))[0].value);
+    assert.equal(result.financial_position.equation_balanced, true);
+    assert.equal(BigInt(result.financial_position.assets), BigInt(result.financial_position.liabilities) + BigInt(result.financial_position.equity_derived));
+    assert.equal(result.financial_position.complete, true);
+    assert.equal(result.sales.category_basis.includes('current product master'), true);
+    console.log(`REPORT FIXTURE expected/actual: net revenue 28000/${result.profit_loss.net_revenue}; FIFO COGS ${result.profit_loss.cogs}/${result.kpi.cogs}; inventory ${result.inventory.valuation}/${result.financial_position.inventory_value}; assets equation ${result.financial_position.assets}/${(BigInt(result.financial_position.liabilities) + BigInt(result.financial_position.equity_derived)).toString()}`);
     await rejects(() => core.report({ ...req({}, cashierToken), query: { from: '2020-01-01', to: '2099-12-31' } }), 'MERCHANT_PERMISSION_DENIED');
+    await rejects(() => core.report({ ...req({}, ownerToken, external), query: { from: '2020-01-01', to: '2099-12-31' } }), 'MERCHANT_ACCESS_DENIED');
   });
   await test('shift close physical cash excludes bank/AR/credit; immutable and idempotent', async () => {
     const closed = await core.closeShift(req({ shift_id: shift.id, actual_cash: 13100 }));
@@ -325,12 +464,15 @@ async function main() {
       GRANT SELECT ON tenants,pos_businesses,pos_business_units,pos_merchant_users,pos_merchant_memberships,pos_merchant_sessions,
        pos_merchant_login_limits,pos_business_products,pos_business_parties,pos_business_accounts,pos_business_operations,
        pos_business_lines,pos_business_payments,pos_inventory_movements,pos_inventory_layers,pos_inventory_allocations,
-       pos_money_movements,pos_debt_movements,pos_business_terminals,pos_business_shifts,pos_merchant_activation_tokens TO pos_business_v2_fixture_runtime;
+       pos_money_movements,pos_debt_movements,pos_business_terminals,pos_business_shifts,pos_merchant_activation_tokens,
+       pos_business_initializations,pos_business_initialization_items,pos_business_initialization_corrections TO pos_business_v2_fixture_runtime;
       GRANT INSERT ON pos_merchant_users,pos_merchant_memberships,pos_merchant_sessions,pos_merchant_login_limits,
        pos_business_products,pos_business_parties,pos_business_accounts,pos_business_operations,pos_business_lines,
        pos_business_payments,pos_inventory_movements,pos_inventory_layers,pos_inventory_allocations,pos_money_movements,
-       pos_debt_movements,pos_business_terminals,pos_business_shifts,pos_merchant_activation_tokens TO pos_business_v2_fixture_runtime;
-      GRANT UPDATE(id) ON tenants,pos_businesses,pos_merchant_users,pos_business_products,pos_business_parties,
+       pos_debt_movements,pos_business_terminals,pos_business_shifts,pos_merchant_activation_tokens,
+       pos_business_initializations,pos_business_initialization_items,pos_business_initialization_corrections TO pos_business_v2_fixture_runtime;
+      GRANT UPDATE(id,accounting_start_date) ON pos_businesses TO pos_business_v2_fixture_runtime;
+      GRANT UPDATE(id) ON tenants,pos_merchant_users,pos_business_products,pos_business_parties,
        pos_business_accounts,pos_business_terminals TO pos_business_v2_fixture_runtime;
       GRANT UPDATE(user_id) ON pos_merchant_memberships TO pos_business_v2_fixture_runtime;
       GRANT UPDATE(token_hash) ON pos_merchant_sessions TO pos_business_v2_fixture_runtime;

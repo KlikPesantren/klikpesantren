@@ -12,10 +12,10 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
       const finance = permitted(a, 'REPORT_FINANCE');
       const readiness = (await c.query(`SELECT (display_name<>'' AND timezone<>'' AND currency='IDR') profile,
         EXISTS(SELECT 1 FROM pos_business_accounts WHERE business_id=$1 AND active) account,
+        EXISTS(SELECT 1 FROM pos_business_accounts WHERE business_id=$1 AND active AND kind='CASH') cash_drawer,
         EXISTS(SELECT 1 FROM pos_business_terminals WHERE business_id=$1 AND active) terminal,
         EXISTS(SELECT 1 FROM pos_business_products WHERE business_id=$1 AND active) product,
-        EXISTS(SELECT 1 FROM pos_money_movements m JOIN pos_business_operations o ON o.id=m.operation_id WHERE m.business_id=$1 AND o.kind='OPENING') opening_balance,
-        EXISTS(SELECT 1 FROM pos_inventory_movements WHERE business_id=$1) opening_inventory,
+        EXISTS(SELECT 1 FROM pos_business_initializations WHERE business_id=$1) initialization,
         EXISTS(SELECT 1 FROM pos_merchant_memberships WHERE business_id=$1 AND role<>'OWNER' AND active) employee,
         accounting_start_date,storefront_enabled,storefront_slug FROM pos_businesses WHERE id=$1`, [a.business])).rows[0];
       const out = {
@@ -58,15 +58,13 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
     return run(req, 'BUSINESS_SETTINGS_MANAGE', async (c, a) => {
       const b = req.body || {}, color = b.brand_color || null;
       if (color && !/^#[0-9a-f]{6}$/i.test(color)) bad('INVALID_BRAND_COLOR');
-      const accountingStart=b.accounting_start_date==null||b.accounting_start_date===''?null:String(b.accounting_start_date);
-      if(accountingStart&&(!/^\d{4}-\d{2}-\d{2}$/.test(accountingStart)||Number.isNaN(Date.parse(accountingStart))))bad('INVALID_ACCOUNTING_START_DATE');
       return (await c.query(`UPDATE pos_businesses SET display_name=$1,legal_name=$2,description=$3,address=$4,phone=$5,
         logo_url=$6,banner_url=$7,brand_color=$8,receipt_name=$9,receipt_header=$10,receipt_footer=$11,receipt_logo=$12,
-        receipt_prefix=$13,timezone=$14,accounting_start_date=COALESCE(accounting_start_date,$15::date) WHERE id=$16 RETURNING id,display_name,ownership,timezone,currency,accounting_start_date`,
+        receipt_prefix=$13,timezone=$14 WHERE id=$15 RETURNING id,display_name,ownership,timezone,currency,accounting_start_date`,
       [text(b.display_name), optional(b.legal_name, 160), optional(b.description, 500), optional(b.address, 1000),
         optional(b.phone, 80), productImageUrl(b.logo_url), productImageUrl(b.banner_url), color,
         optional(b.receipt_name, 160), optional(b.receipt_header, 300), optional(b.receipt_footer, 300),
-        b.receipt_logo === true, text(b.receipt_prefix, 16).toUpperCase(), text(b.timezone, 80), accountingStart, a.business])).rows[0];
+        b.receipt_logo === true, text(b.receipt_prefix, 16).toUpperCase(), text(b.timezone, 80), a.business])).rows[0];
     });
   }
 
@@ -249,13 +247,30 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
     });
   }
 
+  async function settlementPosition(req) {
+    return run(req, 'FINANCE_ACCOUNT_VIEW', async (c, a) => {
+      const position = (await c.query(`SELECT
+        coalesce(sum(amount) FILTER(WHERE direction='debit'),0) gross_wallet_sales,
+        coalesce(sum(amount) FILTER(WHERE direction='credit'),0) wallet_refunds
+        FROM pos_business_wallet_links WHERE business_id=$1 AND tenant_id=$2`, [a.business, a.member.tenant_id])).rows[0];
+      const paid = (await c.query(`SELECT coalesce(sum(amount),0) payouts,max(payout_date) last_payout_date
+        FROM pos_wallet_settlement_payouts WHERE business_id=$1 AND tenant_id=$2`, [a.business, a.member.tenant_id])).rows[0];
+      const net = BigInt(position.gross_wallet_sales) - BigInt(position.wallet_refunds), payouts = BigInt(paid.payouts);
+      return { ...position, payouts: paid.payouts, last_payout_date: paid.last_payout_date,
+        outstanding: (net > payouts ? net - payouts : 0n).toString(), recovery: (payouts > net ? payouts - net : 0n).toString(),
+        semantics: 'Informasi settlement saja. Tidak memberi akses ke saldo santri, biaya/HPP, laba, atau rekening KlikPesantren.' };
+    });
+  }
+
   async function updateProduct(req) {
     return run(req, 'PRODUCT_MANAGE', async (c, a) => {
       const b = req.body || {}, id = uuid(req.params.productId);
       const row = (await c.query(`UPDATE pos_business_products SET name=$1,category=$2,uom=$3,image_url=$4,selling_price=$5,
-        minimum_stock=$6,active=$7,sellable=$8 WHERE id=$9 AND business_id=$10 RETURNING id,name,selling_price`,
+        reference_purchase_price=$6,minimum_stock=$7,active=$8,sellable=$9 WHERE id=$10 AND business_id=$11
+        RETURNING id,name,selling_price,reference_purchase_price`,
       [text(b.name), optional(b.category, 120), optional(b.uom, 32) || 'pcs', productImageUrl(b.image_url),
-        amount(b.selling_price, true).toString(), amount(b.minimum_stock || 0).toString(), b.active !== false,
+        amount(b.selling_price, true).toString(), b.reference_purchase_price == null || b.reference_purchase_price === ''
+          ? null : amount(b.reference_purchase_price).toString(), amount(b.minimum_stock || 0).toString(), b.active !== false,
         b.sellable !== false, id, a.business])).rows[0];
       if (!row) bad('PRODUCT_NOT_FOUND', 404);
       return row;
@@ -263,7 +278,7 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
   }
 
   return { workspace, profile, members, updateMember, resetMemberCredential, reissueMemberActivation, directory, updateParty, inventory, activity,
-    sales, purchases, shifts, terminals, cashDrawers, paymentAccounts, updateProduct };
+    sales, purchases, shifts, terminals, cashDrawers, paymentAccounts, settlementPosition, updateProduct };
 }
 
 module.exports = { createBusinessWorkspace };

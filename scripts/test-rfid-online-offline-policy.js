@@ -75,5 +75,20 @@ const paymentSource = fs.readFileSync(
 );
 assert(paymentSource.includes("pg_advisory_xact_lock"), "payment idempotent lintas retry");
 assert(paymentSource.includes("if (!isOfflineSync && limit !== null)"), "limit wajib aktif online");
+assert.match(paymentSource, /WHERE id = \$1 AND tenant_id = \$2 AND uid_rfid = \$3[\s\S]*FOR UPDATE/,
+  "credential dan status diperiksa ulang dalam transaction sebelum debit");
+assert(!/console\.log\(\{[\s\S]{0,100}uid_rfid/.test(paymentSource), "raw UID tidak dicatat pada log pembayaran");
+
+const syncSource = fs.readFileSync(path.join(__dirname, "..", "controllers/rfidSyncController.js"), "utf8");
+assert.match(syncSource, /WHERE uid_rfid = \$1 AND tenant_id = \$2[\s\S]*FOR UPDATE/,
+  "offline replay memeriksa credential aktif di server di dalam transaction");
+assert(syncSource.includes("credential_inactive"), "identitas nonaktif ditolak saat replay");
+
+const santriSource = fs.readFileSync(path.join(__dirname, "..", "routes/santriRoutes.js"), "utf8");
+assert(santriSource.includes("wallet.rfid.deactivated"), "deaktivasi kartu diaudit");
+assert(santriSource.includes("wallet.rfid.replaced"), "penggantian kartu diaudit");
+const lifecycleAudit = santriSource.match(/JSON\.stringify\(\{\s*actor_user_id:[\s\S]*?has_credential:[\s\S]*?\}\)/)?.[0] || "";
+assert(lifecycleAudit, "payload audit lifecycle ditemukan");
+assert(!lifecycleAudit.includes("uid_rfid:"), "audit lifecycle tidak menyimpan UID mentah");
 
 console.log("RFID online/offline stabilization matrix: PASS");

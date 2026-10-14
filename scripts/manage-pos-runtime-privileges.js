@@ -34,7 +34,8 @@ async function audit(client, runtimeRole) {
   const schemaCreate = (await client.query("SELECT has_schema_privilege($1,$2,'CREATE') allowed", [runtimeRole, manifest.schema])).rows[0].allowed;
   if (!schemaUsage) missing.push({ object: manifest.schema, privilege: "USAGE" });
   if (schemaCreate) excessive.push({ object: manifest.schema, privilege: "CREATE" });
-  for (const [table, rule] of Object.entries(manifest.tables)) {
+  const grantTables={...manifest.tables,...(manifest.externalTables||{})};
+  for (const [table, rule] of Object.entries(grantTables)) {
     for (const operation of ["SELECT", "INSERT", "DELETE"]) {
       const allowed = (await client.query("SELECT has_table_privilege($1,$2,$3) allowed", [runtimeRole, `${manifest.schema}.${table}`, operation])).rows[0].allowed;
       const wanted = Boolean(rule[operation.toLowerCase()]);
@@ -53,6 +54,10 @@ async function audit(client, runtimeRole) {
     }
     for (const column of wantedUpdates) if (!columns.includes(column)) throw new Error(`Unknown update column in manifest: ${table}.${column}`);
   }
+  for(const sequence of manifest.externalSequences||[]){
+    const allowed=(await client.query("SELECT has_sequence_privilege($1,$2,'USAGE') allowed",[runtimeRole,`${manifest.schema}.${sequence}`])).rows[0].allowed;
+    if(!allowed)missing.push({object:sequence,privilege:'USAGE'});
+  }
   const publicGrants = Number((await client.query("SELECT count(*) count FROM information_schema.table_privileges WHERE table_schema=$1 AND table_name=ANY($2::text[]) AND grantee='PUBLIC'", [manifest.schema, expectedTables])).rows[0].count);
   if (publicGrants) excessive.push({ object: "PUBLIC", privilege: "POS_TABLE_PRIVILEGE" });
   return { role, table_count: expectedTables.length, sequence_count: sequences.length, missing, excessive };
@@ -60,11 +65,12 @@ async function audit(client, runtimeRole) {
 
 async function apply(client, runtimeRole) {
   await client.query(`GRANT USAGE ON SCHEMA ${quote(manifest.schema)} TO ${quote(runtimeRole)}`);
-  for (const [table, rule] of Object.entries(manifest.tables)) {
+  for (const [table, rule] of Object.entries({...manifest.tables,...(manifest.externalTables||{})})) {
     const operations = [rule.select && "SELECT", rule.insert && "INSERT", rule.delete && "DELETE"].filter(Boolean);
     if (operations.length) await client.query(`GRANT ${operations.join(", ")} ON TABLE ${quote(manifest.schema)}.${quote(table)} TO ${quote(runtimeRole)}`);
     if (rule.update?.length) await client.query(`GRANT UPDATE (${rule.update.map(quote).join(", ")}) ON TABLE ${quote(manifest.schema)}.${quote(table)} TO ${quote(runtimeRole)}`);
   }
+  for(const sequence of manifest.externalSequences||[])await client.query(`GRANT USAGE ON SEQUENCE ${quote(manifest.schema)}.${quote(sequence)} TO ${quote(runtimeRole)}`);
 }
 
 async function main() {

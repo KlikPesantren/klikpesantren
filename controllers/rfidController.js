@@ -220,10 +220,26 @@ exports.rfidPayment = async (req, res) => {
         });
       }
 
+      // Revalidate the credential while holding the santri row lock. Clearing or
+      // replacing a lost card in Admin must win before a payment can commit.
       const lockedSantriResult = await client.query(
-        `SELECT saldo FROM santri WHERE id = $1 AND tenant_id = $2 FOR UPDATE`,
-        [santri.id, tenantId]
+        `SELECT saldo, status
+         FROM santri
+         WHERE id = $1 AND tenant_id = $2 AND uid_rfid = $3
+         FOR UPDATE`,
+        [santri.id, tenantId, uid_rfid]
       );
+      if (!lockedSantriResult.rows[0]) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ success: false, error: "Kartu tidak aktif" });
+      }
+      if (!isSantriAktif(lockedSantriResult.rows[0].status)) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          success: false,
+          error: "Santri nonaktif tidak dapat melakukan pembayaran RFID",
+        });
+      }
       const lockedSaldoAwal = Number(lockedSantriResult.rows[0].saldo);
 
       // ONLINE: saldo dan limit wajib aktif. OFFLINE sync: limit sengaja nonaktif.
@@ -266,14 +282,6 @@ exports.rfidPayment = async (req, res) => {
       const trxUuid =
         crypto.randomUUID();
 
-      console.log("PAYMENT MASUK");
-console.log({
-  uid_rfid,
-  nominal,
-  device_id,
-  trx_id
-});
-
       await client.query(
         `
         INSERT INTO transaksi_rfid
@@ -308,10 +316,6 @@ console.log({
           tenantId
         ]
       );
-
-      console.log(
-  "INSERT transaksi_rfid BERHASIL"
-);
 
       await client.query(
         `

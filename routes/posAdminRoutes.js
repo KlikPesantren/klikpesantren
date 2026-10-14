@@ -9,7 +9,8 @@ function createPosAdminRouter({admin=service}={}){
   if(status===500)console.error('[POS admin]',{operation,code:e.code||'INTERNAL'});
   res.status(status).json({success:false,code:e.status?e.code:status===500?'POS_INTERNAL_ERROR':'INTEGRITY_REJECTED'});
  }};
- for(const operation of ['dashboard','transactions','shifts','refunds','reconciliation'])router.get('/'+operation,handle(operation));
+ for(const operation of ['dashboard','transactions','shifts','refunds','reconciliation','settlements'])router.get('/'+operation,handle(operation));
+ router.post('/settlements',handle('settleWallet'));
  router.get('/transactions/:id',handle('detail'));
  router.get('/management/:kind',handle('management'));
  router.get('/businesses-v2',handle('businessesV2'));

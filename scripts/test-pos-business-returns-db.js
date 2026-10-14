@@ -22,7 +22,8 @@ const purchase=async(qty=10,cost=1000,paid=0)=>core.purchase(req({items:[{produc
  paid,account_id:account,due_date:'2026-11-01',request_id:key()}));
 const sale=async(qty,method='CASH')=>core.sale(req({shift_id:shift.id,customer_id:method==='CREDIT'?customer:null,
  items:[{product_id:product,quantity:qty}],due_date:'2026-11-01',
- payments:[{method,account_id:method==='BANK'?bank:account,amount:qty*2000,tendered:qty*2000,reference:'Synthetic evidence'}],request_id:key()}));
+ payments:[{method,account_id:method==='BANK'?bank:account,amount:qty*2000,tendered:qty*2000,reference:'Synthetic evidence',
+  ...(method==='BANK'?{manual_confirmed:true,confirmation_mode:'MANUAL'}:{})}],request_id:key()}));
 const ret=(source,qty,extras={})=>req({source_id:source,items:[{product_id:product,quantity:qty}],shift_id:shift.id,reason:'Synthetic return evidence',request_id:key(),...extras});
 async function main(){
  const i=(await q('SELECT current_database() db,current_user,host(inet_server_addr()) host,inet_server_port() port'))[0];

@@ -56,7 +56,7 @@ async function main() {
     assert.equal((await db.query("SELECT to_regclass('public.pos_business_admin_audit') table_name")).rows[0].table_name, null);
     assert.deepEqual((await db.query('SELECT * FROM legacy_fixture')).rows, [{ id: 1, value: 'preserve' }]);
     await db.query(migration('104_suq_shogir_merchant_onboarding.sql'));
-    for (const table of ['pos_wallet_credentials','pos_wallet_credential_audits','pos_business_wallet_links','pos_online_customer_access','pos_online_orders','pos_online_order_lines','pos_online_reservations','pos_online_order_events','pos_merchant_permission_audit']) {
+    for (const table of ['pos_wallet_credentials','pos_wallet_credential_audits','pos_business_wallet_links','pos_wallet_settlement_payouts','pos_online_customer_access','pos_online_orders','pos_online_order_lines','pos_online_reservations','pos_online_order_events','pos_merchant_permission_audit']) {
       if (!(await db.query('SELECT to_regclass($1) present', ['public.' + table])).rows[0].present)
         await db.query(`CREATE TABLE ${table}(${table === 'pos_wallet_credentials' ? 'created_business_id' : 'business_id'} uuid NOT NULL)`);
     }

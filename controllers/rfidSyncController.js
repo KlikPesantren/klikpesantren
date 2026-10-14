@@ -1,5 +1,6 @@
 const crypto = require("node:crypto");
 const pool = require("../db");
+const { isSantriAktif } = require("../utils/santriStatus");
 
 async function syncOneTransaction(tenantId, device, trx) {
   const client = await pool.connect();
@@ -33,7 +34,7 @@ async function syncOneTransaction(tenantId, device, trx) {
     }
 
     const santri = await client.query(
-      `SELECT id, uid_rfid, saldo
+      `SELECT id, uid_rfid, saldo, status
        FROM santri
        WHERE uid_rfid = $1 AND tenant_id = $2
        FOR UPDATE`,
@@ -46,6 +47,10 @@ async function syncOneTransaction(tenantId, device, trx) {
     }
 
     const s = santri.rows[0];
+    if (!isSantriAktif(s.status)) {
+      await client.query("ROLLBACK");
+      return { trx_id: trx.trx_id, status: "credential_inactive" };
+    }
     const nominal = Number(trx.nominal);
     if (!Number.isSafeInteger(nominal) || nominal <= 0) {
       await client.query("ROLLBACK");

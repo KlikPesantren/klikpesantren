@@ -37,7 +37,7 @@ const SIDEBAR = {
 };
 
 const MENU = [
-  ...[['dashboard','Dashboard'],['transactions','Transaksi'],['products','Produk'],['categories','Kategori'],['merchants','Merchant'],['cashiers','Kasir'],['shifts','Shift'],['refunds','Refund / Void'],['reconciliation','Rekonsiliasi'],['settings','Pengaturan']].map(([path,label])=>({name:`POS ${label}`,path:`/pos/${path}`,perm:path==='reconciliation'?'pos.reconcile':'pos.view',feature:null,icon:<FaMoneyBill/>})),
+  ...[['dashboard','Dashboard'],['transactions','Transaksi'],['products','Produk'],['categories','Kategori'],['merchants','Merchant'],['cashiers','Kasir'],['shifts','Shift'],['refunds','Refund / Void'],['reconciliation','Rekonsiliasi'],['settlements','Settlement Dompet'],['settings','Pengaturan']].map(([path,label])=>({name:`POS ${label}`,path:`/pos/${path}`,perm:['reconciliation','settlements'].includes(path)?'pos.reconcile':'pos.view',feature:null,icon:<FaMoneyBill/>})),
   { name: "Toko & Kantin", path: "/pos/business-v2", perm: "pos.view", feature: null, icon: <FaMoneyBill /> },
   { name: "Dashboard", path: "/dashboard", perm: "dashboard.view", feature: "dashboard", icon: <FaHome /> },
   { name: "Santri", path: "/santri", perm: "santri.view", feature: "santri", icon: <FaUsers /> },
@@ -84,7 +84,7 @@ const MENU = [
 const MENU_GROUPS = [
   {
     id: 'pos-kantin', title: 'POS KANTIN', collapsible: true,
-    items: ['POS Dashboard','POS Transaksi','POS Produk','POS Kategori','POS Merchant','POS Kasir','POS Shift','POS Refund / Void','POS Rekonsiliasi','POS Pengaturan'],
+    items: ['POS Dashboard','POS Transaksi','POS Produk','POS Kategori','POS Merchant','POS Kasir','POS Shift','POS Refund / Void','POS Rekonsiliasi','POS Settlement Dompet','POS Pengaturan'],
   },
   {
     id: "dashboard",

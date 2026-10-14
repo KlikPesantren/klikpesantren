@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
 import { AppText as Text, fontFamilies, typography } from "./typography";
+const { editRupiah, formatRupiahInput } = require("./rupiahInput.cjs");
 export const colors = {
   green: "#157347",
   greenDark: "#0E5A37",
@@ -33,9 +34,10 @@ export function Button({
   secondary = false,
   icon,
   danger = false,
+  disabledHint,
 }) {
   return (
-    <Pressable
+    <><Pressable
       accessibilityRole="button"
       accessibilityLabel={title}
       disabled={disabled}
@@ -53,7 +55,7 @@ export function Button({
       <Text style={[s.buttonText, secondary && { color: colors.green }]}>
         {title}
       </Text>
-    </Pressable>
+    </Pressable>{disabled && disabledHint ? <Text style={s.disabledHint}>{disabledHint}</Text> : null}</>
   );
 }
 export function Field({
@@ -77,6 +79,33 @@ export function Field({
         autoCapitalize="none"
         autoCorrect={false}
       />
+    </View>
+  );
+}
+export function RupiahField({ label, value, onChangeText }) {
+  const formatted = formatRupiahInput(value);
+  const [selection, setSelection] = useState({ start: formatted.length, end: formatted.length });
+  return (
+    <View style={s.field}>
+      <Text style={s.label}>{label}</Text>
+      <View style={s.rupiahInputWrap}>
+        <Text style={s.rupiahPrefix}>Rp</Text>
+        <TextInput
+          accessibilityLabel={label}
+          style={[s.input, s.rupiahInput]}
+          value={formatted}
+          selection={selection}
+          onSelectionChange={event => setSelection(event.nativeEvent.selection)}
+          onChangeText={next => {
+            const edit = editRupiah(formatted, next, selection);
+            setSelection(edit.selection);
+            onChangeText(edit.value);
+          }}
+          keyboardType="number-pad"
+          inputMode="numeric"
+          autoCorrect={false}
+        />
+      </View>
     </View>
   );
 }
@@ -298,6 +327,7 @@ export const s = StyleSheet.create({
     textAlign: "center",
   },
   disabled: { opacity: 0.45 },
+  disabledHint: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: -5 },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -306,6 +336,9 @@ export const s = StyleSheet.create({
     flexWrap: "wrap",
   },
   money: { fontSize: 24, lineHeight: 30, fontWeight: "700", color: colors.navy, ...typography.numeric },
+  rupiahInputWrap: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: colors.line, borderRadius: 10, backgroundColor: colors.surface },
+  rupiahPrefix: { paddingLeft: 12, color: colors.muted, ...typography.numeric },
+  rupiahInput: { flex: 1, borderWidth: 0, marginTop: 0 },
   price: {
     fontSize: 16,
     fontWeight: "600",
@@ -415,6 +448,8 @@ export const s = StyleSheet.create({
     gap: 7,
     backgroundColor: "#F0FDF4",
   },
+  refreshBanner: { minHeight: 34, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.soft, borderBottomWidth: 1, borderBottomColor: colors.line },
+  staleBanner: { minHeight: 34, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#FFFBEB", borderBottomWidth: 1, borderBottomColor: "#FDE68A" },
   alertError: { padding: 11, borderRadius: 10, backgroundColor: "#FEF2F2" },
   alertSuccess: { padding: 11, borderRadius: 10, backgroundColor: "#ECFDF3" },
   error: { fontSize: 13, color: colors.red, lineHeight: 19 },
@@ -480,6 +515,7 @@ export const s = StyleSheet.create({
   },
   sectionTitle: { ...typography.sectionTitle, fontWeight: "600", color: colors.navy },
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingVertical: 4 },
+  readinessRow: { gap: 6, paddingVertical: 4 },
   avatar: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.soft, alignItems: "center", justifyContent: "center" },
   avatarText: { color: colors.greenDark, fontSize: 15, fontWeight: "600" },
   userRow: { flexDirection: "row", alignItems: "center", gap: 11 },
@@ -497,6 +533,7 @@ export const s = StyleSheet.create({
   accountOverlay: { flex: 1, backgroundColor: "rgba(15,23,42,0.28)", alignItems: "flex-end", paddingTop: 66, paddingHorizontal: 14 },
   accountPanel: { width: "100%", maxWidth: 330, padding: 14, gap: 10, borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, shadowColor: colors.navy, shadowOpacity: 0.12, shadowRadius: 16, elevation: 8 },
   listSurface: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, overflow: "hidden", backgroundColor: colors.surface },
+  listFooter: { gap: 6, paddingVertical: 8, alignItems: "center" },
   listRow: { paddingHorizontal: 12, paddingVertical: 10, gap: 6, backgroundColor: colors.surface },
   listRowDivider: { borderTopWidth: 1, borderTopColor: colors.line },
   kpiGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
@@ -510,4 +547,10 @@ export const s = StyleSheet.create({
   financeIcon: { width: 34, height: 34, borderRadius: 9, backgroundColor: colors.soft, alignItems: "center", justifyContent: "center" },
   negativeText: { color: colors.red },
   permissionSection: { paddingVertical: 7, gap: 8, borderBottomWidth: 1, borderBottomColor: colors.line },
+  scannerRoot: { flex: 1, backgroundColor: colors.navy },
+  scannerCamera: { flex: 1 },
+  scannerPanel: { position: "absolute", left: 16, right: 16, bottom: 24, padding: 16, borderRadius: 14, backgroundColor: "rgba(15,23,42,0.88)", alignItems: "center", gap: 10 },
+  scannerText: { color: colors.surface, textAlign: "center" },
+  scannerClose: { minHeight: 42, paddingHorizontal: 22, borderRadius: 10, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" },
+  scannerCloseText: { color: colors.navy, fontWeight: "600" },
 });

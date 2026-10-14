@@ -3,16 +3,21 @@
 const tables = {
   pos_business_accounts: { select: true, insert: true, update: ["id"] },
   pos_business_admin_audit: { select: true, insert: true },
+  pos_business_initialization_items: { select: true, insert: true },
+  pos_business_initialization_corrections: { select: true, insert: true },
+  pos_business_initializations: { select: true, insert: true },
   pos_business_lines: { select: true, insert: true },
   pos_business_operations: { select: true, insert: true },
   pos_business_parties: { select: true, insert: true, update: ["name", "phone", "address", "notes", "active", "credit_allowed", "credit_limit", "due_days"] },
   pos_business_payments: { select: true, insert: true },
-  pos_business_products: { select: true, insert: true, update: ["name", "category", "uom", "image_url", "selling_price", "minimum_stock", "active", "sellable", "online_visible", "online_price", "online_description", "online_long_description", "online_featured", "online_sort"] },
+  pos_business_products: { select: true, insert: true, update: ["name", "category", "uom", "image_url", "selling_price", "reference_purchase_price", "minimum_stock", "active", "sellable", "online_visible", "online_price", "online_description", "online_long_description", "online_featured", "online_sort"] },
   pos_business_provision_requests: { select: true, insert: true },
   pos_business_shifts: { select: true, insert: true, update: ["status", "closed_at", "actual_cash", "expected_cash", "difference"] },
   pos_business_terminals: { select: true, insert: true, update: ["id"] },
   pos_business_units: { select: true, insert: true },
   pos_business_wallet_links: { select: true, insert: true },
+  pos_wallet_settlement_allocations: { select: true, insert: true },
+  pos_wallet_settlement_payouts: { select: true, insert: true },
   pos_businesses: { select: true, insert: true, update: ["display_name", "legal_name", "description", "address", "phone", "logo_url", "banner_url", "brand_color", "receipt_name", "receipt_header", "receipt_footer", "receipt_logo", "receipt_prefix", "timezone", "accounting_start_date", "storefront_slug", "storefront_enabled", "public_phone", "hours_text", "storefront_footer", "shipping_charge", "reservation_minutes", "payment_instructions", "active", "integration_enabled", "wallet_enabled"], delete: true },
   pos_cashier_assignments: { select: true, insert: true, update: ["active"] },
   pos_categories: { select: true, insert: true, update: ["name", "active"] },
@@ -43,4 +48,12 @@ const tables = {
   pos_wallet_credentials: { select: true, insert: true, update: ["active", "revoked_at"] },
 };
 
-module.exports = Object.freeze({ schema: "public", tables: Object.freeze(tables), sequences: Object.freeze([]) });
+// Existing canonical KlikPesantren treasury objects used only by the
+// tenant-superadmin settlement endpoint. They are not POS-owned schema.
+const externalTables = {
+  cash_accounts: { select: true },
+  cash_account_transactions: { select: true, insert: true },
+};
+
+module.exports = Object.freeze({ schema: "public", tables: Object.freeze(tables), sequences: Object.freeze([]),
+  externalTables: Object.freeze(externalTables), externalSequences: Object.freeze(["cash_account_transactions_id_seq"]) });

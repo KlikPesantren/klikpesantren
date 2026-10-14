@@ -731,6 +731,51 @@
       "notes": "additive Suq Shogir provisioning/audit controls; requires 097 and 103",
       "recommended_action": "APPLY_ORIGINAL",
       "execution_order": 340
+    },
+    {
+      "filename": "105_pos_business_initialization.sql",
+      "checksum": "34ba2a334347d2bf3e080a3fa99c426829db55654206449e71ae2b8c398cf3da",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated PostgreSQL financial initialization, idempotency, FIFO, correction, isolation and runtime privilege regression",
+      "notes": "additive immutable opening-position batch/items/corrections over canonical 097 ledgers; requires 104",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 350
+    },
+    {
+      "filename": "106_pos_product_reference_purchase_price.sql",
+      "checksum": "550c92c4084f200666f73d36fd07fd1dc2b59f57b08a85d3e0f80cef9b855b49",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated PostgreSQL product reference price and FIFO historical valuation regression",
+      "notes": "additive informational purchase-reference price; never rewrites purchase lines, FIFO layers, or COGS; requires 105",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 360
+    },
+    {
+      "filename": "107_pos_wallet_merchant_settlement.sql",
+      "checksum": "a275c9a1036479e8681e5f7d1735e48a98d989cd1fc6af6bb1d1de7335f464cd",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated PostgreSQL Wallet obligation, payout, refund recovery, idempotency, concurrency, isolation and Rp0 reconciliation regression",
+      "notes": "additive append-only settlement payout/allocation history linked to canonical Wallet sales and Kas Yayasan; requires 106",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 370
+    },
+    {
+      "filename": "108_pos_wallet_settlement_destination.sql",
+      "checksum": "b4dcdae8aa4e8a8a16a8582363d58b163c07687b60e4f3174052c94a7ecaa947",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated PostgreSQL destination-account, payout idempotency, tenant/merchant isolation and Rp0 reconciliation regression",
+      "notes": "additive merchant cash/bank destination attribution for canonical Wallet settlement payouts; requires 107; legacy payout rows remain immutable and explicitly incomplete",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 380
+    },
+    {
+      "filename": "109_pos_wallet_credential_audit_reference.sql",
+      "checksum": "f27a44cd811866dd93b25fca5d9e322d278fb70da212892d8ed40a81691b6c96",
+      "status": "NOT_APPLIED",
+      "evidence": "isolated PostgreSQL credential-reference, Wallet debit/refund, idempotency, isolation and Rp0 reconciliation regression",
+      "notes": "additive SHA-256 credential reference attribution on canonical Wallet payments; raw RFID/barcode values remain absent; reference is audit linkage, not an anti-cloning control; requires 108",
+      "recommended_action": "APPLY_ORIGINAL",
+      "execution_order": 390
     }
   ]
 }

@@ -51,15 +51,15 @@ for (const filename of executable.filter((name) => /^0(?:6[5-9]|7[01])_/.test(na
   assert.doesNotMatch(withoutComments, /\bDROP\s+(?:TABLE|COLUMN)\b/i, `${filename} must not drop data structures`);
 }
 
-const posFiles = Array.from({ length: 11 }, (_, index) => {
+const posFiles = Array.from({ length: 16 }, (_, index) => {
   const number = String(94 + index).padStart(3, "0");
   return fs.readdirSync(path.join(ROOT, "migrations"))
     .find((filename) => filename.startsWith(`${number}_`) && !filename.endsWith("_rollback.sql"));
 });
-assert.ok(posFiles.every(Boolean), "migrations 094-104 must all exist");
-assert.deepStrictEqual(posFiles.map(recommendation), Array(11).fill("APPLY_ORIGINAL"));
+assert.ok(posFiles.every(Boolean), "migrations 094-109 must all exist");
+assert.deepStrictEqual(posFiles.map(recommendation), Array(16).fill("APPLY_ORIGINAL"));
 assert.deepStrictEqual(posFiles.map((filename) => policy.get(filename).execution_order),
-  Array.from({ length: 11 }, (_, index) => 240 + index * 10));
+  Array.from({ length: 16 }, (_, index) => 240 + index * 10));
 for (const filename of posFiles) {
   assert.ok(checksumMatches(readMigration(filename).sql, policy.get(filename).checksum),
     `${filename} policy checksum must match source across supported line endings`);
@@ -70,10 +70,10 @@ assert.strictEqual(new Set(executionOrders).size, executionOrders.length,
 const posPlan = applyMigrationPolicy(posFiles.map((filename) => ({ filename, state: "pending" })), policy)
   .sort((a, b) => a.execution_order - b.execution_order);
 assert.deepStrictEqual(posPlan.map((item) => item.filename), posFiles);
-assert.ok(posPlan.every((item) => item.state === "pending"), "094-104 must remain executable pending migrations");
+assert.ok(posPlan.every((item) => item.state === "pending"), "094-109 must remain executable pending migrations");
 assert.strictEqual(applyMigrationPolicy([{ filename: "999_unreviewed.sql", state: "pending" }], policy)[0].state, "blocked",
   "unreviewed migration must fail closed");
 assert.strictEqual(applyMigrationPolicy([{ filename: posFiles[0], state: "drift" }], policy)[0].state, "drift",
   "applied checksum drift must remain drift");
 
-console.log("PASS migration reconciliation policy and POS 094-104 execution guard");
+console.log("PASS migration reconciliation policy and POS 094-109 execution guard");

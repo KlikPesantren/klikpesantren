@@ -39,7 +39,9 @@ function createBusinessMetrics({run,bad,dueDate}) {
       const rows=(await c.query(`WITH outstanding AS (
         SELECT d.source_id,d.party_id,sum(d.amount) outstanding
         FROM pos_debt_movements d JOIN pos_business_operations o ON o.id=d.operation_id AND o.business_id=d.business_id
-        WHERE d.business_id=$1 AND d.kind=$2 AND (o.created_at AT TIME ZONE $4)::date<=$3::date
+        LEFT JOIN pos_business_initialization_items opening_item ON opening_item.operation_id=o.id AND opening_item.business_id=o.business_id
+        LEFT JOIN pos_business_initializations opening ON opening.id=opening_item.initialization_id AND opening.business_id=opening_item.business_id
+        WHERE d.business_id=$1 AND d.kind=$2 AND coalesce(opening.accounting_start_date,(o.created_at AT TIME ZONE $4)::date)<=$3::date
         GROUP BY d.source_id,d.party_id HAVING sum(d.amount)>0
       ) SELECT x.source_id,x.party_id,p.name,o.due_date,x.outstanding,
         greatest(0,$3::date-o.due_date) days_overdue,

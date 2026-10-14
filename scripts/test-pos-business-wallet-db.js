@@ -37,6 +37,11 @@ async function setup(){
   const before=await fingerprint(),up=fs.readFileSync(path.join(__dirname,'../migrations/099_pos_business_wallet.sql'),'utf8');
   await db.query(up);await db.query(fs.readFileSync(path.join(__dirname,'../migrations/099_pos_business_wallet_rollback.sql'),'utf8'));assert.equal(await fingerprint(),before);await db.query(up);
  });
+ await test('109 UP/DOWN/UP adds only a non-secret Wallet credential audit reference',async()=>{
+  const before=await fingerprint(),up=fs.readFileSync(path.join(__dirname,'../migrations/109_pos_wallet_credential_audit_reference.sql'),'utf8');
+  await db.query(up);await db.query(fs.readFileSync(path.join(__dirname,'../migrations/109_pos_wallet_credential_audit_reference_rollback.sql'),'utf8'));
+  assert.equal(await fingerprint(),before);await db.query(up);
+ });
  require.cache[require.resolve('../db')]={id:require.resolve('../db'),filename:require.resolve('../db'),loaded:true,exports:db};
  token=(await core.login({body:{login:'owner',password:'Synthetic-only-V2-password'}})).token;
  cashier=(await core.login({body:{login:'cashier',password:'Synthetic-only-V2-password'}})).token;
@@ -83,7 +88,10 @@ async function main(){await setup();
  });
  await test('full Wallet sale/receipt and full canonical refund reconcile without raw credential',async()=>{
   const s=await sale([wp()]);assert.equal(await balance(),'8000');assert.equal(s.payments[0].method,'DOMPET_SANTRI');
-  assert.equal(s.payments[0].label,'Dompet Santri');assert.ok(!JSON.stringify(s).includes('0ab102ff'));await ret(s.sale.id);assert.equal(await balance(),'10000');assert.equal(await balance(3),'99000');
+  assert.equal(s.payments[0].label,'Dompet Santri');assert.ok(!JSON.stringify(s).includes('0ab102ff'));
+  const audit=(await q("SELECT credential_method,credential_ref_hash FROM pos_business_payments WHERE operation_id=$1 AND method='DOMPET_SANTRI'",[s.sale.id]))[0];
+  assert.equal(audit.credential_method,'RFID');assert.equal(audit.credential_ref_hash,crypto.createHash('sha256').update('0ab102ff').digest('hex'));
+  assert.notEqual(audit.credential_ref_hash,'0ab102ff');await ret(s.sale.id);assert.equal(await balance(),'10000');assert.equal(await balance(3),'99000');
  });
  await test('authorized foreign-tenant merchant still cannot resolve tenant A barcode or RFID',async()=>{
   const foreign=(await q('SELECT id FROM pos_businesses WHERE tenant_id=2'))[0].id;
@@ -101,7 +109,7 @@ async function main(){await setup();
  });
  await test('manual BANK + Wallet split and refund use same Wallet path, no fake cash',async()=>{
   const bank=(await core.account(req({kind:'BANK',name:'Synthetic Wallet bank'}))).id;
-  const s=await sale([{method:'BANK',amount:1000,account_id:bank,reference:'Synthetic payment'},wp(3000,scan('QR',card.token))],2);
+  const s=await sale([{method:'BANK',amount:1000,account_id:bank,reference:'Synthetic payment',manual_confirmed:true,confirmation_mode:'MANUAL'},wp(3000,scan('QR',card.token))],2);
   await ret(s.sale.id,2);assert.equal(await balance(),'10000');
  });
  await test('checkout rejects client wallet authority, underpayment and missing membership without partial state',async()=>{
@@ -154,7 +162,8 @@ async function main(){await setup();
  });
  await test('QRIS and eligible customer CREDIT split with Wallet retain canonical rules',async()=>{
   const qr=(await core.account(req({kind:'QRIS',name:'Synthetic QRIS'}))).id;
-  const s=await sale([{method:'QRIS',amount:1000,account_id:qr,reference:'Synthetic manual receipt'},wp(3000)],2);await ret(s.sale.id,2);
+  await reject(()=>sale([{method:'QRIS',amount:1000,account_id:qr,reference:'Synthetic forged receipt'},wp(3000)],2),'PAYMENT_CONFIRMATION_REQUIRED');
+  const s=await sale([{method:'QRIS',amount:1000,account_id:qr,reference:'Synthetic manual receipt',manual_confirmed:true,confirmation_mode:'MANUAL'},wp(3000)],2);await ret(s.sale.id,2);
   const customer=(await core.party(req({kind:'CUSTOMER',name:'Synthetic Wallet credit',credit_allowed:true,credit_limit:10000}))).id;
   const request=req({shift_id:shift.id,customer_id:customer,due_date:'2030-01-01',items:[{product_id:product,quantity:2}],
    payments:[{method:'CREDIT',amount:1000},wp(3000)],request_id:key()});

@@ -56,6 +56,22 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
   }
   const run = (req, permission, work) => transaction(async c => work(c, await access(c, req, permission)));
   async function lock(c, key) { await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [key]); }
+  async function settlementDestinationEnabled(c) {
+    return (await c.query(`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='pos_wallet_settlement_payouts' AND column_name='merchant_account_id') enabled`)).rows[0].enabled;
+  }
+  async function accountBalance(c, business, account, asOf = null, timezone = 'UTC') {
+    const values = [business, account], cutoff = asOf ? ` AND (m.created_at AT TIME ZONE $3)::date<=$4::date` : '';
+    if (asOf) values.push(timezone, asOf);
+    const movement = BigInt((await c.query(`SELECT coalesce(sum(m.amount),0) value FROM pos_money_movements m
+      WHERE m.business_id=$1 AND m.account_id=$2${cutoff}`, values)).rows[0].value);
+    if (!await settlementDestinationEnabled(c)) return movement;
+    const payoutValues = [business, account], payoutCutoff = asOf ? ' AND payout_date<=$3::date' : '';
+    if (asOf) payoutValues.push(asOf);
+    const payouts = BigInt((await c.query(`SELECT coalesce(sum(amount),0) value FROM pos_wallet_settlement_payouts
+      WHERE business_id=$1 AND merchant_account_id=$2${payoutCutoff}`, payoutValues)).rows[0].value);
+    return movement + payouts;
+  }
   async function login(req) {
     const b = req.body || {}, login = text(b.login, 120).toLowerCase(), password = passwordInput(b.password);
     const key = hash('login:' + login);
@@ -160,17 +176,22 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     return run(req, 'products.manage', async (c, a) => {
       const b = req.body, image = productImageUrl(b.image_url);
       const id = makeId();
-      return (await c.query(`INSERT INTO pos_business_products(id,business_id,sku,barcode,name,category,uom,image_url,selling_price,minimum_stock,online_visible)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false) RETURNING id,sku,name,selling_price,online_visible`,
+      return (await c.query(`INSERT INTO pos_business_products(id,business_id,sku,barcode,name,category,uom,image_url,selling_price,reference_purchase_price,minimum_stock,online_visible)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,false) RETURNING id,sku,name,selling_price,reference_purchase_price,online_visible`,
       [id, a.business, text(b.sku, 80), b.barcode ? text(b.barcode, 120) : null, text(b.name), b.category ? text(b.category, 120) : null,
-        b.uom ? text(b.uom, 32) : 'pcs', image, amount(b.selling_price, true).toString(), amount(b.minimum_stock || 0).toString()])).rows[0];
+        b.uom ? text(b.uom, 32) : 'pcs', image, amount(b.selling_price, true).toString(),
+        b.reference_purchase_price == null || b.reference_purchase_price === '' ? null : amount(b.reference_purchase_price).toString(),
+        amount(b.minimum_stock || 0).toString()])).rows[0];
     });
+  }
+  async function authorizeProductAsset(req) {
+    return run(req, 'PRODUCT_MANAGE', async (_c, a) => ({ business_id: a.business }));
   }
   async function catalog(req) {
     return run(req, 'products.read', async (c, a) => {
       const hasOnline=(await c.query("SELECT to_regclass('public.pos_online_reservations') present")).rows[0].present;
       if(hasOnline)await online.expireOnline(a.business);
-      const products=(await c.query(`SELECT p.id,p.sku,p.barcode,p.name,p.category,p.uom,p.image_url,p.selling_price,p.online_price,p.minimum_stock,
+      const products=(await c.query(`SELECT p.id,p.sku,p.barcode,p.name,p.category,p.uom,p.image_url,p.selling_price,p.reference_purchase_price,p.online_price,p.minimum_stock,
       p.active,p.sellable,p.online_visible,coalesce(s.on_hand,0) on_hand FROM pos_business_products p
       LEFT JOIN(SELECT product_id,sum(quantity) on_hand FROM pos_inventory_movements WHERE business_id=$1 GROUP BY product_id)s ON s.product_id=p.id
       WHERE p.business_id=$1 ORDER BY p.name,p.id LIMIT 200`, [a.business])).rows;
@@ -191,15 +212,19 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
   }
   async function account(req) {
     return run(req, 'BUSINESS_SETTINGS_MANAGE', async (c, a) => {
-      const b = req.body;
+      const b = req.body, name = text(req.body.name);
       if (!['CASH', 'BANK', 'QRIS'].includes(b.kind)) bad('INVALID_ACCOUNT_KIND');
-      return (await c.query('INSERT INTO pos_business_accounts(id,business_id,name,kind) VALUES($1,$2,$3,$4) RETURNING id,name,kind', [makeId(), a.business, text(b.name), b.kind])).rows[0];
+      await lock(c, `pos-business-config:${a.business}:account:${b.kind}:${name.toLowerCase()}`);
+      const existing = (await c.query(`SELECT id,name,kind,true AS replay FROM pos_business_accounts
+        WHERE business_id=$1 AND kind=$2 AND lower(btrim(name))=lower(btrim($3)) AND active FOR UPDATE`, [a.business, b.kind, name])).rows[0];
+      if (existing) return existing;
+      return (await c.query('INSERT INTO pos_business_accounts(id,business_id,name,kind) VALUES($1,$2,$3,$4) RETURNING id,name,kind', [makeId(), a.business, name, b.kind])).rows[0];
     });
   }
   async function getAccount(c, a, id, outflow = 0n, allowClearing = false) {
     const ac = (await c.query(`SELECT id,kind FROM pos_business_accounts WHERE id=$1 AND business_id=$2 AND active FOR UPDATE`, [uuid(id), a.business])).rows[0];
     if (!ac || ac.kind === 'WALLET_CLEARING' && !allowClearing) bad('ACCOUNT_DENIED', 403);
-    const balance = BigInt((await c.query('SELECT coalesce(sum(amount),0) amount FROM pos_money_movements WHERE account_id=$1 AND business_id=$2', [ac.id, a.business])).rows[0].amount);
+    const balance = await accountBalance(c, a.business, ac.id);
     if (balance < outflow) bad('INSUFFICIENT_BUSINESS_FUNDS', 409);
     return ac;
   }
@@ -324,10 +349,10 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
   }
   async function money(req) {
     const b = req.body, kind = b.kind;
-    const capability={OPENING:'CAPITAL_MANAGE',CAPITAL:'CAPITAL_MANAGE',WITHDRAWAL:'PRIVE_MANAGE',EXPENSE:'EXPENSE_CREATE',OTHER_INCOME:'OTHER_INCOME_CREATE',TRANSFER:'TRANSFER_CREATE'}[kind];
+    const capability={CAPITAL:'CAPITAL_MANAGE',WITHDRAWAL:'PRIVE_MANAGE',EXPENSE:'EXPENSE_CREATE',OTHER_INCOME:'OTHER_INCOME_CREATE',TRANSFER:'TRANSFER_CREATE'}[kind];
     if(!capability)bad('INVALID_MONEY_KIND');
     return run(req, capability, async (c, a) => {
-      if (!['OPENING', 'CAPITAL', 'WITHDRAWAL', 'EXPENSE', 'OTHER_INCOME', 'TRANSFER'].includes(kind)) bad('INVALID_MONEY_KIND');
+      if (!['CAPITAL', 'WITHDRAWAL', 'EXPENSE', 'OTHER_INCOME', 'TRANSFER'].includes(kind)) bad('INVALID_MONEY_KIND');
       const f = { account: uuid(b.account_id), destination: kind === 'TRANSFER' ? uuid(b.destination_account_id) : null,
         reason: text(b.reason, 500), total: amount(b.amount, true), paid: amount(b.amount, true) };
       if (f.account === f.destination) bad('TRANSFER_SAME_ACCOUNT');
@@ -362,18 +387,28 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     });
   }
   async function books(req) {
-    return run(req, 'FINANCE_ACCOUNT_VIEW', async (c, a) => ({
-      accounts: (await c.query(`SELECT ac.id,ac.name,ac.kind,coalesce(sum(m.amount),0) balance FROM pos_business_accounts ac
-        LEFT JOIN pos_money_movements m ON m.account_id=ac.id AND m.business_id=ac.business_id WHERE ac.business_id=$1 GROUP BY ac.id ORDER BY ac.name`, [a.business])).rows,
+    return run(req, 'FINANCE_ACCOUNT_VIEW', async (c, a) => {
+      const accounts=(await c.query(`SELECT ac.id,ac.name,ac.kind FROM pos_business_accounts ac
+        WHERE ac.business_id=$1 ORDER BY ac.name`, [a.business])).rows;
+      for(const account of accounts)account.balance=(await accountBalance(c,a.business,account.id)).toString();
+      return ({
+      accounts,
       debts: (await c.query(`SELECT d.kind,d.party_id,p.name,sum(d.amount) outstanding FROM pos_debt_movements d JOIN pos_business_parties p ON p.id=d.party_id AND p.business_id=d.business_id
         WHERE d.business_id=$1 GROUP BY d.kind,d.party_id,p.name ORDER BY p.name`, [a.business])).rows,
       stock: (await c.query(`SELECT p.id,p.name,coalesce(sum(m.quantity),0) on_hand FROM pos_business_products p
         LEFT JOIN pos_inventory_movements m ON m.product_id=p.id AND m.business_id=p.business_id WHERE p.business_id=$1 GROUP BY p.id ORDER BY p.name`, [a.business])).rows,
-    }));
+    });});
   }
   async function terminal(req) {
-    return run(req, 'BUSINESS_SETTINGS_MANAGE', async (c, a) => (await c.query('INSERT INTO pos_business_terminals(id,business_id,name) VALUES($1,$2,$3) RETURNING id,name',
-      [makeId(), a.business, text(req.body.name)])).rows[0]);
+    return run(req, 'BUSINESS_SETTINGS_MANAGE', async (c, a) => {
+      const name = text(req.body.name);
+      await lock(c, `pos-business-config:${a.business}:terminal:${name.toLowerCase()}`);
+      const existing = (await c.query(`SELECT id,name,true AS replay FROM pos_business_terminals
+        WHERE business_id=$1 AND lower(btrim(name))=lower(btrim($2)) AND active FOR UPDATE`, [a.business, name])).rows[0];
+      if (existing) return existing;
+      return (await c.query('INSERT INTO pos_business_terminals(id,business_id,name) VALUES($1,$2,$3) RETURNING id,name',
+        [makeId(), a.business, name])).rows[0];
+    });
   }
   async function openShift(req) {
     return run(req, 'SHIFT_OPEN', async (c, a) => {
@@ -418,9 +453,12 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       if (new Set(items.map(i => i.product)).size !== items.length) bad('DUPLICATE_PRODUCT');
       const payments = b.payments.map(p => {
         if (!['CASH', 'BANK', 'QRIS', 'CREDIT', 'DOMPET_SANTRI'].includes(p.method)) bad('PAYMENT_METHOD_NOT_READY', 409);
+        if (['BANK', 'QRIS'].includes(p.method) && (p.manual_confirmed !== true || p.confirmation_mode !== 'MANUAL'))
+          bad('PAYMENT_CONFIRMATION_REQUIRED', 409);
         const parsed = { method: p.method, amount: amount(p.amount, true), account: ['CREDIT','DOMPET_SANTRI'].includes(p.method) ? null : uuid(p.account_id),
           tender: p.method === 'CASH' ? amount(p.tendered) : null,
-          reference: ['BANK', 'QRIS'].includes(p.method) ? text(p.reference) : null };
+          reference: ['BANK', 'QRIS'].includes(p.method) ? text(p.reference) : null,
+          confirmation: ['BANK', 'QRIS'].includes(p.method) ? 'MANUAL' : null };
         if(p.method==='DOMPET_SANTRI') {const f=wallet.input(p);parsed.wallet={type:f.type,hash:f.hash,unit:f.unit};Object.defineProperty(parsed,'scan',{value:f.credential});}
         return parsed;
       });
@@ -485,9 +523,9 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
         }
         const values=[paymentId,a.business,op.id,p.method,p.amount.toString(),p.account,p.tender?.toString()||null,
           p.method==='CASH'?(p.tender-p.amount).toString():null,p.reference];
-        if(p.wallet)values.push(p.wallet.type);
-        await c.query(`INSERT INTO pos_business_payments(id,business_id,operation_id,method,amount,account_id,tendered,change,reference${p.wallet?',credential_method':''})
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9${p.wallet?',$10':''})`,values);
+        if(p.wallet)values.push(p.wallet.type,p.wallet.hash);
+        await c.query(`INSERT INTO pos_business_payments(id,business_id,operation_id,method,amount,account_id,tendered,change,reference${p.wallet?',credential_method,credential_ref_hash':''})
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9${p.wallet?',$10,$11':''})`,values);
         if(p.resolvedWallet)await wallet.movement(c,a,p.resolvedWallet,p.amount,'debit',op.id,paymentId);
         if (p.account) await moneyRow(c, a, op.id, p.account, p.amount);
       }
@@ -550,6 +588,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
         delete k.other_income;
         delete k.capital;
         delete k.withdrawals;
+        delete k.operating_result;
       }
       const paymentMethods = canSales ? (await c.query(`SELECT p.method,sum(p.amount) sale_amount FROM pos_business_payments p
         JOIN pos_business_operations o ON o.id=p.operation_id AND o.business_id=p.business_id
@@ -558,10 +597,123 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
         JOIN pos_business_operations o ON o.id=m.operation_id AND o.business_id=m.business_id
         JOIN pos_business_accounts ac ON ac.id=m.account_id AND ac.business_id=m.business_id
         WHERE ${where} AND o.kind='SALE_RETURN' GROUP BY ac.kind ORDER BY ac.kind`,v)).rows : [];
+      const salesProducts = canSales ? (await c.query(`SELECT l.product_id,max(l.sku) sku,max(l.name) name,
+        coalesce(p.category,'Tanpa kategori') category,
+        coalesce(sum(l.quantity) FILTER(WHERE o.kind='SALE'),0) gross_quantity,
+        coalesce(sum(l.quantity) FILTER(WHERE o.kind='SALE_RETURN'),0) returned_quantity,
+        coalesce(sum(l.total) FILTER(WHERE o.kind='SALE'),0) gross_revenue,
+        coalesce(sum(l.total) FILTER(WHERE o.kind='SALE_RETURN'),0) returned_revenue
+        FROM pos_business_lines l JOIN pos_business_operations o ON o.id=l.operation_id AND o.business_id=l.business_id
+        LEFT JOIN pos_business_products p ON p.id=l.product_id AND p.business_id=l.business_id
+        WHERE ${where} AND o.kind IN('SALE','SALE_RETURN') GROUP BY l.product_id,p.category ORDER BY l.product_id`,v)).rows.map(row=>({
+          ...row,net_quantity:(BigInt(row.gross_quantity)-BigInt(row.returned_quantity)).toString(),
+          net_revenue:(BigInt(row.gross_revenue)-BigInt(row.returned_revenue)).toString()
+        })) : [];
+      const categories = canSales ? [...salesProducts.reduce((map,row)=>{
+        const old=map.get(row.category)||{category:row.category,gross_quantity:0n,returned_quantity:0n,gross_revenue:0n,returned_revenue:0n};
+        for(const key of ['gross_quantity','returned_quantity','gross_revenue','returned_revenue'])old[key]+=BigInt(row[key]);
+        map.set(row.category,old);return map;
+      },new Map()).values()].map(row=>({category:row.category,...Object.fromEntries(['gross_quantity','returned_quantity','gross_revenue','returned_revenue'].map(key=>[key,row[key].toString()])),
+        net_quantity:(row.gross_quantity-row.returned_quantity).toString(),net_revenue:(row.gross_revenue-row.returned_revenue).toString()})) : [];
+      const channels = canSales ? (await c.query(`SELECT channel,
+        coalesce(sum(total) FILTER(WHERE kind='SALE'),0) gross_sales,
+        coalesce(sum(total) FILTER(WHERE kind='SALE_RETURN'),0) returns,
+        count(*) FILTER(WHERE kind='SALE') transactions
+        FROM pos_business_operations o WHERE ${where} AND kind IN('SALE','SALE_RETURN') GROUP BY channel ORDER BY channel`,v)).rows.map(row=>({
+          ...row,net_sales:(BigInt(row.gross_sales)-BigInt(row.returns)).toString()
+        })) : [];
+      const cashiers = canSales ? (await c.query(`SELECT o.actor_id,u.name,
+        coalesce(sum(o.total) FILTER(WHERE o.kind='SALE'),0) gross_sales,
+        coalesce(sum(o.total) FILTER(WHERE o.kind='SALE_RETURN'),0) returns,
+        count(*) FILTER(WHERE o.kind='SALE') transactions
+        FROM pos_business_operations o JOIN pos_merchant_users u ON u.id=o.actor_id
+        WHERE ${where} AND o.kind IN('SALE','SALE_RETURN') GROUP BY o.actor_id,u.name ORDER BY u.name,o.actor_id`,v)).rows.map(row=>({
+          ...row,net_sales:(BigInt(row.gross_sales)-BigInt(row.returns)).toString()
+        })) : [];
+      let walletRefunds=0n;
+      const hasWallet=(await c.query("SELECT to_regclass('public.pos_business_wallet_links') present")).rows[0].present;
+      if(canSales&&hasWallet)walletRefunds=BigInt((await c.query(`SELECT coalesce(sum(l.amount),0) value
+        FROM pos_business_wallet_links l JOIN pos_business_operations o ON o.id=l.operation_id AND o.business_id=l.business_id
+        WHERE ${where} AND l.direction='credit'`,v)).rows[0].value);
+      const creditRefunds=canSales?BigInt((await c.query(`SELECT coalesce(-sum(d.amount),0) value FROM pos_debt_movements d
+        JOIN pos_business_operations o ON o.id=d.operation_id AND o.business_id=d.business_id
+        WHERE ${where} AND o.kind='SALE_RETURN' AND d.kind='AR' AND d.amount<0`,v)).rows[0].value):0n;
+      const refundMap=new Map(refundsByAccount.map(row=>[row.kind,BigInt(row.refunded_amount)]));
+      if(walletRefunds)refundMap.set('DOMPET_SANTRI',walletRefunds);
+      if(creditRefunds)refundMap.set('CREDIT',creditRefunds);
+      const paymentBreakdown=canSales?[...new Set([...paymentMethods.map(row=>row.method),...refundMap.keys()])].sort().map(method=>{
+        const gross=BigInt(paymentMethods.find(row=>row.method===method)?.sale_amount||0),refunded=refundMap.get(method)||0n;
+        return {method,gross_amount:gross.toString(),refunded_amount:refunded.toString(),net_amount:(gross-refunded).toString()};
+      }):[];
+      const canInventory=a.member.effective_permissions.includes('REPORT_INVENTORY');
+      const canCosts=a.member.effective_permissions.includes('PRODUCT_COST_VIEW');
+      const hasReservations=(await c.query("SELECT to_regclass('public.pos_online_reservations') present")).rows[0].present;
+      const inventoryProducts=canInventory?(await c.query(`SELECT p.id,p.sku,p.name,p.category,p.minimum_stock,
+        coalesce(sum(m.quantity) FILTER(WHERE (m.created_at AT TIME ZONE $3)::date<=$2::date),0) on_hand_as_of,
+        coalesce(sum(CASE WHEN m.quantity>0 THEN m.cost ELSE -m.cost END) FILTER(WHERE (m.created_at AT TIME ZONE $3)::date<=$2::date),0) value_as_of,
+        ${hasReservations?"coalesce((SELECT sum(r.quantity) FROM pos_online_reservations r WHERE r.business_id=p.business_id AND r.product_id=p.id AND r.state='RESERVED'),0)":"0::bigint"} reserved_current
+        FROM pos_business_products p LEFT JOIN pos_inventory_movements m ON m.product_id=p.id AND m.business_id=p.business_id
+        WHERE p.business_id=$1 GROUP BY p.id ORDER BY p.name,p.id`,[a.business,to,a.member.timezone])).rows.map(row=>({
+          ...row,available_current:(BigInt(row.on_hand_as_of)-BigInt(row.reserved_current)).toString(),
+          ...(canCosts?{}:{value_as_of:undefined})
+        })):[];
+      const inventoryMovements=canInventory?(await c.query(`SELECT kind,sum(quantity) quantity,
+        sum(CASE WHEN quantity>0 THEN cost ELSE -cost END) value_change FROM pos_inventory_movements m
+        WHERE m.business_id=$1 AND (m.created_at AT TIME ZONE $4)::date BETWEEN $2::date AND $3::date GROUP BY kind ORDER BY kind`,v)).rows:[];
+      const inventoryValue=canInventory&&canCosts?inventoryProducts.reduce((sum,row)=>sum+BigInt(row.value_as_of||0),0n):null;
+      let financialPosition=null;
+      if(canFinance){
+        const accounts=(await c.query(`SELECT ac.id,ac.name,ac.kind FROM pos_business_accounts ac
+          WHERE ac.business_id=$1 ORDER BY ac.kind,ac.name,ac.id`,[a.business])).rows;
+        for(const account of accounts)account.balance=(await accountBalance(c,a.business,account.id,to,a.member.timezone)).toString();
+        const debts=(await c.query(`SELECT kind,coalesce(sum(amount),0) balance FROM pos_debt_movements d
+          WHERE d.business_id=$1 AND (d.created_at AT TIME ZONE $3)::date<=$2::date GROUP BY kind`,[a.business,to,a.member.timezone])).rows;
+        const debt=kind=>BigInt(debts.find(row=>row.kind===kind)?.balance||0);
+        const opening=(await c.query(`SELECT opening_equity FROM pos_business_initializations WHERE business_id=$1 AND accounting_start_date<=$2::date`,[a.business,to])).rows[0];
+        const equityMoves=(await c.query(`SELECT coalesce(sum(total) FILTER(WHERE kind='CAPITAL'),0) capital,
+          coalesce(sum(total) FILTER(WHERE kind='WITHDRAWAL'),0) withdrawals FROM pos_business_operations o
+          WHERE o.business_id=$1 AND (o.created_at AT TIME ZONE $3)::date<=$2::date`,[a.business,to,a.member.timezone])).rows[0];
+        let settlement={gross_wallet_sales:'0',wallet_refunds:'0',payouts:'0',outstanding:'0',recovery:'0'};
+        const hasSettlement=(await c.query("SELECT to_regclass('public.pos_wallet_settlement_payouts') present")).rows[0].present;
+        if(hasWallet){
+          const links=(await c.query(`SELECT coalesce(sum(l.amount) FILTER(WHERE l.direction='debit'),0) sales,
+            coalesce(sum(l.amount) FILTER(WHERE l.direction='credit'),0) refunds FROM pos_business_wallet_links l
+            JOIN pos_business_operations o ON o.id=l.operation_id AND o.business_id=l.business_id
+            WHERE l.business_id=$1 AND (o.created_at AT TIME ZONE $3)::date<=$2::date`,[a.business,to,a.member.timezone])).rows[0];
+          const payoutState=hasSettlement?(await c.query(`SELECT coalesce(sum(amount),0) value,
+            count(*) FILTER(WHERE merchant_account_id IS NULL)::integer missing_destination FROM pos_wallet_settlement_payouts
+            WHERE business_id=$1 AND payout_date<=$2::date`,[a.business,to])).rows[0]:'0';
+          const payouts=typeof payoutState==='string'?payoutState:payoutState.value,missingDestination=typeof payoutState==='string'?0:payoutState.missing_destination;
+          const net=BigInt(links.sales)-BigInt(links.refunds),paid=BigInt(payouts);
+          settlement={gross_wallet_sales:links.sales,wallet_refunds:links.refunds,payouts,missing_destination_payouts:missingDestination,
+            outstanding:(net>paid?net-paid:0n).toString(),recovery:(paid>net?paid-net:0n).toString()};
+        }
+        const physicalAccounts=accounts.filter(row=>row.kind!=='WALLET_CLEARING');
+        const cashBank=physicalAccounts.reduce((sum,row)=>sum+BigInt(row.balance),0n),ar=debt('AR'),ap=debt('AP');
+        const stock=inventoryValue===null?0n:inventoryValue,settlementReceivable=BigInt(settlement.outstanding),settlementRecovery=BigInt(settlement.recovery);
+        const assets=cashBank+stock+ar+settlementReceivable,liabilities=ap+settlementRecovery,equity=assets-liabilities;
+        const openingEquity=BigInt(opening?.opening_equity||0),capital=BigInt(equityMoves.capital),withdrawals=BigInt(equityMoves.withdrawals);
+        financialPosition={as_of:to,accounts,physical_account_total:cashBank.toString(),inventory_value:inventoryValue?.toString(),
+          receivables:ar.toString(),payables:ap.toString(),settlement,assets:assets.toString(),liabilities:liabilities.toString(),
+          equity_derived:equity.toString(),opening_equity:openingEquity.toString(),subsequent_capital:capital.toString(),withdrawals:withdrawals.toString(),
+          retained_result_derived:(equity-openingEquity-capital+withdrawals).toString(),equation_balanced:assets===liabilities+equity,
+          complete:Number(settlement.missing_destination_payouts||0)===0&&inventoryValue!==null,
+          exclusions:[...(Number(settlement.missing_destination_payouts||0)>0?['Legacy settlement payouts without merchant destination account are excluded from physical account balances.']:[]),
+            ...(inventoryValue===null?['Inventory valuation is hidden without product-cost permission.']:[])],
+          label:'Posisi keuangan operasional terpantau; bukan laporan akuntansi statutory.'};
+      }
       return { from, to, timezone: a.member.timezone, kpi: k,
         payment_methods: paymentMethods, refunds_by_account_kind: refundsByAccount,
+        sales:canSales?{products:salesProducts.sort((x,y)=>BigInt(y.net_revenue)>BigInt(x.net_revenue)?1:BigInt(y.net_revenue)<BigInt(x.net_revenue)?-1:0),categories,channels,cashiers,payment_methods:paymentBreakdown,
+          category_basis:'Category is read from the current product master; historical category snapshots are not stored.'}:undefined,
+        profit_loss:canProfit?{net_revenue:k.net_sales,cogs:k.cogs,gross_profit:k.gross_profit,
+          ...(canFinance?{operating_expenses:k.expenses,other_operating_income:k.other_income,operating_result:k.operating_result}:{}),
+          label:canFinance?'Hasil operasional sebelum pajak, depresiasi, amortisasi, dan pos non-operasional yang belum dimodelkan.':'Laba kotor berdasarkan HPP FIFO.'}:undefined,
+        financial_position:financialPosition,
+        inventory:canInventory?{as_of:to,products:inventoryProducts,movements:inventoryMovements,valuation:inventoryValue?.toString(),
+          valuation_visible:canCosts,low_stock:inventoryProducts.filter(row=>BigInt(row.available_current)<=BigInt(row.minimum_stock)).length}:undefined,
         formula: 'Period posted sales minus period posted returns minus net FIFO COGS; operating result adds classified other income and subtracts operating expenses. Capital/prive excluded. Not net profit. Average gross sale rounded down in Rupiah.',
-        completeness: 'Wallet clearing is unsettled, not physical cash. ONLINE merchandise is posted once; shipping is separately classified other income/expense, not merchandise or COGS.' };
+        completeness: 'Wallet clearing is unsettled, not physical cash. Destination-attributed settlement payouts increase the selected merchant cash/bank account once and never create revenue. ONLINE merchandise is posted once; shipping is separately classified other income/expense, not merchandise or COGS.' };
     });
   }
   const wallet=require('./posBusinessWallet').createBusinessWallet({run,bad,amount,uuid,makeId,featureEnabled,afterStage});
@@ -572,7 +724,9 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     getProduct,getAccount,saleWork,returns,beginOperation,insertOperation,moneyRow,afterStage,
     permitted:(access,key)=>merchantPermissions.has(access.member,key)});
   const workspace=require('./posBusinessWorkspace').createBusinessWorkspace({run,bad,uuid,amount,text,makeId,bcrypt,passwordInput,crypto,hash});
-  return { ...online,...workspace,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, activate, logout, context, member, product, catalog, party, account, purchase, adjustment, money, payDebt, books,
+  const initialization=require('./posBusinessInitialization').createBusinessInitialization({run,bad,uuid,amount,text,makeId,hash,serialize,lock,
+    insertOperation,moneyRow,debtRow,stockRow,addLayer,getProduct,availableCost,consume,accountBalance});
+  return { ...online,...workspace,...initialization,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, activate, logout, context, member, product, authorizeProductAsset, catalog, party, account, purchase, adjustment, money, payDebt, books,
     memberships, terminal, openShift, closeShift, sale, receipt, report };
 }
 module.exports = { createPosBusinessService, amount };

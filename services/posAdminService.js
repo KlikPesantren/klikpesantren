@@ -13,6 +13,8 @@ const stable=value=>JSON.stringify(value,Object.keys(value).sort());
 const optionalText=(value,max=255)=>{const s=String(value??'').trim();if(s.length>max)fail('INVALID_TEXT');return s||null;};
 const businessId=value=>{const id=String(value||'');if(!/^[0-9a-f-]{36}$/i.test(id))fail('INVALID_ID');return id;};
 const ownerLogin=value=>{const login=String(value||'').trim().toLowerCase();if(!/^[a-z0-9._@+-]{3,120}$/.test(login))fail('INVALID_OWNER_IDENTITY');return login;};
+const positiveAmount=value=>{if(!/^[1-9]\d*$/.test(String(value??'')))fail('INVALID_AMOUNT');const n=BigInt(value);if(n>9223372036854775807n)fail('INVALID_AMOUNT');return n;};
+const requestId=value=>{const id=String(value||'').trim();if(id.length<8||id.length>160)fail('INVALID_REQUEST_ID');return id;};
 
 function createPosAdminService({db=pool,permissionList=permission.getPermissionList}={}) {
  async function access(req,c,key='pos.view',write=false){
@@ -124,6 +126,75 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
     AND w.source='pos' AND w.direction='credit' AND w.type='refund' AND w.wallet_account_id=p.wallet_account_id AND w.tenant_id=r.tenant_id AND w.unit_id=r.unit_id AND w.reference_type='pos_refund' AND w.reference_id=r.id::text
    WHERE p.method='RFID'`,f.values)).rows[0];
   return {...data,wallet:{...r,...refunds,debit_difference:(BigInt(r.pos_debit)-BigInt(r.wallet_debit)).toString(),credit_difference:(BigInt(refunds.pos_credit)-BigInt(refunds.wallet_credit)).toString()}};
+ });}
+ async function settlements(req){return run(req,'pos.reconcile',false,async(c,a)=>{requireTenantSuperadmin(a);
+  const merchant=req.query?.business_id||req.query?.merchant_id?businessId(req.query.business_id||req.query.merchant_id):null,values=[a.tenantId,a.units],where=[`b.tenant_id=$1`,`EXISTS(SELECT 1 FROM pos_business_units bu WHERE bu.business_id=b.id AND bu.tenant_id=b.tenant_id AND bu.unit_id=ANY($2::integer[]))`];
+  if(merchant){values.push(merchant);where.push(`b.id=$${values.length}`);}
+  const rows=(await c.query(`WITH wallet AS (
+    SELECT l.business_id,coalesce(sum(l.amount) FILTER(WHERE l.direction='debit'),0) gross,
+      coalesce(sum(l.amount) FILTER(WHERE l.direction='credit'),0) refunds,
+      count(*) FILTER(WHERE l.direction='debit') obligations
+    FROM pos_business_wallet_links l WHERE l.tenant_id=$1 GROUP BY l.business_id
+   ), paid AS (SELECT business_id,coalesce(sum(amount),0) payouts,count(*) payout_count,max(payout_date) last_payout_date
+    FROM pos_wallet_settlement_payouts WHERE tenant_id=$1 GROUP BY business_id)
+   SELECT b.id business_id,b.display_name,b.ownership,coalesce(w.gross,0) gross_wallet_sales,
+    coalesce(w.refunds,0) wallet_refunds,coalesce(p.payouts,0) payouts,coalesce(w.obligations,0) obligations,
+    coalesce(p.payout_count,0) payout_count,p.last_payout_date,
+    greatest(coalesce(w.gross,0)-coalesce(w.refunds,0)-coalesce(p.payouts,0),0) outstanding,
+    greatest(coalesce(p.payouts,0)-(coalesce(w.gross,0)-coalesce(w.refunds,0)),0) recovery
+   FROM pos_businesses b LEFT JOIN wallet w ON w.business_id=b.id LEFT JOIN paid p ON p.business_id=b.id
+   WHERE ${where.join(' AND ')} ORDER BY b.display_name,b.id`,values)).rows;
+  const accounts=(await c.query(`SELECT ca.id,ca.name,coalesce(sum(CASE WHEN tx.jenis='Masuk' THEN tx.nominal ELSE -tx.nominal END),0) balance
+    FROM cash_accounts ca LEFT JOIN cash_account_transactions tx ON tx.tenant_id=ca.tenant_id AND tx.cash_account_id=ca.id
+    WHERE ca.tenant_id=$1 AND ca.status='active' GROUP BY ca.id,ca.name ORDER BY ca.name`,[a.tenantId])).rows;
+  const destinationAccounts=merchant?(await c.query(`SELECT id,name,kind FROM pos_business_accounts
+    WHERE business_id=$1 AND active AND kind IN('CASH','BANK') ORDER BY kind,name,id`,[merchant])).rows:[];
+  const payouts=merchant?(await c.query(`SELECT p.id,p.business_id,p.payout_date,p.amount,p.reference,p.created_at,u.nama actor,ca.name source_account,ma.name destination_account
+    FROM pos_wallet_settlement_payouts p JOIN users u ON u.id=p.actor_user_id
+    JOIN cash_accounts ca ON ca.id=p.cash_account_id AND ca.tenant_id=p.tenant_id
+    LEFT JOIN pos_business_accounts ma ON ma.id=p.merchant_account_id AND ma.business_id=p.business_id
+    WHERE p.tenant_id=$1 AND p.business_id=$2 ORDER BY p.payout_date DESC,p.id DESC LIMIT 200`,[a.tenantId,merchant])).rows:[];
+  return {rows,source_accounts:accounts,destination_accounts:destinationAccounts,payouts,semantics:'Wallet sale debit creates the obligation once. Refunds reduce it. Payout moves the obligation from Kas Yayasan into the selected merchant cash/bank account; it is not a Wallet debit, sale, or merchant revenue.'};
+ });}
+ async function settleWallet(req){return run(req,'pos.reconcile',true,async(c,a)=>{requireTenantSuperadmin(a);
+  const b=req.body||{},merchant=businessId(b.business_id),cashAccount=businessId(b.cash_account_id),merchantAccount=businessId(b.merchant_account_id),value=positiveAmount(b.amount),request=requestId(b.request_id),date=validDate(b.payout_date),reference=optionalText(b.reference,160);
+  if(!reference)fail('SETTLEMENT_REFERENCE_REQUIRED');
+  const requestHash=hash(stable({merchant,cashAccount,merchantAccount,amount:value.toString(),date,reference}));
+  await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`pos-wallet-settlement:${a.tenantId}:${merchant}`]);
+  const old=(await c.query('SELECT id,amount,request_hash FROM pos_wallet_settlement_payouts WHERE tenant_id=$1 AND request_id=$2',[a.tenantId,request])).rows[0];
+  if(old){if(old.request_hash!==requestHash)fail('IDEMPOTENCY_CONFLICT',409);return {id:old.id,amount:old.amount,replay:true};}
+  const business=(await c.query(`SELECT b.id FROM pos_businesses b WHERE b.id=$1 AND b.tenant_id=$2
+    AND EXISTS(SELECT 1 FROM pos_business_units bu WHERE bu.business_id=b.id AND bu.tenant_id=b.tenant_id AND bu.unit_id=$3) FOR UPDATE`,[merchant,a.tenantId,a.unitId])).rows[0];
+  if(!business)fail('MERCHANT_SCOPE_DENIED',403);
+  const destination=(await c.query(`SELECT id FROM pos_business_accounts WHERE id=$1 AND business_id=$2
+    AND active AND kind IN('CASH','BANK') FOR SHARE`,[merchantAccount,merchant])).rows[0];
+  if(!destination)fail('SETTLEMENT_DESTINATION_DENIED',403);
+  await c.query('SELECT id FROM pos_business_wallet_links WHERE business_id=$1 AND tenant_id=$2 ORDER BY id FOR UPDATE',[merchant,a.tenantId]);
+  const position=(await c.query(`SELECT coalesce(sum(l.amount) FILTER(WHERE l.direction='debit'),0) gross,
+    coalesce(sum(l.amount) FILTER(WHERE l.direction='credit'),0) refunds,
+    (SELECT coalesce(sum(amount),0) FROM pos_wallet_settlement_payouts WHERE business_id=$1 AND tenant_id=$2) payouts
+    FROM pos_business_wallet_links l WHERE l.business_id=$1 AND l.tenant_id=$2`,[merchant,a.tenantId])).rows[0];
+  const outstanding=BigInt(position.gross)-BigInt(position.refunds)-BigInt(position.payouts);
+  if(outstanding<=0n||value>outstanding)fail('SETTLEMENT_OVERPAYMENT',409);
+  const account=(await c.query(`SELECT id FROM cash_accounts WHERE id=$1 AND tenant_id=$2 AND status='active' FOR UPDATE`,[cashAccount,a.tenantId])).rows[0];
+  if(account)account.balance=(await c.query(`SELECT coalesce(sum(CASE WHEN jenis='Masuk' THEN nominal ELSE -nominal END),0) balance
+    FROM cash_account_transactions WHERE cash_account_id=$1 AND tenant_id=$2`,[cashAccount,a.tenantId])).rows[0].balance;
+  if(!account)fail('SETTLEMENT_ACCOUNT_DENIED',403);if(BigInt(account.balance)<value)fail('INSUFFICIENT_FOUNDATION_FUNDS',409);
+  const payoutId=crypto.randomUUID(),tx=(await c.query(`INSERT INTO cash_account_transactions
+    (tenant_id,cash_account_id,tanggal,jenis,kategori,keterangan,nominal,petugas,actor_user_id,source,idempotency_key)
+    VALUES($1,$2,$3,'Keluar','Settlement Dompet Merchant',$4,$5,$6,$7,'pos_wallet_settlement',$8) RETURNING id`,
+    [a.tenantId,cashAccount,date,reference,value.toString(),a.user.nama||a.user.username||null,a.user.id,`pos-wallet-settlement:${request}`])).rows[0];
+  await c.query(`INSERT INTO pos_wallet_settlement_payouts
+    (id,tenant_id,business_id,cash_account_id,cash_transaction_id,merchant_account_id,actor_user_id,payout_date,amount,reference,request_id,request_hash)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[payoutId,a.tenantId,merchant,cashAccount,tx.id,merchantAccount,a.user.id,date,value.toString(),reference,request,requestHash]);
+  const obligations=(await c.query(`SELECT d.id,d.amount-coalesce(r.refunds,0)-coalesce(s.settled,0) available FROM pos_business_wallet_links d
+    LEFT JOIN(SELECT payment_id,sum(amount) refunds FROM pos_business_wallet_links WHERE direction='credit' GROUP BY payment_id)r ON r.payment_id=d.payment_id
+    LEFT JOIN(SELECT obligation_link_id,sum(amount) settled FROM pos_wallet_settlement_allocations GROUP BY obligation_link_id)s ON s.obligation_link_id=d.id
+    WHERE d.business_id=$1 AND d.tenant_id=$2 AND d.direction='debit' ORDER BY d.id`,[merchant,a.tenantId])).rows;
+  let left=value;for(const obligation of obligations){const available=BigInt(obligation.available);if(available<=0n)continue;const take=left<available?left:available;
+    await c.query('INSERT INTO pos_wallet_settlement_allocations(payout_id,business_id,obligation_link_id,amount) VALUES($1,$2,$3,$4)',[payoutId,merchant,obligation.id,take.toString()]);left-=take;if(!left)break;}
+  if(left)fail('SETTLEMENT_ALLOCATION_MISMATCH',409);
+  return {id:payoutId,amount:value.toString(),outstanding:(outstanding-value).toString(),replay:false};
  });}
  // Management collections are bounded and scoped; no secrets/UIDs projected.
  async function management(req){return run(req,'pos.view',false,async(c,a)=>{
@@ -240,7 +311,7 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
    return {business_id:id,owner_login:owner.login,activation_code:activationCode,activation_expires_in:172800};});}
  async function deleteBusinessV2(req){return run(req,'pos.config.manage',true,async(c,a)=>{requireTenantSuperadmin(a);const id=businessId(req.params.id);if(req.body.confirmation!=='DELETE'||String(req.body.business_id)!==id)fail('DELETE_CONFIRMATION_REQUIRED',400);
    const business=(await c.query('SELECT id,display_name,active FROM pos_businesses WHERE id=$1 AND tenant_id=$2 FOR UPDATE',[id,a.tenantId])).rows[0];if(!business)fail('BUSINESS_NOT_FOUND',404);if(business.active)fail('BUSINESS_MUST_BE_INACTIVE',409);
-   const referenceTables=['pos_business_products','pos_business_parties','pos_business_accounts','pos_business_terminals','pos_business_shifts','pos_business_operations','pos_business_payments','pos_business_lines','pos_inventory_movements','pos_inventory_layers','pos_inventory_allocations','pos_money_movements','pos_debt_movements','pos_wallet_credentials','pos_wallet_credential_audits','pos_business_wallet_links','pos_online_customer_access','pos_online_orders','pos_online_order_lines','pos_online_reservations','pos_online_order_events','pos_merchant_permission_audit'];
+   const referenceTables=['pos_business_products','pos_business_parties','pos_business_accounts','pos_business_terminals','pos_business_shifts','pos_business_operations','pos_business_payments','pos_business_lines','pos_inventory_movements','pos_inventory_layers','pos_inventory_allocations','pos_money_movements','pos_debt_movements','pos_wallet_credentials','pos_wallet_credential_audits','pos_business_wallet_links','pos_wallet_settlement_payouts','pos_online_customer_access','pos_online_orders','pos_online_order_lines','pos_online_reservations','pos_online_order_events','pos_merchant_permission_audit'];
    const blockers=[];for(const table of referenceTables){if(!(await c.query('SELECT to_regclass($1) present',['public.'+table])).rows[0].present)fail('BUSINESS_DELETE_SCHEMA_INCOMPLETE',500);const column=table==='pos_wallet_credentials'?'created_business_id':'business_id';const count=(await c.query(`SELECT count(*)::integer n FROM ${table} WHERE ${column}=$1`,[id])).rows[0].n;if(count)blockers.push({table,count});}
    const ownerHistory=(await c.query(`SELECT count(*)::integer n FROM pos_business_admin_audit WHERE business_id=$1 AND tenant_id=$2 AND (action='OWNER_ACTIVATION_REISSUED' OR snapshot->>'kind'='OWNER_LOGIN_CHANGED')`,[id,a.tenantId])).rows[0].n;if(ownerHistory)blockers.push({table:'pos_business_admin_audit',count:ownerHistory});
    if(blockers.length)fail('BUSINESS_ARCHIVE_REQUIRED',409);
@@ -249,6 +320,6 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
    await c.query(`INSERT INTO audit_logs(device_id,event_type,detail,tenant_id) VALUES($1,'POS_BUSINESS_DELETED',$2,$3)`,[`admin:${a.user.id}`,JSON.stringify({business_id:id,display_name:business.display_name,owner_ids:ownerIds,admin_history:auditHistory}),a.tenantId]);
    await c.query('DELETE FROM pos_businesses WHERE id=$1 AND tenant_id=$2',[id,a.tenantId]);
    return {deleted:true,business_id:id,owner_account_deleted:false};});}
- return {transactions,detail,dashboard,shifts,refunds,reconciliation,management,editCategory,editMerchant,configureTerminal,businessesV2,onboardBusiness,businessDetail,editBusinessV2,changeBusinessOwnerLogin,reissueBusinessOwnerActivation,deleteBusinessV2};
+ return {transactions,detail,dashboard,shifts,refunds,reconciliation,settlements,settleWallet,management,editCategory,editMerchant,configureTerminal,businessesV2,onboardBusiness,businessDetail,editBusinessV2,changeBusinessOwnerLogin,reissueBusinessOwnerActivation,deleteBusinessV2};
 }
 module.exports={createPosAdminService,...createPosAdminService()};

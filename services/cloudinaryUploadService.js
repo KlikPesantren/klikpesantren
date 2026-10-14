@@ -27,7 +27,14 @@ function ensureCloudinaryConfigured() {
 function uploadImageBuffer(buffer, options = {}) {
   ensureCloudinaryConfigured();
 
-  const folder = process.env.CLOUDINARY_FOLDER || "kliksantri";
+  const rootFolder = process.env.CLOUDINARY_FOLDER || "kliksantri";
+  const subfolder = options.folder == null ? "" : String(options.folder);
+  if (subfolder && !/^[a-z0-9/_-]{1,160}$/i.test(subfolder)) {
+    const err = new Error("Folder upload tidak valid.");
+    err.code = "INVALID_UPLOAD_FOLDER";
+    throw err;
+  }
+  const folder = subfolder ? `${rootFolder}/${subfolder}` : rootFolder;
 
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
@@ -37,6 +44,9 @@ function uploadImageBuffer(buffer, options = {}) {
         use_filename: true,
         unique_filename: true,
         overwrite: false,
+        transformation: options.productImage
+          ? [{ width: 1600, height: 1600, crop: "limit", quality: "auto:good", fetch_format: "auto" }]
+          : undefined,
         context: options.originalName
           ? { original_name: options.originalName }
           : undefined,

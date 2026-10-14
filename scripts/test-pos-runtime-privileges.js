@@ -4,14 +4,16 @@ const path = require("path");
 const manifest = require("../config/posRuntimePrivileges");
 
 const root = path.join(__dirname, "..");
-const migrationFiles = fs.readdirSync(path.join(root, "migrations")).filter(name => /^(09[4-9]|10[0-4])_.*\.sql$/.test(name) && !name.endsWith("_rollback.sql"));
+const migrationFiles = fs.readdirSync(path.join(root, "migrations")).filter(name => /^(09[4-9]|10[0-7])_.*\.sql$/.test(name) && !name.endsWith("_rollback.sql"));
 const created = new Set();
 for (const name of migrationFiles) {
   const sql = fs.readFileSync(path.join(root, "migrations", name), "utf8");
   for (const match of sql.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?(pos_[a-z0-9_]+)/gi)) created.add(match[1].toLowerCase());
 }
-assert.deepStrictEqual(Object.keys(manifest.tables).sort(), [...created].sort(), "grant manifest must cover exactly POS tables 094-104");
-assert.deepStrictEqual(manifest.sequences, [], "POS 094-104 require no POS sequence grant");
+assert.deepStrictEqual(Object.keys(manifest.tables).sort(), [...created].sort(), "grant manifest must cover exactly POS tables 094-107");
+assert.deepStrictEqual(manifest.sequences, [], "POS 094-107 require no POS-owned sequence grant");
+assert.deepStrictEqual(manifest.externalTables,{cash_accounts:{select:true},cash_account_transactions:{select:true,insert:true}});
+assert.deepStrictEqual(manifest.externalSequences,["cash_account_transactions_id_seq"]);
 
 const files = [];
 for (const dir of ["routes", "services", "controllers", "middleware", "utils"]) {
@@ -53,4 +55,7 @@ assert.match(manager, /rolbypassrls/);
 assert.match(manager, /rolcreaterole/);
 assert.match(manager, /CONFIRM_POS_GRANT_TARGET/);
 assert.match(manager, /BEGIN READ ONLY/);
-console.log(`PASS POS runtime privilege manifest: ${created.size} tables, 0 POS sequences, destructive grants bounded`);
+assert.match(manager, /hasOwnProperty\.call\(manifest\.tables, table\)/,
+  "external canonical tables must not make unrelated existing app privileges look like POS grant drift");
+assert.doesNotMatch(manager, /GRANT\s+ALL/i);
+console.log(`PASS POS runtime privilege manifest: ${created.size} POS tables, 2 canonical treasury dependencies, destructive grants bounded`);

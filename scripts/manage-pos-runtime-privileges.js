@@ -34,24 +34,35 @@ async function audit(client, runtimeRole) {
   const schemaCreate = (await client.query("SELECT has_schema_privilege($1,$2,'CREATE') allowed", [runtimeRole, manifest.schema])).rows[0].allowed;
   if (!schemaUsage) missing.push({ object: manifest.schema, privilege: "USAGE" });
   if (schemaCreate) excessive.push({ object: manifest.schema, privilege: "CREATE" });
-  for (const [table, rule] of Object.entries(manifest.tables)) {
+  const grantTables={...manifest.tables,...(manifest.externalTables||{})};
+  for (const [table, rule] of Object.entries(grantTables)) {
+    // POS-owned tables are governed exclusively by this manifest, while
+    // canonical KlikPesantren tables may legitimately carry privileges for
+    // unrelated runtime modules. For external dependencies, require only the
+    // minimum POS privileges and never classify pre-existing app privileges as
+    // POS grant drift.
+    const strict = Object.prototype.hasOwnProperty.call(manifest.tables, table);
     for (const operation of ["SELECT", "INSERT", "DELETE"]) {
       const allowed = (await client.query("SELECT has_table_privilege($1,$2,$3) allowed", [runtimeRole, `${manifest.schema}.${table}`, operation])).rows[0].allowed;
       const wanted = Boolean(rule[operation.toLowerCase()]);
       if (wanted && !allowed) missing.push({ object: table, privilege: operation });
-      if (!wanted && allowed) excessive.push({ object: table, privilege: operation });
+      if (strict && !wanted && allowed) excessive.push({ object: table, privilege: operation });
     }
     for (const operation of ["TRUNCATE", "REFERENCES", "TRIGGER"]) {
-      if ((await client.query("SELECT has_table_privilege($1,$2,$3) allowed", [runtimeRole, `${manifest.schema}.${table}`, operation])).rows[0].allowed) excessive.push({ object: table, privilege: operation });
+      if (strict && (await client.query("SELECT has_table_privilege($1,$2,$3) allowed", [runtimeRole, `${manifest.schema}.${table}`, operation])).rows[0].allowed) excessive.push({ object: table, privilege: operation });
     }
     const columns = (await client.query("SELECT column_name FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 ORDER BY ordinal_position", [manifest.schema, table])).rows.map(r => r.column_name);
     const wantedUpdates = new Set(rule.update || []);
     for (const column of columns) {
       const allowed = (await client.query("SELECT has_column_privilege($1,$2,$3,'UPDATE') allowed", [runtimeRole, `${manifest.schema}.${table}`, column])).rows[0].allowed;
       if (wantedUpdates.has(column) && !allowed) missing.push({ object: `${table}.${column}`, privilege: "UPDATE" });
-      if (!wantedUpdates.has(column) && allowed) excessive.push({ object: `${table}.${column}`, privilege: "UPDATE" });
+      if (strict && !wantedUpdates.has(column) && allowed) excessive.push({ object: `${table}.${column}`, privilege: "UPDATE" });
     }
     for (const column of wantedUpdates) if (!columns.includes(column)) throw new Error(`Unknown update column in manifest: ${table}.${column}`);
+  }
+  for(const sequence of manifest.externalSequences||[]){
+    const allowed=(await client.query("SELECT has_sequence_privilege($1,$2,'USAGE') allowed",[runtimeRole,`${manifest.schema}.${sequence}`])).rows[0].allowed;
+    if(!allowed)missing.push({object:sequence,privilege:'USAGE'});
   }
   const publicGrants = Number((await client.query("SELECT count(*) count FROM information_schema.table_privileges WHERE table_schema=$1 AND table_name=ANY($2::text[]) AND grantee='PUBLIC'", [manifest.schema, expectedTables])).rows[0].count);
   if (publicGrants) excessive.push({ object: "PUBLIC", privilege: "POS_TABLE_PRIVILEGE" });
@@ -60,11 +71,12 @@ async function audit(client, runtimeRole) {
 
 async function apply(client, runtimeRole) {
   await client.query(`GRANT USAGE ON SCHEMA ${quote(manifest.schema)} TO ${quote(runtimeRole)}`);
-  for (const [table, rule] of Object.entries(manifest.tables)) {
+  for (const [table, rule] of Object.entries({...manifest.tables,...(manifest.externalTables||{})})) {
     const operations = [rule.select && "SELECT", rule.insert && "INSERT", rule.delete && "DELETE"].filter(Boolean);
     if (operations.length) await client.query(`GRANT ${operations.join(", ")} ON TABLE ${quote(manifest.schema)}.${quote(table)} TO ${quote(runtimeRole)}`);
     if (rule.update?.length) await client.query(`GRANT UPDATE (${rule.update.map(quote).join(", ")}) ON TABLE ${quote(manifest.schema)}.${quote(table)} TO ${quote(runtimeRole)}`);
   }
+  for(const sequence of manifest.externalSequences||[])await client.query(`GRANT USAGE ON SEQUENCE ${quote(manifest.schema)}.${quote(sequence)} TO ${quote(runtimeRole)}`);
 }
 
 async function main() {

@@ -503,6 +503,28 @@ router.put(
       }
 
       const santri = result.rows[0];
+      if (nextUid !== existing.rows[0].uid_rfid) {
+        const eventType = !nextUid
+          ? "wallet.rfid.deactivated"
+          : existing.rows[0].uid_rfid
+            ? "wallet.rfid.replaced"
+            : "wallet.rfid.activated";
+        await client.query(
+          `INSERT INTO audit_logs(tenant_id, device_id, event_type, detail)
+           VALUES($1,$2,$3,$4)`,
+          [
+            req.tenantId,
+            `admin:${req.user.id}`,
+            eventType,
+            JSON.stringify({
+              actor_user_id: req.user.id,
+              santri_id: Number(id),
+              had_credential: Boolean(existing.rows[0].uid_rfid),
+              has_credential: Boolean(nextUid),
+            }),
+          ],
+        );
+      }
       if (!willNonAktif) {
         await assignClassEnrollment({
           tenantId: req.tenantId,

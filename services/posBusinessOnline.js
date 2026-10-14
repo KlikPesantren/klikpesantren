@@ -186,6 +186,7 @@ function createBusinessOnline(h){
     for(const l of lines)await getProduct(c,a,l.product_id);
     await c.query("UPDATE pos_online_reservations SET state='COMMITTED' WHERE order_id=$1",[o.id]);
     const total=BigInt(o.merchandise_total),payment={method:o.payment_method,amount:total.toString(),account_id:account,reference:b.reference,
+     ...(['BANK','QRIS'].includes(o.payment_method)?{manual_confirmed:true,confirmation_mode:'MANUAL'}:{}),
      ...(o.payment_method==='CASH'?{tendered:total.toString()}: {})};
     const receipt=await saleWork(c,a,{items:lines.map(l=>({product_id:l.product_id,quantity:l.quantity})),payments:[payment],shift_id:b.shift_id,
      request_id:'online-sale:'+o.id,customer_id:o.customer_id,due_date:b.due_date},lines);

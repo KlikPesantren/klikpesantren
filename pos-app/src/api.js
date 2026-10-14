@@ -1,7 +1,7 @@
 import Constants from "expo-constants";
 const base = Constants.expoConfig.extra.apiUrl.replace(/\/$/, "");
 export function makeApi(token, onConnection = () => {}) {
-  return async (path, { method = "GET", body, query } = {}) => {
+  return async (path, { method = "GET", body, formData, query } = {}) => {
     // Defense in depth: acceptance never sends even a read/auth request to any API.
     if (Constants.expoConfig.extra.posEnvironment === "acceptance")
       throw Object.assign(Error("REVIEW_NETWORK_DISABLED"), {
@@ -20,10 +20,10 @@ export function makeApi(token, onConnection = () => {}) {
       const res = await fetch(base + path + qs, {
         method,
         headers: {
-          "Content-Type": "application/json",
+          ...(!formData ? { "Content-Type": "application/json" } : {}),
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: body ? JSON.stringify(body) : undefined,
+        body: formData || (body ? JSON.stringify(body) : undefined),
         signal: controller.signal,
       });
       onConnection(true);

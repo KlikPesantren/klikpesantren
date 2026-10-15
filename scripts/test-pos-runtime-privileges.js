@@ -47,6 +47,11 @@ assert.equal(manifest.tables.pos_wallet_credential_audits.update, undefined);
 assert.equal(manifest.tables.pos_wallet_credential_audits.delete, undefined);
 assert.deepStrictEqual(manifest.tables.pos_cashier_assignments.update, ["active"]);
 assert.deepStrictEqual(manifest.tables.pos_merchant_activation_tokens.update, ["token_hash", "expires_at", "created_by", "created_at"]);
+assert.deepStrictEqual(manifest.tables.pos_merchant_sessions.update, ["token_hash"],
+  "session authentication row lock requires one bounded UPDATE column privilege");
+const businessService = fs.readFileSync(path.join(root, "services", "posBusinessService.js"), "utf8");
+assert.match(businessService, /pos_merchant_sessions\s+s[\s\S]*FOR\s+SHARE\s+OF\s+u\s*,\s*s/i,
+  "runtime manifest must retain the bounded privilege required by session FOR SHARE locking");
 
 const manager = fs.readFileSync(path.join(__dirname, "manage-pos-runtime-privileges.js"), "utf8");
 assert.doesNotMatch(manager, /GRANT\s+ALL|GRANT[\s\S]{0,200}\bTO\s+PUBLIC\b/i);

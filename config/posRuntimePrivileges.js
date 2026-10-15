@@ -29,7 +29,10 @@ const tables = {
   pos_merchant_login_limits: { select: true, insert: true, update: ["attempts", "started_at"] },
   pos_merchant_memberships: { select: true, insert: true, update: ["role", "permissions", "active"] },
   pos_merchant_permission_audit: { insert: true },
-  pos_merchant_sessions: { select: true, insert: true, delete: true },
+  // PostgreSQL row-locking (SELECT ... FOR SHARE OF s) also requires UPDATE
+  // privilege on at least one session column. token_hash is the immutable key
+  // used solely to satisfy that lock privilege; application SQL never updates it.
+  pos_merchant_sessions: { select: true, insert: true, update: ["token_hash"], delete: true },
   pos_merchant_users: { select: true, insert: true, update: ["login", "name", "password_hash"] },
   pos_money_movements: { select: true, insert: true },
   pos_online_customer_access: { select: true, insert: true, update: ["active"] },

@@ -29,12 +29,13 @@ test("existing merchant resources are reused and stale cross-merchant selections
   assert.equal(cashierSetupState(terminals, [{ id: "drawer-a" }], false).ready, true);
 });
 
-test("readiness links are permission-derived and only server readiness marks completion", () => {
+test("readiness links are permission-derived and home shows only actionable incomplete steps", () => {
   const terminal = READINESS_ITEMS.find(([key]) => key === "terminal");
   const drawer = READINESS_ITEMS.find(([key]) => key === "cash_drawer");
   assert.deepEqual(terminal.slice(2), ["PENGATURAN", "BUSINESS_SETTINGS_MANAGE"]);
   assert.deepEqual(drawer.slice(2), ["PENGATURAN", "BUSINESS_SETTINGS_MANAGE"]);
-  assert.match(appSource, /w\.readiness\[key\]\?"SELESAI":"BELUM"/);
+  assert.match(appSource, /!w\.readiness\[key\]&&can\(permission\)/);
+  assert.match(appSource, /value="BELUM"/);
   assert.deepEqual(READINESS_ITEMS.find(([key]) => key === "initialization").slice(1), ["Posisi awal usaha", "PENGATURAN", "BUSINESS_SETTINGS_MANAGE"]);
 });
 

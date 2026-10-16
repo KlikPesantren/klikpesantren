@@ -11,7 +11,7 @@ import { WalletCredentialScanner } from "./WalletCredentialScanner";
 import { Artwork, Badge, Button, Card, Chip, Empty, Field, Icon, Money, Row, RupiahField, colors, s } from "./ui";
 import { AppText as Text } from "./typography";
 const { createVault } = require("./vault.cjs");
-const { GROUPS, DEFAULTS, navigationItems, can } = require("./merchantAccess.cjs");
+const { GROUPS, DEFAULTS, navigationItems, primaryNavigation, dashboardActions, can } = require("./merchantAccess.cjs");
 const { rupiah } = require("./domain.cjs");
 const { READINESS_ITEMS, keepMerchantSelection, cashierSetupState } = require("./merchantBootstrap.cjs");
 const { addPurchaseLine, updatePurchaseLine, removePurchaseLine, purchaseTotals, purchasePayload } = require("./purchaseDraft.cjs");
@@ -52,25 +52,25 @@ const LOADERS = {
 };
 const NAV_LABELS = { BERANDA:"Beranda", KASIR:"Kasir", TRANSAKSI:"Transaksi", LAPORAN:"Laporan", MENU:"Menu" };
 const MENU_GROUPS = [
-  ["OPERASIONAL", ["PRODUK","STOK","PEMBELIAN","SUPPLIER","CUSTOMER","TRANSAKSI","SHIFT"]],
-  ["KEUANGAN", ["KEUANGAN","UTANG","PIUTANG","LAPORAN"]],
+  ["PRODUK & STOK", ["PRODUK","STOK","PEMBELIAN","SUPPLIER"]],
+  ["PELANGGAN & PENJUALAN", ["CUSTOMER","PIUTANG","TRANSAKSI","SHIFT"]],
+  ["KEUANGAN & LAPORAN", ["KEUANGAN","UTANG","LAPORAN"]],
   ["PENJUALAN ONLINE", ["TOKO ONLINE"]],
   ["PENGELOLAAN USAHA", ["PENGGUNA","PENGATURAN"]],
 ];
 const ROLE_LABELS = { OWNER: "Owner", SUPERVISOR: "Supervisor", CASHIER: "Kasir" };
 const MENU_LABELS = {
-  PRODUK: "Produk", STOK: "Stok", PEMBELIAN: "Pembelian", SUPPLIER: "Supplier",
-  CUSTOMER: "Pelanggan", TRANSAKSI: "Transaksi", SHIFT: "Shift",
+  PRODUK: "Produk", STOK: "Stok", PEMBELIAN: "Pembelian Barang", SUPPLIER: "Pemasok",
+  CUSTOMER: "Pelanggan", TRANSAKSI: "Transaksi", SHIFT: "Shift Kasir",
   KEUANGAN: "Kas & Rekening", UTANG: "Utang", PIUTANG: "Piutang", LAPORAN: "Laporan",
-  "TOKO ONLINE": "Toko Online", PENGGUNA: "Pengguna & Akses", PENGATURAN: "Profil & Pengaturan",
+  "TOKO ONLINE": "Toko Online", PENGGUNA: "Karyawan & Akses", PENGATURAN: "Pengaturan Usaha",
 };
 const MENU_DESCRIPTIONS = {
   PRODUK: "Katalog, harga, dan publikasi", STOK: "Persediaan dan pergerakan", PEMBELIAN: "Belanja dan retur",
-  SUPPLIER: "Mitra pemasok", CUSTOMER: "Pelanggan dan histori", TRANSAKSI: "Penjualan dan retur", SHIFT: "Kas fisik kasir",
+  SUPPLIER: "Daftar pemasok", CUSTOMER: "Data pelanggan dan riwayat", TRANSAKSI: "Penjualan dan retur", SHIFT: "Buka, tutup, dan riwayat shift",
   KEUANGAN: "Biaya, pendapatan, modal, dan prive", UTANG: "Kewajiban ke supplier", PIUTANG: "Tagihan pelanggan", LAPORAN: "Ringkasan kinerja usaha",
   "TOKO ONLINE": "Pesanan, toko, dan publikasi", PENGGUNA: "Tim, peran, dan izin", PENGATURAN: "Identitas usaha dan akun",
 };
-const primaryFor = (role, navigation) => (role === "OWNER" ? ["BERANDA","KASIR","TRANSAKSI","LAPORAN"] : ["BERANDA","KASIR","TRANSAKSI"]).filter(id => navigation.some(item => item.id === id));
 const errorText = e => ({
   REVIEW_NETWORK_DISABLED: "Aplikasi ini adalah build demo/review dan tidak dapat login ke server. Instal build operasional Suq Shogir.",
   NETWORK: "Tidak dapat terhubung ke server. Periksa internet lalu coba lagi.",
@@ -287,7 +287,7 @@ export default function MerchantBusinessApp() {
   if (!session.businessId) return <BusinessPicker rows={directory?.businesses || []} busy={busy} onSelect={id => run(() => selectBusiness(session.token, id))} onLogout={logout} />;
   if (!context) return <SafeAreaView style={s.root}><Empty loading title="Memuat konteks usaha" /></SafeAreaView>;
   const navigation = navigationItems(context.permissions);
-  const primary = primaryFor(context.role, navigation);
+  const primary = primaryNavigation(navigation);
   return (
     <SafeAreaView style={s.root}>
       <View style={s.header}>
@@ -347,23 +347,24 @@ function ModuleView(props) {
     KEUANGAN: <Finance {...common}/>, LAPORAN: <Reports {...common}/>, "TOKO ONLINE": <Online {...common}/>,
     PENGGUNA: <Users {...common}/>, PENGATURAN: <Settings {...common}/>,
   }[props.module];
-  if(props.module==="KASIR")return <View key={props.module} style={s.flex}>{content || <Empty title="Modul tidak tersedia" />}</View>;
-  return <ScrollView key={props.module} style={s.flex} contentContainerStyle={s.content}>{content || <Empty title="Modul tidak tersedia" />}</ScrollView>;
+  return <View style={s.flex}>
+    {common.can("SALE_CREATE")&&<View style={[s.flex,props.module!=="KASIR"&&s.hidden]}><Cashier {...common}/></View>}
+    {props.module!=="KASIR"&&<ScrollView key={props.module} style={s.flex} contentContainerStyle={s.content}>{content || <Empty title="Modul tidak tersedia" />}</ScrollView>}
+  </View>;
 }
-function Dashboard({ data, context, can, refresh, request, navigate }) {
-  const w=data.workspace||{},a=w.attention,sales=w.sales_today,[period,setPeriod]=useState("TODAY"),[summary,setSummary]=useState(null),periodic=context.permissions.some(p=>["REPORT_SALES","REPORT_PROFIT","REPORT_FINANCE"].includes(p)),canSales=context.permissions.includes("REPORT_SALES");
-  const changePeriod=async value=>{setPeriod(value);if(value==="TODAY"){setSummary(null);return;}const result=await request(`/reports?period=${value}`);if(result)setSummary(result.kpi);};
-  const current=summary||{net_sales:sales?.sales||0,sales_count:sales?.transactions||0,average_sale:sales?.average_ticket||0,gross_profit:w.profit?.gross_profit};
-  const profitNegative=Number(current.gross_profit||0)<0;
-  return <><View style={s.sectionHeader}><View><Text style={s.sectionTitle}>Ringkasan Usaha</Text><Text style={s.muted}>Kinerja utama berdasarkan data operasional.</Text></View><Pressable style={s.inlineAction} onPress={refresh}><Icon name="refresh-cw" size={14}/><Text style={s.inlineActionText}>Segarkan</Text></Pressable></View>
-    {w.readiness&&READINESS_ITEMS.some(([key])=>!w.readiness[key])&&<Card title="Mulai operasional Suq Shogir"><Text style={s.muted}>Selesaikan prasyarat sesuai hak akses. Status hanya berubah setelah server memastikan data tersedia.</Text>{READINESS_ITEMS.map(([key,label,target,permission])=><View key={key} style={s.readinessRow}><Row label={label} value={w.readiness[key]?"SELESAI":"BELUM"}/>{!w.readiness[key]&&can(permission)&&<Button title="Atur sekarang" secondary onPress={()=>navigate(target)}/>}</View>)}</Card>}
-    {periodic&&<Card><Choice options={[["TODAY","Hari Ini"],["MONTH","Bulan Ini"],["YEAR","Tahun Ini"]]} value={period} onChange={changePeriod}/></Card>}
-    <View style={s.kpiGrid}>{canSales&&<KpiTile label="Omzet" value={rupiah(current.net_sales||0)} icon="trending-up"/>}{canSales&&<KpiTile label="Transaksi" value={String(current.sales_count||0)} icon="file-text"/>}{context.permissions.includes("REPORT_PROFIT")&&<KpiTile label="Laba Kotor" value={rupiah(current.gross_profit||0)} icon="pie-chart" negative={profitNegative}/>} {canSales&&<KpiTile label="Rata-rata Transaksi" value={rupiah(current.average_sale||0)} icon="activity"/>}</View>
-    {canSales&&<Card title="Tren Penjualan"><View style={s.row}><Text style={s.muted}>Belum tersedia untuk periode ini.</Text><Icon name="bar-chart-2" size={18} color={colors.muted}/></View></Card>}
-    <Card title="Perlu Perhatian">{context.permissions.includes("AR_VIEW")&&<Row label="Piutang" value={rupiah(a?.receivable||0)}/>}
-      {context.permissions.includes("AP_VIEW")&&<Row label="Utang" value={rupiah(a?.payable||0)}/>}
-      {context.permissions.includes("INVENTORY_VIEW")&&<Row label="Stok menipis" value={a?.low_stock||0}/>}
-      {context.permissions.includes("ONLINE_STORE_VIEW")&&<Row label="Pesanan online" value={a?.online_orders||0}/>}</Card></>;
+function Dashboard({ data, context, can, refresh, navigate }) {
+  const w=data.workspace||{},a=w.attention||{},sales=w.sales_today||{},isCashier=context.role==="CASHIER",actions=dashboardActions(context.role,context.permissions);
+  const missing=(w.readiness?READINESS_ITEMS:[]).filter(([key,,,permission])=>!w.readiness[key]&&can(permission));
+  const attention=[];
+  if(can("AR_VIEW"))attention.push(["Piutang pelanggan",rupiah(a.receivable||0)]);
+  if(can("AP_VIEW"))attention.push(["Utang ke pemasok",rupiah(a.payable||0)]);
+  if(can("INVENTORY_VIEW"))attention.push(["Stok menipis",String(a.low_stock||0)]);
+  if(can("ONLINE_STORE_VIEW"))attention.push(["Pesanan online",String(a.online_orders||0)]);
+  return <><View style={s.sectionHeader}><View><Text style={s.sectionTitle}>{isCashier?"Siap melayani":"Hari ini di usaha Anda"}</Text><Text style={s.muted}>{isCashier?context.business.display_name:"Ringkasan operasional terbaru."}</Text></View><Pressable style={s.inlineAction} onPress={refresh}><Icon name="refresh-cw" size={14}/><Text style={s.inlineActionText}>Segarkan</Text></Pressable></View>
+    {isCashier?<Card title={w.open_shift?"Shift sedang berjalan":"Shift belum dibuka"}><Row label="Akun" value={context.user_name}/><Row label="Usaha" value={context.business.display_name}/><Text style={s.muted}>{w.open_shift?"Lanjutkan penjualan dari Kasir. Keranjang tetap tersimpan saat berpindah tab.":"Buka Kasir untuk memilih terminal dan laci kas yang diizinkan."}</Text></Card>:can("REPORT_SALES")?<><View style={s.kpiGrid}><KpiTile label="Penjualan hari ini" value={rupiah(sales.sales||0)} icon="trending-up"/><KpiTile label="Transaksi" value={String(sales.transactions||0)} icon="file-text"/></View>{Number(sales.transactions||0)===0&&<Text style={s.muted}>Belum ada transaksi hari ini.</Text>}</>:<Card title="Aktivitas usaha"><Text style={s.muted}>Ringkasan penjualan tidak tersedia untuk hak akses akun ini.</Text></Card>}
+    {actions.length>0&&<View style={s.sectionCompact}><Text style={s.heading}>Akses Cepat</Text><View style={s.quickGrid}>{actions.map(action=><Pressable accessibilityRole="button" key={action.id} style={s.quickAction} onPress={()=>navigate(action.id)}><Icon name={action.icon} size={18}/><Text style={s.quickActionText}>{action.label}</Text></Pressable>)}</View></View>}
+    {!isCashier&&attention.length>0&&<Card title="Perlu diperhatikan">{attention.map(([label,value])=><Row key={label} label={label} value={value}/>)}</Card>}
+    {!isCashier&&missing.length>0&&<Card title="Pengaturan yang perlu dilengkapi"><Text style={s.muted}>Hanya langkah yang belum selesai dan dapat Anda atur yang ditampilkan.</Text>{missing.map(([key,label,target])=><View key={key} style={s.readinessRow}><Row label={label} value="BELUM"/><Button title="Lengkapi" secondary onPress={()=>navigate(target)}/></View>)}</Card>}</>;
 }
 function KpiTile({ label, value, icon, negative=false }) {
   return <View style={s.kpiTile}><View style={s.row}><Text style={s.label}>{label}</Text><Icon name={icon} size={16} color={negative?colors.red:colors.green}/></View><Text style={[s.kpiValue,negative&&s.kpiValueNegative]} numberOfLines={1} adjustsFontSizeToFit>{value}</Text></View>;

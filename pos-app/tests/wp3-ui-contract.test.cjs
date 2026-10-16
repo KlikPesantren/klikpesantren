@@ -19,9 +19,9 @@ test("product image workflow uses native picker, local compression and authentic
 });
 
 test("WP3 purchase and debt UI use canonical multi-line and invoice selection contracts", () => {
-  assert.match(source, /purchasePayload\(form,requestId\.current\)/);
+  assert.match(source, /purchasePayload\(\{\.\.\.form,paid:effectivePaid\.toString\(\)\},requestId\.current\)/);
   assert.match(source, /Invoice outstanding/);
   assert.doesNotMatch(source, /ID transaksi sumber/);
   assert.match(source, /Harga beli referensi/);
-  assert.match(source, /HPP FIFO tetap mengikuti invoice/);
+  assert.match(source, /Nilai stok dan harga pokok tetap berasal dari pembelian atau posisi awal yang diposting/);
 });

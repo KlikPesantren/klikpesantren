@@ -348,6 +348,8 @@ async function main() {
     assert.equal((await query("SELECT count(*) n FROM pos_business_accounts WHERE business_id=$1 AND kind='CASH' AND lower(name)='synthetic retry drawer'", [business]))[0].n, '1');
     shift = await core.openShift(req({ terminal_id: t.id, cash_account_id: account, opening_cash: 100 }));
     await rejects(() => core.openShift(req({ terminal_id: t.id, cash_account_id: account, opening_cash: 100 })), '23505');
+    await rejects(() => core.openShift(req({ terminal_id: t.id, cash_account_id: account, opening_cash: 100 }, cashierToken)), '23505');
+    assert.equal((await query("SELECT count(*) n FROM pos_business_shifts WHERE business_id=$1 AND status='OPEN'", [business]))[0].n, '1');
     await rejects(() => core.closeShift(req({ shift_id: shift.id, actual_cash: 100 }, cashierToken)), 'SHIFT_DENIED');
   });
   await test('cash sale uses server price/FIFO and persists branded receipt snapshot', async () => {

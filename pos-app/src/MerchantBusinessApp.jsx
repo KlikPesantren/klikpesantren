@@ -13,7 +13,7 @@ import { AppText as Text } from "./typography";
 const { createVault } = require("./vault.cjs");
 const { GROUPS, DEFAULTS, navigationItems, primaryNavigation, dashboardActions, can } = require("./merchantAccess.cjs");
 const { rupiah } = require("./domain.cjs");
-const { READINESS_ITEMS, keepMerchantSelection, cashierSetupState } = require("./merchantBootstrap.cjs");
+const { READINESS_ITEMS, shiftResourceChoice, cashierSetupState } = require("./merchantBootstrap.cjs");
 const { addPurchaseLine, updatePurchaseLine, removePurchaseLine, purchaseTotals, purchasePayload } = require("./purchaseDraft.cjs");
 const { externalPayment } = require("./paymentCredential.cjs");
 const { cashChange, scannerAvailability, transferMethod } = require("./cashierFlow.cjs");
@@ -371,11 +371,11 @@ function KpiTile({ label, value, icon, negative=false }) {
 }
 function Cashier({ data, context, can, submit, submitSale, pendingSale, request, navigate }) {
   const blankPayment=(method="CASH",amount="")=>({method,amount,account_id:"",tendered:"",reference:"",credential:"",credential_method:"",unit_id:context.units.length===1?context.units[0].unit_id:"",wallet_preview:null,manual_confirmed:false});
-  const [cart,setCart]=useState([]),[terminal,setTerminal]=useState(""),[drawer,setDrawer]=useState(""),[openingCash,setOpeningCash]=useState("0"),[receipt,setReceipt]=useState(null),[search,setSearch]=useState(""),[category,setCategory]=useState(""),[customerId,setCustomerId]=useState(""),[customerSearch,setCustomerSearch]=useState(""),[showCustomerCreate,setShowCustomerCreate]=useState(false),[customerDraft,setCustomerDraft]=useState({name:"",phone:"",address:"",credit_limit:"0",due_days:"0"}),[dueDate,setDueDate]=useState(""),[discount,setDiscount]=useState("0"),[discountReason,setDiscountReason]=useState(""),[payments,setPayments]=useState([blankPayment()]),[step,setStep]=useState("PRODUCTS"),[split,setSplit]=useState(false);
+  const [cart,setCart]=useState([]),[terminal,setTerminal]=useState(""),[drawer,setDrawer]=useState(""),[openingCash,setOpeningCash]=useState("0"),[showOpeningCash,setShowOpeningCash]=useState(false),[receipt,setReceipt]=useState(null),[search,setSearch]=useState(""),[category,setCategory]=useState(""),[customerId,setCustomerId]=useState(""),[customerSearch,setCustomerSearch]=useState(""),[showCustomerCreate,setShowCustomerCreate]=useState(false),[customerDraft,setCustomerDraft]=useState({name:"",phone:"",address:"",credit_limit:"0",due_days:"0"}),[dueDate,setDueDate]=useState(""),[discount,setDiscount]=useState("0"),[discountReason,setDiscountReason]=useState(""),[payments,setPayments]=useState([blankPayment()]),[step,setStep]=useState("PRODUCTS"),[split,setSplit]=useState(false);
   const allProducts=data.products||[],categories=[...new Set(allProducts.map(p=>p.category).filter(Boolean))],products=allProducts.filter(p=>BigInt(p.available??p.on_hand??0)>0n&&(!category||p.category===category)&&(!search||`${p.name} ${p.sku||""} ${p.barcode||""}`.toLowerCase().includes(search.toLowerCase()))),drawers=data.drawers||[],accounts=data.accounts||[],shift=data.workspace?.open_shift;
   const customers=data.customers||[],visibleCustomers=filterCustomers(customers,customerSearch),selectedCustomer=customers.find(customer=>String(customer.id)===String(customerId));
   const setup=cashierSetupState(context.terminals,drawers,can("BUSINESS_SETTINGS_MANAGE"));
-  const selectedTerminal=keepMerchantSelection(terminal,context.terminals),selectedDrawer=keepMerchantSelection(drawer,drawers);
+  const terminalChoice=shiftResourceChoice(terminal,context.terminals),drawerChoice=shiftResourceChoice(drawer,drawers),selectedTerminal=terminalChoice.selected,selectedDrawer=drawerChoice.selected;
   const discountValue=moneyValue(discount),subtotal=cart.reduce((n,i)=>n+BigInt(i.selling_price)*BigInt(i.quantity),0n),total=subtotal-discountValue,totalText=total>0n?String(total):"",itemCount=cart.reduce((n,i)=>n+i.quantity,0);
   const effectivePayments=payments.map(payment=>!split&&payments.length===1?{...payment,amount:totalText}:payment),paymentTotal=effectivePayments.reduce((n,p)=>n+moneyValue(p.amount),0n);
   // Keep the visible single-payment field synchronized with the server-authoritative cart total.
@@ -397,15 +397,18 @@ function Cashier({ data, context, can, submit, submitSale, pendingSale, request,
   };
   const paymentPayload=p=>p.method==="CASH"?{method:p.method,amount:p.amount,account_id:shift.cash_account_id,tendered:p.tendered||p.amount}:p.method==="DOMPET_SANTRI"?{method:p.method,amount:p.amount,credential_method:p.credential_method,credential:p.credential,unit_id:p.wallet_preview.unit_id}:p.method==="CREDIT"?{method:p.method,amount:p.amount}:{...externalPayment(transferMethod(accounts,p.account_id),p),amount:p.amount,account_id:p.account_id};
   if(!shift)return (
-    <ScrollView style={s.flex} contentContainerStyle={s.content}><Card title="Buka Shift">
-      <Text style={s.muted}>Pilih terminal dan laci kas milik usaha ini. Server tetap memvalidasi keduanya sebelum shift dibuka.</Text>
+    <ScrollView style={s.flex} contentContainerStyle={s.content}><Card title="Mulai Jualan">
+      <Text style={s.muted}>Akun Anda tetap tercatat sebagai kasir. Terminal dan laci dipilih otomatis jika hanya ada satu pilihan yang sah.</Text>
       {setup.missingTerminal&&<Empty title="Terminal belum tersedia" note={setup.canConfigure?"Buat satu terminal di Pengaturan Usaha.":"Minta Owner menyiapkan terminal untuk usaha ini."}/>}
-      {!setup.missingTerminal&&<SelectRows title="Terminal" rows={context.terminals} selected={selectedTerminal} label={item=>item.name} onSelect={setTerminal}/>}
+      {terminalChoice.automatic&&<Row label="Terminal" value={context.terminals[0].name}/>}
+      {context.terminals.length>1&&<SelectRows title="Pilih terminal" rows={context.terminals} selected={selectedTerminal} label={item=>item.name} onSelect={setTerminal}/>}
       {setup.missingDrawer&&<Empty title="Laci kas belum tersedia" note={setup.canConfigure?"Buat akun berjenis Kas di Pengaturan Usaha.":"Minta Owner menyiapkan akun Kas untuk shift."}/>}
-      {!setup.missingDrawer&&<SelectRows title="Laci kas" rows={drawers} selected={selectedDrawer} label={item=>item.name} onSelect={setDrawer}/>}
+      {drawerChoice.automatic&&<Row label="Laci kas" value={drawers[0].name}/>}
+      {drawers.length>1&&<SelectRows title="Pilih laci kas" rows={drawers} selected={selectedDrawer} label={item=>item.name} onSelect={setDrawer}/>}
       {!setup.ready&&setup.canConfigure&&<Button title="Buka Pengaturan Usaha" secondary onPress={()=>navigate("PENGATURAN")}/>}
-      <RupiahField label="Kas awal" value={openingCash} onChangeText={setOpeningCash}/>
-      <Button title="Buka Shift" disabled={!selectedTerminal||!selectedDrawer||!validMoney(openingCash)} disabledHint={!selectedTerminal?"Pilih terminal terlebih dahulu.":!selectedDrawer?"Pilih laci kas terlebih dahulu.":!validMoney(openingCash)?"Kas awal harus berupa Rupiah bulat.":undefined}
+      {showOpeningCash?<><RupiahField label="Kas awal di laci" value={openingCash} onChangeText={setOpeningCash}/><Button title="Gunakan laci kosong (Rp0)" secondary onPress={()=>{setOpeningCash("0");setShowOpeningCash(false);}}/></>:<><Row label="Kas awal" value={rupiah(openingCash)}/><Button title="Isi / Ubah Kas Awal" secondary onPress={()=>setShowOpeningCash(true)}/></>}
+      <Text style={s.muted}>Kas awal adalah uang fisik yang sudah ada di laci sebelum transaksi pertama. Biarkan Rp0 jika laci kosong.</Text>
+      <Button title="Mulai Jualan" disabled={!selectedTerminal||!selectedDrawer||!validMoney(openingCash)} disabledHint={!selectedTerminal?"Pilih terminal terlebih dahulu.":!selectedDrawer?"Pilih laci kas terlebih dahulu.":!validMoney(openingCash)?"Kas awal harus berupa Rupiah bulat.":undefined}
         onPress={()=>submit("/shifts/open",{terminal_id:selectedTerminal,cash_account_id:selectedDrawer,opening_cash:openingCash},"Shift dibuka.","KASIR")}/>
     </Card></ScrollView>
   );

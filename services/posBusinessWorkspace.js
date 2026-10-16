@@ -168,16 +168,22 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
   async function updateParty(req) {
     return run(req, null, async (c, a) => {
       const id = uuid(req.params.partyId), b = req.body || {};
-      const current = (await c.query('SELECT id,kind FROM pos_business_parties WHERE id=$1 AND business_id=$2 FOR UPDATE', [id, a.business])).rows[0];
+      const current = (await c.query(`SELECT id,kind,credit_allowed,credit_limit,due_days
+        FROM pos_business_parties WHERE id=$1 AND business_id=$2 FOR UPDATE`, [id, a.business])).rows[0];
       if (!current) bad('PARTY_NOT_FOUND', 404);
       const permission = current.kind === 'CUSTOMER' ? 'CUSTOMER_MANAGE' : 'SUPPLIER_MANAGE';
       if (!permitted(a, permission)) bad('MERCHANT_PERMISSION_DENIED', 403);
       const creditAllowed = current.kind === 'CUSTOMER' && b.credit_allowed === true;
+      const creditLimit = amount(creditAllowed ? b.credit_limit || 0 : 0);
+      const dueDays = Number(amount(creditAllowed ? b.due_days || 0 : 0));
+      const creditChanged = current.kind === 'CUSTOMER' && (current.credit_allowed !== creditAllowed
+        || BigInt(current.credit_limit) !== creditLimit || Number(current.due_days) !== dueDays);
+      if (creditChanged && !permitted(a, 'CUSTOMER_CREDIT_MANAGE')) bad('MERCHANT_PERMISSION_DENIED', 403);
       return (await c.query(`UPDATE pos_business_parties SET name=$1,phone=$2,address=$3,notes=$4,active=$5,
         credit_allowed=$6,credit_limit=$7,due_days=$8 WHERE id=$9 AND business_id=$10
         RETURNING id,kind,name,active,credit_allowed,credit_limit,due_days`,
       [text(b.name), optional(b.phone,80), optional(b.address,500), optional(b.notes,1000), b.active !== false,
-        creditAllowed, amount(creditAllowed ? b.credit_limit || 0 : 0).toString(), Number(amount(creditAllowed ? b.due_days || 0 : 0)), id, a.business])).rows[0];
+        creditAllowed, creditLimit.toString(), dueDays, id, a.business])).rows[0];
     });
   }
 

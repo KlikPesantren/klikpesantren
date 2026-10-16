@@ -138,6 +138,15 @@ async function main() {
     supplier = (await core.party(req({ kind: 'SUPPLIER', name: 'Synthetic supplier' }))).id;
     const customerRow = await core.party(req({ kind: 'CUSTOMER', name: 'Synthetic registered customer', credit_allowed: true, credit_limit: 10000 }));
     customer = customerRow.id; assert.equal(customerRow.kind, 'CUSTOMER');
+    await db.query("UPDATE pos_merchant_memberships SET permissions=ARRAY['__EFFECTIVE_V1__','CUSTOMER_MANAGE'] WHERE business_id=$1 AND user_id=$2", [business, supervisor]);
+    const basicCustomer = await core.party(req({ kind: 'CUSTOMER', name: 'Supervisor basic customer' }, supervisorToken));
+    const renamedBasicCustomer = await core.updateParty({ ...req({ name: 'Supervisor customer updated', active: true, credit_allowed: false }, supervisorToken),
+      params: { businessId: business, partyId: basicCustomer.id } });
+    assert.equal(renamedBasicCustomer.name, 'Supervisor customer updated');
+    await rejects(() => core.party(req({ kind: 'CUSTOMER', name: 'Forbidden credit customer', credit_allowed: true, credit_limit: 5000 }, supervisorToken)), 'MERCHANT_PERMISSION_DENIED');
+    await rejects(() => core.updateParty({ ...req({ name: 'Supervisor basic customer', active: true, credit_allowed: true, credit_limit: 5000 }, supervisorToken),
+      params: { businessId: business, partyId: basicCustomer.id } }), 'MERCHANT_PERMISSION_DENIED');
+    await db.query("UPDATE pos_merchant_memberships SET permissions='{}' WHERE business_id=$1 AND user_id=$2", [business, supervisor]);
     const cat = await core.catalog(req({}, cashierToken));
     assert.equal(cat[0].on_hand, '0'); assert.ok(!JSON.stringify(cat).includes('unit_cost'));
   });
@@ -366,6 +375,8 @@ async function main() {
     const b = { customer_id: customer, shift_id: shift.id, items: [{ product_id: product, quantity: 2 }],
       payments: [{ method: 'CREDIT', amount: 8000 }], due_date: '2026-11-01', request_id: key() };
     await rejects(() => core.sale(req(b)), 'CREDIT_LIMIT_DENIED');
+    const foreignCustomer = (await query("SELECT id FROM pos_business_parties WHERE business_id=$1 AND kind='CUSTOMER' ORDER BY id LIMIT 1", [external]))[0].id;
+    await rejects(() => core.sale(req({ ...b, customer_id: foreignCustomer, request_id: key() })), 'CUSTOMER_DENIED');
     await db.query('UPDATE pos_business_parties SET active=false WHERE id=$1', [customer]);
     await rejects(() => core.sale(req({ ...b, request_id: key() })), 'CUSTOMER_DENIED');
     await db.query('UPDATE pos_business_parties SET active=true,credit_allowed=false WHERE id=$1', [customer]);
@@ -376,6 +387,9 @@ async function main() {
     const beforeCount = (await query("SELECT count(*) count FROM pos_business_operations WHERE kind='SALE'"))[0].count;
     const b = { kind: 'AR', source_id: creditSale.sale.id, account_id: bank, amount: 1000, request_id: key() };
     assert.equal((await core.payDebt(req(b))).remaining, '3000'); assert.equal((await core.payDebt(req(b))).replay, true);
+    const final = { ...b, amount: 3000, request_id: key() };
+    assert.equal((await core.payDebt(req(final))).remaining, '0'); assert.equal((await core.payDebt(req(final))).replay, true);
+    await rejects(() => core.payDebt(req({ ...b, amount: 1, request_id: key() })), 'DEBT_OVERPAYMENT');
     assert.equal((await query("SELECT count(*) count FROM pos_business_operations WHERE kind='SALE'"))[0].count, beforeCount);
   });
   await test('split CASH + CREDIT reconciles exact sale and two payment components', async () => {

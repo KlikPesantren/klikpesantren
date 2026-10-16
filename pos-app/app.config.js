@@ -46,7 +46,7 @@ module.exports = {
     },
     android: {
       package: "com.klikpesantren.pos",
-      versionCode: 1,
+      versionCode: 2,
       adaptiveIcon: {
         foregroundImage: "./assets/suq-shogir-adaptive-foreground.png",
         backgroundColor: "#0E5A37",

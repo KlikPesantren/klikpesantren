@@ -259,7 +259,7 @@ export const s = StyleSheet.create({
     alignSelf: "center",
   },
   loginRoot: { flex: 1, backgroundColor: colors.navy, width: "100%", maxWidth: 520, alignSelf: "center" },
-  loginContent: { flexGrow: 1, justifyContent: "center", padding: 24, gap: 22, backgroundColor: colors.background, borderTopLeftRadius: 34, borderTopRightRadius: 34, marginTop: 208 },
+  loginContent: { flexGrow: 1, justifyContent: "center", padding: 24, paddingBottom: 56, gap: 22, backgroundColor: colors.background, borderTopLeftRadius: 34, borderTopRightRadius: 34, marginTop: 208 },
   loginBrand: { position: "absolute", top: -184, left: 24, right: 24, gap: 5 },
   logoMark: { width: 48, height: 48, borderRadius: 15, backgroundColor: colors.green, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   loginKicker: { ...typography.caption, color: "#C8E6D3", letterSpacing: 1.6, fontWeight: "600" },
@@ -397,6 +397,9 @@ export const s = StyleSheet.create({
     borderColor: colors.line,
     gap: 8,
   },
+  flowSteps: { flexDirection: "row", gap: 5, flexWrap: "wrap" },
+  flowStep: { flexGrow: 1, minWidth: 76, textAlign: "center", paddingVertical: 7, paddingHorizontal: 8, borderRadius: 8, backgroundColor: colors.surface, color: colors.muted, fontSize: 11 },
+  flowStepActive: { backgroundColor: colors.soft, color: colors.greenDark, fontWeight: "700" },
   cartItem: {
     gap: 8,
     paddingVertical: 12,

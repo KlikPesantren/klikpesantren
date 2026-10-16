@@ -5,7 +5,7 @@ import { AppText as Text } from "./typography";
 import { Button, Icon, colors, s } from "./ui";
 const { scanResult } = require("./paymentCredential.cjs");
 
-export function WalletCredentialScanner({ disabled, onScan }) {
+export function WalletCredentialScanner({ disabled, disabledReason, onScan }) {
   const [camera, setCamera] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [busy, setBusy] = useState(false);
@@ -29,7 +29,11 @@ export function WalletCredentialScanner({ disabled, onScan }) {
       setCamera(false);
     } catch (error) {
       accepted.current = false;
-      setMessage(error.message === "UNKNOWN_CREDENTIAL" ? "Barcode bukan credential Dompet Santri yang valid." : "Barcode tidak dapat digunakan.");
+      setMessage(error.message === "UNKNOWN_CREDENTIAL"
+        ? "Barcode bukan credential Dompet Santri yang valid."
+        : error.message === "WALLET_PREVIEW_FAILED"
+          ? "Credential terbaca, tetapi preview Dompet ditolak. Lihat alasan akses di atas lalu perbaiki sebelum mencoba lagi."
+          : "Barcode tidak dapat digunakan.");
     }
   }
 
@@ -49,7 +53,9 @@ export function WalletCredentialScanner({ disabled, onScan }) {
     } catch (error) {
       setMessage(error.message === "UNSUPPORTED_NFC_TAG"
         ? "Tag terbaca, tetapi UID tidak sesuai format kartu RFID KlikPesantren."
-        : "NFC tidak tersedia atau pemindaian dibatalkan.");
+        : error.message === "WALLET_PREVIEW_FAILED"
+          ? "Kartu terbaca, tetapi preview Dompet ditolak. Lihat alasan akses di atas lalu perbaiki sebelum mencoba lagi."
+          : "NFC tidak tersedia atau pemindaian dibatalkan.");
     } finally {
       if (requested) {
         try { const module = await import("react-native-nfc-manager"); await module.default.cancelTechnologyRequest(); } catch { /* cleanup only */ }
@@ -60,9 +66,10 @@ export function WalletCredentialScanner({ disabled, onScan }) {
 
   return <View style={s.sectionCompact}>
     <Text style={s.muted}>Credential hanya dipakai untuk preview online dan debit atomic. UID/token tidak ditampilkan atau dicatat.</Text>
+    {disabled && !!disabledReason && <View style={s.alertError}><Text style={s.error}>{disabledReason}</Text></View>}
     <View style={s.actionRow}>
-      <Button title="Pindai Barcode / QR" secondary icon="camera" disabled={disabled || busy} onPress={openCamera}/>
-      <Button title={busy ? "Tempelkan kartu…" : "Baca NFC"} secondary icon="radio" disabled={disabled || busy || Platform.OS !== "android"} onPress={scanNfc}/>
+      <Button title="Pindai Barcode / QR" secondary icon="camera" disabled={disabled || busy} disabledHint={disabled ? disabledReason : undefined} onPress={openCamera}/>
+      <Button title={busy ? "Tempelkan kartu…" : "Baca NFC"} secondary icon="radio" disabled={disabled || busy || Platform.OS !== "android"} disabledHint={disabled ? disabledReason : Platform.OS !== "android" ? "NFC memerlukan aplikasi Android native pada perangkat yang mendukung NFC." : undefined} onPress={scanNfc}/>
     </View>
     {Platform.OS === "web" && <Text style={s.muted}>NFC hanya tersedia pada build Android native.</Text>}
     {!!message && <Text style={s.error}>{message}</Text>}

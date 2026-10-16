@@ -61,6 +61,8 @@ test("reader UI is native, preview-first, and never logs raw UID/token", () => {
   assert.match(scanner, /CameraView/); assert.match(scanner, /react-native-nfc-manager/);
   assert.doesNotMatch(scanner, /console\.(?:log|info|warn|error)/);
   assert.match(app, /wallet\/preview/); assert.match(app, /available_balance/);
-  assert.match(app, /title="Unit santri"/); assert.match(app, /disabled=\{!payment\.unit_id\}/);
+  assert.match(app, /title="Unit santri"/); assert.match(app, /scannerAvailability\(context\.units,payment\.unit_id\)/);
+  assert.match(scanner, /disabledReason/);
+  assert.match(scanner, /preview Dompet ditolak/);
   assert.match(server, /manual_confirmed !== true/); assert.match(server, /confirmation_mode !== 'MANUAL'/);
 });

@@ -1,6 +1,6 @@
 "use strict";
 
-const DEFAULT_TTL_MS = 15_000;
+const DEFAULT_TTL_MS = 60_000;
 const DEFAULT_MAX_ENTRIES = 8;
 
 function authorityKey(context, businessId) {

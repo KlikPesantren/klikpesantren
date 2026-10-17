@@ -41,6 +41,8 @@ test("large lists render in bounded pages instead of one unbounded pass", () => 
   assert.match(source, /const PAGE_SIZE=30/);
   assert.match(source, /Tampilkan .* berikutnya/);
   assert.match(source, /target===module&&Object\.keys\(data\)\.length&&recentlyLoaded/);
+  assert.match(source, /recentlyLoaded=age<15_000/);
+  assert.match(source, /background:!!cached/);
 });
 
 test("navigation loading is separate from mutation busy and cached data is visibly revalidated", () => {

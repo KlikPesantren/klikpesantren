@@ -21,6 +21,7 @@ const { cashChange, scannerAvailability, transferMethod } = require("./cashierFl
 const { filterCustomers, defaultDueDate, creditAvailability } = require("./cashierCustomer.cjs");
 const { createSaleJournal } = require("./saleJournal.cjs");
 const { authorityKey, boundedRows, createModuleDataCache } = require("./moduleDataCache.cjs");
+const { receiptPresentation } = require("./receiptPresentation.cjs");
 
 const validMoney = value => /^(0|[1-9]\d*)$/.test(String(value ?? ""));
 const moneyValue = value => validMoney(value) ? BigInt(String(value)) : 0n;
@@ -151,10 +152,11 @@ export default function MerchantBusinessApp() {
     } finally { lock.current = false; setBusy(false); }
   }, []);
 
-  const refresh = useCallback(async (target = module, active = session) => {
+  const refresh = useCallback(async (target = module, active = session, { background = false } = {}) => {
     if (!active?.businessId) return;
     if (inflightModule.current === target) return;
-    inflightModule.current = target; setLoadingModule(target);
+    inflightModule.current = target;
+    if (!background) setLoadingModule(target);
     const client = makeApi(active.token), g = ++generation.current;
     try {
       // Context is deliberately revalidated on every navigation; cached projections never authorize access.
@@ -175,16 +177,18 @@ export default function MerchantBusinessApp() {
       setContext(nextContext);setData(fresh);setModule(selected);setShowingCached(false);
     } finally {
       if(inflightModule.current===target)inflightModule.current="";
-      if(g===generation.current)setLoadingModule("");
+      if(!background&&g===generation.current)setLoadingModule("");
     }
   }, [module, session]);
 
   const navigate = useCallback(async (target, force=false) => {
-    const recentlyLoaded=Date.now()-(lastLoaded.current.get(target)||0)<3_000;
+    const age=Date.now()-(lastLoaded.current.get(target)||0),recentlyLoaded=age<15_000;
     if(!force&&target===module&&Object.keys(data).length&&recentlyLoaded)return;
     setError("");setNotice("");
-    try{await refresh(target);}catch(e){setError(errorText(e));}
-  },[data,module,refresh]);
+    const authority=authorityKey(context,businessId),cached=!force&&moduleCache.current.get(authority,target);
+    if(cached){setData(cached);setModule(target);setShowingCached(age>=15_000);if(recentlyLoaded)return;}
+    try{await refresh(target,session,{background:!!cached});}catch(e){setError(errorText(e));}
+  },[businessId,context,data,module,refresh,session]);
 
   const selectBusiness = useCallback(async (token, id, all = directory) => {
     const pending = await vault.read("merchant-sale").catch(() => null);
@@ -443,12 +447,19 @@ function Transactions({ data, can, submit, request }) {
     {source&&receipt&&can("SALE_REFUND")&&source.kind==="SALE"&&<Card title="Retur Penjualan"><Text style={s.muted}>Sumber {source.reference||source.id}</Text><SelectRows title="Item yang diretur" rows={receipt.items} selected={form.product_id} label={x=>`${x.name} · maks ${x.quantity}`} onSelect={product_id=>setForm({...form,product_id})}/><Fields value={form} setValue={setForm} fields={[["quantity","Jumlah retur",true],["reason","Alasan"],["shift_id","ID shift bila refund tunai"]]}/><Button danger title="Proses Retur" disabled={!form.product_id||!form.quantity||!form.reason} onPress={()=>Alert.alert("Konfirmasi retur","Stok dan sumber dana akan direkonsiliasi oleh server.",[{text:"Batal",style:"cancel"},{text:"Lanjut",style:"destructive",onPress:()=>submit("/sale-returns",{request_id:Crypto.randomUUID(),source_id:source.id,items:[{product_id:form.product_id,quantity:form.quantity}],reason:form.reason,shift_id:form.shift_id||undefined},"Retur penjualan tersimpan.","TRANSAKSI").then(()=>{setSource(null);setReceipt(null);})}])}/></Card>}</>;
 }
 function Receipt({ value, onDone }) {
-  const brand=value.branding||value.sale?.receipt_snapshot||{};
-  return <><View style={s.receiptHero}><Icon name="check-circle" size={42}/><Text style={s.sectionTitle}>Pembayaran berhasil</Text><Money value={rupiah(value.sale?.total||0)}/></View>
-    <Card title={brand.name||"Struk Penjualan"}><Row label="Nomor struk" value={brand.receipt||value.sale?.id}/><Row label="Waktu" value={new Date(value.sale?.created_at).toLocaleString("id-ID")}/><Row label="Kasir" value={brand.cashier_name}/><Row label="Customer" value={value.sale?.party_id||"Customer Umum"}/>
-      {(value.items||[]).map(item=><View key={item.product_id} style={s.cartItem}><Row label={`${item.quantity} × ${item.name}`} value={rupiah(item.total)}/>{BigInt(item.discount||0)>0n&&<Row label="Diskon" value={rupiah(item.discount)}/>}</View>)}
-      {(value.payments||[]).map(payment=><Row key={payment.method} label={payment.label||payment.method} value={rupiah(payment.amount)}/>)}
-      <Text style={s.muted}>{brand.footer || "Powered by KlikPesantren"}</Text></Card><Button title="Transaksi Baru" onPress={onDone}/></>;
+  const receipt=receiptPresentation(value),{brand,sale}=receipt;
+  return <><View style={s.receiptHero}><View style={s.receiptSuccessIcon}><Icon name="check" size={26} color={colors.surface}/></View><Text style={s.sectionTitle}>Pembayaran berhasil</Text><Text style={s.muted}>Transaksi sudah tersimpan dan siap dilayani berikutnya.</Text><Money value={rupiah(receipt.total)}/></View>
+    <Card title={brand.name||"Struk Penjualan"}>
+      {!!brand.header&&<Text style={s.receiptCenter}>{brand.header}</Text>}
+      <View style={s.receiptMeta}><Row label="Nomor transaksi" value={brand.receipt||sale.id}/><Row label="Waktu" value={new Date(sale.created_at).toLocaleString("id-ID",{dateStyle:"medium",timeStyle:"short"})}/><Row label="Kasir" value={brand.cashier_name||"—"}/><Row label="Pelanggan" value={receipt.customerLabel}/></View>
+      <View style={s.receiptDivider}/><Text style={s.receiptSectionTitle}>Rincian produk</Text>
+      {receipt.items.map(item=><View key={item.product_id} style={s.receiptItem}><View style={s.flex}><Text style={s.heading}>{item.name}</Text><Text style={s.muted}>{item.quantity} × {rupiah(item.unit_price)}</Text></View><Text style={s.value}>{rupiah(item.lineTotal)}</Text></View>)}
+      <View style={s.receiptDivider}/><Row label="Subtotal" value={rupiah(receipt.subtotal)}/>{receipt.discount>0n&&<Row label="Diskon" value={`− ${rupiah(receipt.discount)}`}/>}<View style={s.receiptTotal}><Text style={s.heading}>Total tagihan</Text><Text style={s.receiptTotalValue}>{rupiah(receipt.total)}</Text></View>
+      <View style={s.receiptDivider}/><Text style={s.receiptSectionTitle}>Pembayaran</Text>
+      {receipt.payments.map((payment,index)=><View key={`${payment.method}-${index}`} style={s.receiptPayment}><Row label={payment.displayLabel} value={rupiah(payment.amountValue)}/>{payment.method==="CASH"&&<><Row label="Uang diterima" value={rupiah(payment.tenderedValue??payment.amountValue)}/><Row label="Kembalian" value={rupiah(payment.changeValue??0n)}/></>}{payment.reference&&<Row label="Referensi" value={payment.reference}/>}</View>)}
+      <View style={s.receiptTotal}><Text style={s.heading}>Total pembayaran</Text><Text style={s.receiptTotalValue}>{rupiah(receipt.paymentTotal)}</Text></View>
+      <Text style={s.receiptFooter}>{brand.footer || "Powered by KlikPesantren"}</Text>
+    </Card><Button title="Transaksi Baru" icon="shopping-bag" onPress={onDone}/></>;
 }
 function Shifts({ data, submit }) {
   const [actual,setActual]=useState(""),open=data.workspace?.open_shift;

@@ -4,6 +4,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { AppText as Text } from "./typography";
 import { Button, Icon, colors, s } from "./ui";
 const { scanResult } = require("./paymentCredential.cjs");
+const { nfcFailureMessage } = require("./nfcFeedback.cjs");
 
 export function WalletCredentialScanner({ disabled, disabledReason, onScan }) {
   const [camera, setCamera] = useState(false);
@@ -41,21 +42,21 @@ export function WalletCredentialScanner({ disabled, disabledReason, onScan }) {
     if (busy || Platform.OS !== "android") return;
     setBusy(true); setMessage("");
     let requested = false;
+    let phase = "SETUP";
     try {
       const module = await import("react-native-nfc-manager");
       const manager = module.default, tech = module.NfcTech;
       await manager.start();
       if (!(await manager.isSupported(tech.NfcA))) throw Error("NFC_UNAVAILABLE");
+      if (!(await manager.isEnabled())) throw Error("NFC_DISABLED");
       requested = true;
+      phase = "READ";
       await manager.requestTechnology(tech.NfcA);
       const tag = await manager.getTag();
+      phase = "PREVIEW";
       await onScan(scanResult("RFID", tag?.id));
     } catch (error) {
-      setMessage(error.message === "UNSUPPORTED_NFC_TAG"
-        ? "Tag terbaca, tetapi UID tidak sesuai format kartu RFID KlikPesantren."
-        : error.message === "WALLET_PREVIEW_FAILED"
-          ? "Kartu terbaca, tetapi preview Dompet ditolak. Lihat alasan akses di atas lalu perbaiki sebelum mencoba lagi."
-          : "NFC tidak tersedia atau pemindaian dibatalkan.");
+      setMessage(nfcFailureMessage(error, phase).message);
     } finally {
       if (requested) {
         try { const module = await import("react-native-nfc-manager"); await module.default.cancelTechnologyRequest(); } catch { /* cleanup only */ }

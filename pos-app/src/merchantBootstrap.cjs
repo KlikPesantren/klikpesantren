@@ -13,6 +13,15 @@ function keepMerchantSelection(current, rows = []) {
   return rows.length === 1 ? rows[0].id : "";
 }
 
+function shiftResourceChoice(current, rows = []) {
+  const selected = keepMerchantSelection(current, rows);
+  return {
+    selected,
+    automatic: rows.length === 1,
+    needsChoice: rows.length > 1 && !selected,
+  };
+}
+
 function cashierSetupState(terminals = [], drawers = [], canConfigure = false) {
   return {
     missingTerminal: terminals.length === 0,
@@ -22,4 +31,4 @@ function cashierSetupState(terminals = [], drawers = [], canConfigure = false) {
   };
 }
 
-module.exports = { READINESS_ITEMS, keepMerchantSelection, cashierSetupState };
+module.exports = { READINESS_ITEMS, keepMerchantSelection, shiftResourceChoice, cashierSetupState };

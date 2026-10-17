@@ -16,7 +16,7 @@ function createBusinessWallet(h) {
  async function authority(c,a,unit,type='BARCODE') {
   if(!a.member.integration_enabled||!a.member.wallet_enabled)bad('WALLET_INTEGRATION_DENIED',403);
   const allowed=await c.query(`SELECT u.id FROM pos_business_units bu JOIN unit_pendidikan u ON u.id=bu.unit_id AND u.tenant_id=bu.tenant_id
-   WHERE bu.business_id=$1 AND bu.tenant_id=$2 AND bu.unit_id=$3 AND u.is_active FOR SHARE OF bu,u`,[a.business,a.member.tenant_id,unit]);
+   WHERE bu.business_id=$1 AND bu.tenant_id=$2 AND bu.unit_id=$3 AND u.is_active FOR SHARE OF u`,[a.business,a.member.tenant_id,unit]);
   if(!allowed.rowCount)bad('WALLET_UNIT_DENIED',403);
   if(!await featureEnabled(a.member.tenant_id,unit,'wallet',c)||type==='RFID'&&!await featureEnabled(a.member.tenant_id,unit,'rfid',c))bad('FEATURE_DISABLED',403);
  }

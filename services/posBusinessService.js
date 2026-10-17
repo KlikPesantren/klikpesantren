@@ -203,11 +203,13 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
   async function party(req) {
     const b = req.body; if (!['CUSTOMER', 'SUPPLIER'].includes(b.kind)) bad('INVALID_PARTY_KIND');
     return run(req, b.kind === 'CUSTOMER' ? 'CUSTOMER_MANAGE' : 'SUPPLIER_MANAGE', async (c, a) => {
+      const creditAllowed = b.kind === 'CUSTOMER' && b.credit_allowed === true;
+      if (creditAllowed && !merchantPermissions.has(a.member, 'CUSTOMER_CREDIT_MANAGE')) bad('MERCHANT_PERMISSION_DENIED', 403);
       return (await c.query(`INSERT INTO pos_business_parties(id,business_id,kind,name,phone,address,notes,credit_allowed,credit_limit,due_days,created_by)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,kind,name`,
       [makeId(), a.business, b.kind, text(b.name), b.phone ? text(b.phone, 80) : null, b.address ? text(b.address, 500) : null,
-        b.notes ? text(b.notes, 1000) : null, b.kind === 'CUSTOMER' && b.credit_allowed === true, amount(b.credit_limit || 0).toString(),
-        Number(amount(b.due_days || 0)), a.user])).rows[0];
+        b.notes ? text(b.notes, 1000) : null, creditAllowed, amount(creditAllowed ? b.credit_limit || 0 : 0).toString(),
+        Number(amount(creditAllowed ? b.due_days || 0 : 0)), a.user])).rows[0];
     });
   }
   async function account(req) {

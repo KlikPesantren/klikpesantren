@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {readMigration,loadMigrationPolicy,checksumMatches}=require('../utils/migrationLedger');
 const read=f=>fs.readFileSync(path.join(__dirname,'..',f),'utf8');
-const admin=read('services/posAdminService.js'),route=read('routes/posAdminRoutes.js'),page=read('frontend/src/pages/PosAdminPage.jsx'),hooks=read('frontend/src/hooks/usePosResource.js');
+const admin=read('services/posAdminService.js'),route=read('routes/posAdminRoutes.js'),page=read('frontend/src/pages/PosAdminPage.jsx'),hooks=read('frontend/src/hooks/usePosResource.js'),sidebar=read('frontend/src/components/Sidebar.jsx'),permissions=read('frontend/src/constants/permissions.js'),app=read('frontend/src/App.jsx');
 assert(checksumMatches(readMigration('095_pos_admin_control_center.sql').sql,loadMigrationPolicy().get('095_pos_admin_control_center.sql').checksum));
 assert(checksumMatches(readMigration('094_pos_v1_foundation.sql').sql,'0605eef6c75d82d076269aa12aac4f52aede96b74add5a48a7188f886fb30e51'));
 for(const name of ['dashboard','transactions','products','categories','merchants','cashiers','shifts','refunds','reconciliation','settings'])assert(page.includes(name));
@@ -14,5 +14,11 @@ assert(admin.includes('ATTENDANCE_TERMINAL_FROZEN'));assert(admin.includes('TERM
 assert(!/\/rfid\/(payment|refund)|checkout|stock_quantity/.test(page));
 assert(hooks.includes('AbortController'));assert(hooks.includes('controller.signal.aborted'));assert(hooks.includes('lock.current'));assert(hooks.includes('retry.current.key'));assert(hooks.indexOf("setMessage('Berhasil disimpan.')")<hooks.indexOf('onSaved?.()'));
 assert(page.includes('key={`${section}:${activeUnitId'));assert(page.includes('body.reference=form.external_reference'));assert(page.includes('reference,confirmed:true'));
-assert(read('frontend/src/components/pos/PosTerminalControls.jsx').includes('r.attendance_mode'));assert(read('frontend/src/components/Sidebar.jsx').includes("title: 'POS KANTIN'"));
-(async()=>{const {moneyInput,rupiah}=await import('../frontend/src/utils/posMoney.mjs');assert.equal(moneyInput('9007199254740993'),'9007199254740993');assert(rupiah('9007199254740993').includes('9.007.199.254.740.993'));assert.throws(()=>moneyInput('1.5'));assert.throws(()=>moneyInput('9223372036854775808'));console.log('PASS Admin navigation, immutable 094, scoped reads, safe retry/stale controls, frozen Attendance, no legacy financial handler, BIGINT Rupiah');})();
+assert(read('frontend/src/components/pos/PosTerminalControls.jsx').includes('r.attendance_mode'));
+const posGroup=sidebar.match(/id: "pos-kantin",[\s\S]*?items: \[([^\]]+)\]/);assert(posGroup);assert.deepEqual([...posGroup[1].matchAll(/"([^"]+)"/g)].map(match=>match[1]),['Pengelolaan Kantin','Laporan Omzet','Tagihan & Pembayaran']);
+assert(sidebar.indexOf('id: "kedisiplinan"')<sidebar.indexOf('id: "pos-kantin"'));assert(sidebar.indexOf('id: "pos-kantin"')<sidebar.indexOf('id: "sistem"'));
+for(const path of ['/pos/kantin','/pos/omzet','/pos/tagihan'])assert(permissions.includes(`'${path}'`));assert(app.includes('to="/pos/kantin"'));
+assert(page.includes("{kantin:'business-v2',omzet:'dashboard',tagihan:'settlements'}"));assert(page.includes("CASH:'Tunai'"));assert(page.includes("TRANSFER_QRIS:'Transfer'"));assert(page.includes("RFID:'Dompet Santri'"));assert(page.includes('Total omzet neto'));assert(page.includes('penjualan PAID dikurangi refund CONFIRMED'));
+for(const contract of ['obligation_id','expected_outstanding','SETTLEMENT_SELECTION_STALE','SETTLEMENT_SELECTION_DENIED','Pilih semua pada halaman ini','Total dipilih','Rincian alokasi'])assert(page.includes(contract)||admin.includes(contract));
+assert(admin.includes("d.unit_id=ANY($2::integer[])"));assert(admin.includes('JOIN santri s ON s.id=wa.santri_id'));assert(admin.includes('postedAllocations'));assert(!page.includes('selected_obligation_ids'));
+(async()=>{const {moneyInput,rupiah}=await import('../frontend/src/utils/posMoney.mjs');assert.equal(moneyInput('9007199254740993'),'9007199254740993');assert(rupiah('9007199254740993').includes('9.007.199.254.740.993'));assert.throws(()=>moneyInput('1.5'));assert.throws(()=>moneyInput('9223372036854775808'));console.log('PASS Admin three-menu navigation, canonical omzet aliases, server-authoritative settlement checklist, immutable 094, scoped reads, safe retry/stale controls, frozen Attendance, no legacy financial handler, BIGINT Rupiah');})();

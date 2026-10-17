@@ -28,6 +28,16 @@ const DEFAULTS=Object.freeze({
 });
 function navigationItems(permissions=[]){const allowed=new Set(permissions);return MODULES.filter(([,permission])=>!permission||(Array.isArray(permission)?permission.some(item=>allowed.has(item)):allowed.has(permission))).map(([id,permission,icon])=>({id,permission,icon}));}
 function navigation(permissions=[]){return navigationItems(permissions).map(item=>item.id);}
+function primaryNavigation(items=[]){return ['BERANDA','KASIR','TRANSAKSI'].filter(id=>items.some(item=>(item.id||item)===id));}
+function dashboardActions(role,permissions=[]){
+ const allowed=new Set(permissions),actions=[];
+ if(allowed.has('SALE_CREATE'))actions.push({id:'KASIR',label:role==='CASHIER'?'Mulai Jualan':'Buka Kasir',icon:'shopping-bag'});
+ if(role==='CASHIER')return actions;
+ if(allowed.has('PRODUCT_VIEW')||allowed.has('INVENTORY_VIEW'))actions.push({id:allowed.has('PRODUCT_VIEW')?'PRODUK':'STOK',label:'Produk & Stok',icon:'archive'});
+ if(allowed.has('AR_VIEW'))actions.push({id:'PIUTANG',label:'Pelanggan & Piutang',icon:'users'});
+ if(['REPORT_SALES','REPORT_PROFIT','REPORT_INVENTORY','REPORT_FINANCE','REPORT_CUSTOMER','REPORT_ONLINE'].some(permission=>allowed.has(permission)))actions.push({id:'LAPORAN',label:'Laporan',icon:'bar-chart-2'});
+ return actions;
+}
 function ownerCards(workspace,permissions=[]){const allowed=new Set(permissions),cards=[];if(allowed.has('REPORT_SALES'))cards.push('omzet','transaction_count','average_ticket','payment_mix','pos_vs_online');if(allowed.has('REPORT_PROFIT'))cards.push('gross_profit');if(allowed.has('AR_VIEW'))cards.push('outstanding_receivable');if(allowed.has('AP_VIEW'))cards.push('outstanding_payable');if(allowed.has('INVENTORY_VIEW'))cards.push('low_stock');if(allowed.has('ONLINE_STORE_VIEW'))cards.push('pending_online_orders');return cards.filter(key=>workspace?.[key]!==undefined);}
 function can(permissions,key){return permissions.includes(key);}
-module.exports={GROUPS,MODULES,DEFAULTS,navigation,navigationItems,ownerCards,can};
+module.exports={GROUPS,MODULES,DEFAULTS,navigation,navigationItems,primaryNavigation,dashboardActions,ownerCards,can};

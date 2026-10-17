@@ -310,7 +310,7 @@ function App() {
         />
 
         <Route path="/alumni" element={<ProtectedRoute><AlumniPage /></ProtectedRoute>} />
-        <Route path="/pos" element={<Navigate to="/pos/dashboard" replace/>}/>
+        <Route path="/pos" element={<Navigate to="/pos/kantin" replace/>}/>
         <Route path="/pos/:section" element={<ProtectedRoute><LazyPage><PosAdminPage/></LazyPage></ProtectedRoute>}/>
 
         <Route

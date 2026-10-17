@@ -37,8 +37,9 @@ const SIDEBAR = {
 };
 
 const MENU = [
-  ...[['dashboard','Dashboard'],['transactions','Transaksi'],['products','Produk'],['categories','Kategori'],['merchants','Merchant'],['cashiers','Kasir'],['shifts','Shift'],['refunds','Refund / Void'],['reconciliation','Rekonsiliasi'],['settlements','Settlement Dompet'],['settings','Pengaturan']].map(([path,label])=>({name:`POS ${label}`,path:`/pos/${path}`,perm:['reconciliation','settlements'].includes(path)?'pos.reconcile':'pos.view',feature:null,icon:<FaMoneyBill/>})),
-  { name: "Toko & Kantin", path: "/pos/business-v2", perm: "pos.view", feature: null, icon: <FaMoneyBill /> },
+  { name: "Pengelolaan Kantin", path: "/pos/kantin", perm: "pos.view", feature: null, icon: <FaMoneyBill /> },
+  { name: "Laporan Omzet", path: "/pos/omzet", perm: "pos.view", feature: null, icon: <FaMoneyBill /> },
+  { name: "Tagihan & Pembayaran", path: "/pos/tagihan", perm: "pos.reconcile", feature: null, icon: <FaMoneyBill /> },
   { name: "Dashboard", path: "/dashboard", perm: "dashboard.view", feature: "dashboard", icon: <FaHome /> },
   { name: "Santri", path: "/santri", perm: "santri.view", feature: "santri", icon: <FaUsers /> },
   { name: "Alumni", path: "/alumni", perm: "alumni.view", feature: "santri", icon: <FaUsers /> },
@@ -82,10 +83,6 @@ const MENU = [
 ];
 
 const MENU_GROUPS = [
-  {
-    id: 'pos-kantin', title: 'POS KANTIN', collapsible: true,
-    items: ['POS Dashboard','POS Transaksi','POS Produk','POS Kategori','POS Merchant','POS Kasir','POS Shift','POS Refund / Void','POS Rekonsiliasi','POS Settlement Dompet','POS Pengaturan'],
-  },
   {
     id: "dashboard",
     title: "Dashboard",
@@ -132,10 +129,16 @@ const MENU_GROUPS = [
     items: ["Perizinan", "Kesehatan Santri", "Pelanggaran", "Tamu"],
   },
   {
+    id: "pos-kantin",
+    title: "POS KANTIN",
+    collapsible: true,
+    items: ["Pengelolaan Kantin", "Laporan Omzet", "Tagihan & Pembayaran"],
+  },
+  {
     id: "sistem",
     title: "Sistem",
     collapsible: true,
-    items: ["Unit Pendidikan", "Users", "Roles", "Audit", "Perangkat", "Toko & Kantin", "Info dari KlikPesantren", "Tentang KlikPesantren"],
+    items: ["Unit Pendidikan", "Users", "Roles", "Audit", "Perangkat", "Info dari KlikPesantren", "Tentang KlikPesantren"],
   },
 ];
 

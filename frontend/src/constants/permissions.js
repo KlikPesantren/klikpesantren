@@ -5,6 +5,9 @@
 
 // Map: path frontend → permission yang dibutuhkan untuk membukanya
 export const ROUTE_PERMISSIONS = {
+  '/pos/kantin': 'pos.view',
+  '/pos/omzet': 'pos.view',
+  '/pos/tagihan': 'pos.reconcile',
   '/pos/dashboard': 'pos.view',
   '/pos/transactions': 'pos.view',
   '/pos/products': 'pos.view',

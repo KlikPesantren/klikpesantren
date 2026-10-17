@@ -15,6 +15,7 @@ const businessId=value=>{const id=String(value||'');if(!/^[0-9a-f-]{36}$/i.test(
 const ownerLogin=value=>{const login=String(value||'').trim().toLowerCase();if(!/^[a-z0-9._@+-]{3,120}$/.test(login))fail('INVALID_OWNER_IDENTITY');return login;};
 const positiveAmount=value=>{if(!/^[1-9]\d*$/.test(String(value??'')))fail('INVALID_AMOUNT');const n=BigInt(value);if(n>9223372036854775807n)fail('INVALID_AMOUNT');return n;};
 const requestId=value=>{const id=String(value||'').trim();if(id.length<8||id.length>160)fail('INVALID_REQUEST_ID');return id;};
+const obligationSelection=value=>{if(value==null)return null;if(!Array.isArray(value)||!value.length||value.length>100)fail('INVALID_SETTLEMENT_SELECTION');const seen=new Set(),items=value.map(item=>{const id=businessId(item?.obligation_id),expected=positiveAmount(item?.expected_outstanding);if(seen.has(id))fail('DUPLICATE_SETTLEMENT_OBLIGATION');seen.add(id);return {obligation_id:id,expected_outstanding:expected.toString()};});return items.sort((a,b)=>a.obligation_id.localeCompare(b.obligation_id));};
 
 function createPosAdminService({db=pool,permissionList=permission.getPermissionList}={}) {
  async function access(req,c,key='pos.view',write=false){
@@ -144,6 +145,7 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
     greatest(coalesce(p.payouts,0)-(coalesce(w.gross,0)-coalesce(w.refunds,0)),0) recovery
    FROM pos_businesses b LEFT JOIN wallet w ON w.business_id=b.id LEFT JOIN paid p ON p.business_id=b.id
    WHERE ${where.join(' AND ')} ORDER BY b.display_name,b.id`,values)).rows;
+  if(merchant&&!rows.some(row=>row.business_id===merchant))fail('MERCHANT_SCOPE_DENIED',403);
   const accounts=(await c.query(`SELECT ca.id,ca.name,coalesce(sum(CASE WHEN tx.jenis='Masuk' THEN tx.nominal ELSE -tx.nominal END),0) balance
     FROM cash_accounts ca LEFT JOIN cash_account_transactions tx ON tx.tenant_id=ca.tenant_id AND tx.cash_account_id=ca.id
     WHERE ca.tenant_id=$1 AND ca.status='active' GROUP BY ca.id,ca.name ORDER BY ca.name`,[a.tenantId])).rows;
@@ -154,12 +156,40 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
     JOIN cash_accounts ca ON ca.id=p.cash_account_id AND ca.tenant_id=p.tenant_id
     LEFT JOIN pos_business_accounts ma ON ma.id=p.merchant_account_id AND ma.business_id=p.business_id
     WHERE p.tenant_id=$1 AND p.business_id=$2 ORDER BY p.payout_date DESC,p.id DESC LIMIT 200`,[a.tenantId,merchant])).rows:[];
-  return {rows,source_accounts:accounts,destination_accounts:destinationAccounts,payouts,semantics:'Wallet sale debit creates the obligation once. Refunds reduce it. Payout moves the obligation from Kas Yayasan into the selected merchant cash/bank account; it is not a Wallet debit, sale, or merchant revenue.'};
+  let obligations=[],obligationTotal='0',allocationHistory=[];
+  if(merchant){
+   const q=req.query||{},pg=page(req),ov=[a.tenantId,a.units,merchant],ow=['d.tenant_id=$1','d.unit_id=ANY($2::integer[])','d.business_id=$3',"d.direction='debit'",`EXISTS(SELECT 1 FROM pos_business_units bu WHERE bu.business_id=d.business_id AND bu.tenant_id=d.tenant_id AND bu.unit_id=d.unit_id)`];
+   if(q.from&&q.to&&q.from>q.to)fail('INVALID_DATE_RANGE');
+   for(const [key,op] of [['from','>='],['to','<=']])if(q[key]){ov.push(validDate(q[key]));ow.push(`(o.created_at AT TIME ZONE b.timezone)::date${op}$${ov.length}::date`);}
+   const projection=`SELECT d.id obligation_id,d.unit_id,u.nama unit_name,o.created_at transaction_date,
+     coalesce(nullif(o.reference,''),nullif(o.receipt_snapshot->>'receipt',''),o.id::text) transaction_reference,
+     s.id santri_id,s.nama santri_name,d.amount original_amount,
+     coalesce((SELECT sum(r.amount) FROM pos_business_wallet_links r WHERE r.payment_id=d.payment_id AND r.direction='credit'),0) refund_amount,
+     coalesce((SELECT sum(sa.amount) FROM pos_wallet_settlement_allocations sa WHERE sa.obligation_link_id=d.id),0) allocated_amount,
+     d.amount-coalesce((SELECT sum(r.amount) FROM pos_business_wallet_links r WHERE r.payment_id=d.payment_id AND r.direction='credit'),0)-coalesce((SELECT sum(sa.amount) FROM pos_wallet_settlement_allocations sa WHERE sa.obligation_link_id=d.id),0) outstanding
+     FROM pos_business_wallet_links d JOIN pos_businesses b ON b.id=d.business_id AND b.tenant_id=d.tenant_id
+     JOIN pos_business_operations o ON o.id=d.operation_id AND o.business_id=d.business_id
+     JOIN wallet_accounts wa ON wa.id=d.wallet_account_id AND wa.tenant_id=d.tenant_id AND wa.unit_id=d.unit_id
+     JOIN santri s ON s.id=wa.santri_id AND s.tenant_id=wa.tenant_id
+     JOIN unit_pendidikan u ON u.id=d.unit_id AND u.tenant_id=d.tenant_id WHERE ${ow.join(' AND ')}`;
+   const eligible=`SELECT * FROM (${projection}) projected WHERE outstanding>0`;
+   obligationTotal=(await c.query(`SELECT count(*) total FROM (${eligible}) obligations`,ov)).rows[0].total;
+   obligations=(await c.query(`${eligible} ORDER BY transaction_date,obligation_id LIMIT $${ov.length+1} OFFSET $${ov.length+2}`,[...ov,pg.size,pg.offset])).rows;
+   allocationHistory=(await c.query(`SELECT p.id payout_id,p.payout_date,p.reference,p.created_at,a.obligation_link_id,a.amount allocated_amount,
+     coalesce(nullif(o.reference,''),nullif(o.receipt_snapshot->>'receipt',''),o.id::text) transaction_reference,s.nama santri_name,u.nama unit_name
+     FROM pos_wallet_settlement_payouts p JOIN pos_wallet_settlement_allocations a ON a.payout_id=p.id AND a.business_id=p.business_id
+     JOIN pos_business_wallet_links d ON d.id=a.obligation_link_id AND d.business_id=a.business_id AND d.tenant_id=p.tenant_id
+     JOIN pos_business_operations o ON o.id=d.operation_id AND o.business_id=d.business_id
+     JOIN wallet_accounts wa ON wa.id=d.wallet_account_id AND wa.tenant_id=d.tenant_id AND wa.unit_id=d.unit_id
+     JOIN santri s ON s.id=wa.santri_id AND s.tenant_id=wa.tenant_id JOIN unit_pendidikan u ON u.id=d.unit_id AND u.tenant_id=d.tenant_id
+     WHERE p.tenant_id=$1 AND p.business_id=$2 AND d.unit_id=ANY($3::integer[]) ORDER BY p.created_at DESC,p.id,d.id LIMIT 500`,[a.tenantId,merchant,a.units])).rows;
+  }
+  return {rows,source_accounts:accounts,destination_accounts:destinationAccounts,payouts,obligations,obligation_total:obligationTotal,allocation_history:allocationHistory,semantics:'Wallet sale debit creates the obligation once. Refunds reduce it. Payout moves the obligation from Kas Yayasan into the selected merchant cash/bank account; it is not a Wallet debit, sale, or merchant revenue.'};
  });}
  async function settleWallet(req){return run(req,'pos.reconcile',true,async(c,a)=>{requireTenantSuperadmin(a);
-  const b=req.body||{},merchant=businessId(b.business_id),cashAccount=businessId(b.cash_account_id),merchantAccount=businessId(b.merchant_account_id),value=positiveAmount(b.amount),request=requestId(b.request_id),date=validDate(b.payout_date),reference=optionalText(b.reference,160);
+  const b=req.body||{},merchant=businessId(b.business_id),cashAccount=businessId(b.cash_account_id),merchantAccount=businessId(b.merchant_account_id),selection=obligationSelection(b.obligations),legacyValue=selection?null:positiveAmount(b.amount),request=requestId(b.request_id),date=validDate(b.payout_date),reference=optionalText(b.reference,160);
   if(!reference)fail('SETTLEMENT_REFERENCE_REQUIRED');
-  const requestHash=hash(stable({merchant,cashAccount,merchantAccount,amount:value.toString(),date,reference}));
+  const requestHash=hash(stable({merchant,cashAccount,merchantAccount,amount:legacyValue?.toString()||null,selection:selection?.map(item=>`${item.obligation_id}:${item.expected_outstanding}`)||null,date,reference}));
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`pos-wallet-settlement:${a.tenantId}:${merchant}`]);
   const old=(await c.query('SELECT id,amount,request_hash FROM pos_wallet_settlement_payouts WHERE tenant_id=$1 AND request_id=$2',[a.tenantId,request])).rows[0];
   if(old){if(old.request_hash!==requestHash)fail('IDEMPOTENCY_CONFLICT',409);return {id:old.id,amount:old.amount,replay:true};}
@@ -169,7 +199,17 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
   const destination=(await c.query(`SELECT id FROM pos_business_accounts WHERE id=$1 AND business_id=$2
     AND active AND kind IN('CASH','BANK') FOR SHARE`,[merchantAccount,merchant])).rows[0];
   if(!destination)fail('SETTLEMENT_DESTINATION_DENIED',403);
-  await c.query('SELECT id FROM pos_business_wallet_links WHERE business_id=$1 AND tenant_id=$2 ORDER BY id FOR UPDATE',[merchant,a.tenantId]);
+  let selectedAllocations=null,value=legacyValue;
+  if(selection){
+   const ids=selection.map(item=>item.obligation_id);
+   await c.query(`SELECT id FROM pos_business_wallet_links WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE`,[ids]);
+   selectedAllocations=(await c.query(`SELECT d.id,d.amount-coalesce((SELECT sum(r.amount) FROM pos_business_wallet_links r WHERE r.payment_id=d.payment_id AND r.direction='credit'),0)-coalesce((SELECT sum(sa.amount) FROM pos_wallet_settlement_allocations sa WHERE sa.obligation_link_id=d.id),0) available
+     FROM pos_business_wallet_links d WHERE d.id=ANY($1::uuid[]) AND d.business_id=$2 AND d.tenant_id=$3 AND d.unit_id=$4 AND d.direction='debit' ORDER BY d.id`,[ids,merchant,a.tenantId,a.unitId])).rows;
+   if(selectedAllocations.length!==selection.length)fail('SETTLEMENT_SELECTION_DENIED',403);
+   const expected=new Map(selection.map(item=>[item.obligation_id,item.expected_outstanding]));
+   if(selectedAllocations.some(item=>BigInt(item.available)<=0n||String(item.available)!==expected.get(item.id)))fail('SETTLEMENT_SELECTION_STALE',409);
+   value=selectedAllocations.reduce((sum,item)=>sum+BigInt(item.available),0n);
+  }else await c.query('SELECT id FROM pos_business_wallet_links WHERE business_id=$1 AND tenant_id=$2 ORDER BY id FOR UPDATE',[merchant,a.tenantId]);
   const position=(await c.query(`SELECT coalesce(sum(l.amount) FILTER(WHERE l.direction='debit'),0) gross,
     coalesce(sum(l.amount) FILTER(WHERE l.direction='credit'),0) refunds,
     (SELECT coalesce(sum(amount),0) FROM pos_wallet_settlement_payouts WHERE business_id=$1 AND tenant_id=$2) payouts
@@ -187,14 +227,14 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
   await c.query(`INSERT INTO pos_wallet_settlement_payouts
     (id,tenant_id,business_id,cash_account_id,cash_transaction_id,merchant_account_id,actor_user_id,payout_date,amount,reference,request_id,request_hash)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[payoutId,a.tenantId,merchant,cashAccount,tx.id,merchantAccount,a.user.id,date,value.toString(),reference,request,requestHash]);
-  const obligations=(await c.query(`SELECT d.id,d.amount-coalesce(r.refunds,0)-coalesce(s.settled,0) available FROM pos_business_wallet_links d
+  const obligations=selectedAllocations||(await c.query(`SELECT d.id,d.amount-coalesce(r.refunds,0)-coalesce(s.settled,0) available FROM pos_business_wallet_links d
     LEFT JOIN(SELECT payment_id,sum(amount) refunds FROM pos_business_wallet_links WHERE direction='credit' GROUP BY payment_id)r ON r.payment_id=d.payment_id
     LEFT JOIN(SELECT obligation_link_id,sum(amount) settled FROM pos_wallet_settlement_allocations GROUP BY obligation_link_id)s ON s.obligation_link_id=d.id
     WHERE d.business_id=$1 AND d.tenant_id=$2 AND d.direction='debit' ORDER BY d.id`,[merchant,a.tenantId])).rows;
-  let left=value;for(const obligation of obligations){const available=BigInt(obligation.available);if(available<=0n)continue;const take=left<available?left:available;
-    await c.query('INSERT INTO pos_wallet_settlement_allocations(payout_id,business_id,obligation_link_id,amount) VALUES($1,$2,$3,$4)',[payoutId,merchant,obligation.id,take.toString()]);left-=take;if(!left)break;}
+  const postedAllocations=[];let left=value;for(const obligation of obligations){const available=BigInt(obligation.available);if(available<=0n)continue;const take=selectedAllocations?available:left<available?left:available;
+    await c.query('INSERT INTO pos_wallet_settlement_allocations(payout_id,business_id,obligation_link_id,amount) VALUES($1,$2,$3,$4)',[payoutId,merchant,obligation.id,take.toString()]);postedAllocations.push({obligation_id:obligation.id,amount:take.toString()});left-=take;if(!left)break;}
   if(left)fail('SETTLEMENT_ALLOCATION_MISMATCH',409);
-  return {id:payoutId,amount:value.toString(),outstanding:(outstanding-value).toString(),replay:false};
+  return {id:payoutId,amount:value.toString(),outstanding:(outstanding-value).toString(),allocations:postedAllocations,replay:false};
  });}
  // Management collections are bounded and scoped; no secrets/UIDs projected.
  async function management(req){return run(req,'pos.view',false,async(c,a)=>{

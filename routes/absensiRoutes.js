@@ -400,14 +400,22 @@ router.post("/", async (req, res) => {
       `INSERT INTO absensi (
          santri_id, tanggal, sesi, session_id, session_name_snapshot, status, tenant_id,
          unit_id, santri_unit_id, enrollment_id, kelas_id, actor_user_id, source
+         ,academic_year_id,academic_semester_id
        )
-       VALUES ($1, $2, $3, $4, $3, $5, $6, $7, $8, $9, $10, $11, 'admin')
+       SELECT $1, $2, $3, $4, $3, $5, $6, $7, $8, $9, $10, $11, 'admin',p.academic_year_id,p.id
+       FROM (VALUES(1)) v(dummy)
+       LEFT JOIN LATERAL (SELECT aps.id,aps.academic_year_id FROM academic_semesters aps
+         WHERE aps.tenant_id=$6 AND aps.unit_id=$7 AND $2::date BETWEEN aps.start_date AND aps.end_date
+           AND aps.status IN('ACTIVE','CLOSED')
+         ORDER BY CASE aps.status WHEN 'ACTIVE' THEN 0 ELSE 1 END,aps.id DESC LIMIT 1) p ON TRUE
        ON CONFLICT (tenant_id, unit_id, santri_id, tanggal, session_id)
        WHERE unit_id IS NOT NULL AND session_id IS NOT NULL
        DO UPDATE SET status = EXCLUDED.status,
                      santri_unit_id = EXCLUDED.santri_unit_id,
                      enrollment_id = EXCLUDED.enrollment_id,
                      kelas_id = EXCLUDED.kelas_id,
+                     academic_year_id = EXCLUDED.academic_year_id,
+                     academic_semester_id = EXCLUDED.academic_semester_id,
                      actor_user_id = EXCLUDED.actor_user_id,
                      source = EXCLUDED.source
        RETURNING *`,

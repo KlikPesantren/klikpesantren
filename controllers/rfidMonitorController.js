@@ -4,22 +4,6 @@ exports.getMonitor = async (req, res) => {
   try {
     const tenantId = req.tenantId;
 
-    await pool.query(`
-      UPDATE devices
-      SET status = 'offline', connection_state = 'offline'
-      WHERE tenant_id = $1
-        AND last_ping IS NOT NULL
-        AND last_ping < NOW() - INTERVAL '60 seconds'
-    `, [tenantId]);
-
-    await pool.query(`
-      UPDATE devices
-      SET status = 'online', connection_state = 'online'
-      WHERE tenant_id = $1
-        AND last_ping IS NOT NULL
-        AND last_ping >= NOW() - INTERVAL '60 seconds'
-    `, [tenantId]);
-
     const { rows } = await pool.query(
       `
       SELECT
@@ -27,8 +11,10 @@ exports.getMonitor = async (req, res) => {
         d.device_id,
         d.nama_device,
         d.enabled,
-        d.connection_state,
-        d.status,
+        CASE WHEN d.last_ping IS NOT NULL AND d.last_ping >= NOW() - INTERVAL '60 seconds'
+          THEN 'online' ELSE 'offline' END AS connection_state,
+        CASE WHEN d.last_ping IS NOT NULL AND d.last_ping >= NOW() - INTERVAL '60 seconds'
+          THEN 'online' ELSE 'offline' END AS status,
         d.last_ping,
         d.last_sync,
         m.nama_merchant,
@@ -39,7 +25,8 @@ exports.getMonitor = async (req, res) => {
       LEFT JOIN transaksi_rfid tr
         ON tr.device_id = d.id
        AND tr.tenant_id = d.tenant_id
-       AND DATE(tr.created_at) = CURRENT_DATE
+       AND tr.created_at >= CURRENT_DATE
+       AND tr.created_at < CURRENT_DATE + INTERVAL '1 day'
       WHERE d.tenant_id = $1
       GROUP BY d.id, m.nama_merchant
       ORDER BY d.device_id

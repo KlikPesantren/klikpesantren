@@ -146,10 +146,18 @@ async function resolveOccurrence({ tenantId, sessionId, occurrenceDate }, client
     let occurrence = inserted.rows[0];
     if (occurrence) {
       await db.query(
-        `INSERT INTO attendance_occurrence_units(tenant_id,occurrence_id,unit_id)
-         SELECT $1,$2,unit_id FROM UNNEST($3::int[]) unit_id
+        `INSERT INTO attendance_occurrence_units(tenant_id,occurrence_id,unit_id,academic_year_id,academic_semester_id)
+         SELECT $1,$2,units.unit_id,period.academic_year_id,period.id
+         FROM UNNEST($3::int[]) units(unit_id)
+         LEFT JOIN LATERAL (
+           SELECT s.id,s.academic_year_id FROM academic_semesters s
+           WHERE s.tenant_id=$1 AND s.unit_id=units.unit_id
+             AND $4::date BETWEEN s.start_date AND s.end_date
+             AND s.status IN('ACTIVE','CLOSED')
+           ORDER BY CASE s.status WHEN 'ACTIVE' THEN 0 ELSE 1 END,s.id DESC LIMIT 1
+         ) period ON TRUE
          ON CONFLICT(tenant_id,occurrence_id,unit_id) DO NOTHING`,
-        [tenantId,occurrence.id,unitIds],
+        [tenantId,occurrence.id,unitIds,date],
       );
     } else {
       const existing = await db.query(

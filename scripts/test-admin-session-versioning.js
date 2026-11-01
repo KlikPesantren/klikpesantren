@@ -42,6 +42,13 @@ const fakePool = {
   async query(sql, params = []) {
     const query = normalized(sql);
 
+    // Tenant resolution now enforces expiry before reading the active tenant.
+    // This fixture has no expired subscription; billing behavior is tested separately.
+    if (query.startsWith('WITH suspended AS') && query.includes('platform.tenant.billing.auto_suspended')) {
+      state.billingChecks = (state.billingChecks || 0) + 1;
+      return { rows: [] };
+    }
+
     if (query.includes("FROM tenants") && query.includes("WHERE slug = $1")) {
       return { rows: params[0] === state.tenant.slug ? [{ ...state.tenant }] : [] };
     }
@@ -168,7 +175,8 @@ async function run() {
     assert.equal(permissionChangeRejected.status, 401);
     assert.equal(permissionChangeRejected.body.code, "SESSION_EXPIRED");
 
-    console.log("PASS admin session versioning: 20 assertions");
+    assert.ok(state.billingChecks > 0, 'tenant billing validation remains in the login/context path');
+    console.log("PASS admin session versioning: 21 assertions");
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }

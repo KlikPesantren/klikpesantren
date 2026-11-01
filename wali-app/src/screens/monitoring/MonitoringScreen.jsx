@@ -219,6 +219,9 @@ export function MonitoringScreen() {
           {features.nilai === true ? <TouchableOpacity style={styles.navChip} onPress={() => navigation.navigate('Nilai')}>
             <AppText variant="caption" color="brand">Nilai</AppText>
           </TouchableOpacity> : null}
+          {features.nilai === true ? <TouchableOpacity style={styles.navChip} onPress={() => navigation.navigate('Rapor')}>
+            <AppText variant="caption" color="brand">Rapor</AppText>
+          </TouchableOpacity> : null}
           {features.hafalan === true ? <TouchableOpacity style={styles.navChip} onPress={() => navigation.navigate('Hafalan')}>
             <AppText variant="caption" color="brand">Hafalan</AppText>
           </TouchableOpacity> : null}

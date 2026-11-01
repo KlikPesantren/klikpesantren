@@ -11,6 +11,10 @@ const ROOT = path.resolve(__dirname, "..");
 const source = (file) => fs.readFileSync(path.join(ROOT, file), "utf8");
 
 function localTestConfig() {
+  if (["127.0.0.1", "localhost"].includes(process.env.AK_TEST_DB_HOST) && process.env.AK_TEST_DB_NAME === "klikpesantren_ak_test") {
+    return { user: process.env.AK_TEST_DB_USER, password: process.env.AK_TEST_DB_PASSWORD || "", host: process.env.AK_TEST_DB_HOST,
+      database: process.env.AK_TEST_DB_NAME, port: Number(process.env.AK_TEST_DB_PORT || 55433), ssl: false };
+  }
   const localEnvPath = [path.join(ROOT, ".env"), path.join(ROOT, "..", ".env")]
     .find((candidate) => fs.existsSync(candidate));
   if (!localEnvPath) throw new Error("LOCAL_TEST_ENV_NOT_FOUND");
@@ -88,8 +92,11 @@ async function main() {
         id BIGSERIAL PRIMARY KEY, santri_id INTEGER, tanggal DATE, sesi VARCHAR,
         session_id BIGINT, session_name_snapshot VARCHAR, status VARCHAR,
         tenant_id INTEGER NOT NULL, unit_id INTEGER, santri_unit_id BIGINT,
-        enrollment_id BIGINT, kelas_id INTEGER, actor_user_id INTEGER, source VARCHAR NOT NULL
+        enrollment_id BIGINT, kelas_id INTEGER, actor_user_id INTEGER, source VARCHAR NOT NULL,
+        academic_year_id BIGINT, academic_semester_id BIGINT
       );
+      CREATE TABLE academic_semesters(id BIGINT,tenant_id INTEGER,unit_id INTEGER,academic_year_id BIGINT,
+        start_date DATE,end_date DATE,status VARCHAR);
       CREATE UNIQUE INDEX uq_absensi_tenant_unit_student_date_session
         ON absensi(tenant_id, unit_id, santri_id, tanggal, session_id)
         WHERE unit_id IS NOT NULL AND session_id IS NOT NULL;

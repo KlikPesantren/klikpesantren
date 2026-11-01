@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FaMicrochip, FaSearch, FaSignal, FaWifi } from "react-icons/fa";
 import AppShell from "../layouts/AppShell";
 import api from "../services/api";
@@ -11,6 +11,7 @@ import {
   TablePagination,
   useClientPagination,
 } from "../components/ui/table";
+import useVisibilityPolling from "../hooks/useVisibilityPolling";
 
 function DevicePageStyles() {
   return (
@@ -215,7 +216,7 @@ function DevicePage() {
   const [devices, setDevices] = useState([]);
   const [tableSearch, setTableSearch] = useState("");
 
-  const getDevices = async () => {
+  const getDevices = useCallback(async () => {
     try {
       const res = await api.get("/devices");
       setDevices(res.data.data || []);
@@ -223,17 +224,8 @@ function DevicePage() {
       console.error(err);
       setDevices([]);
     }
-  };
-
-  useEffect(() => {
-    getDevices();
-
-    const interval = setInterval(() => {
-      getDevices();
-    }, 3000);
-
-    return () => clearInterval(interval);
   }, []);
+  useVisibilityPolling(getDevices,60000);
 
   const isOnline = (last_ping) => {
     if (!last_ping) return false;
@@ -274,6 +266,7 @@ function DevicePage() {
     <AppShell title="Device Monitoring" breadcrumb="Sistem / Perangkat">
       <DevicePageStyles />
       <div className="device-page">
+        <button type="button" className="secondary" onClick={getDevices}>Segarkan perangkat</button>
         <div className="device-page__summary">
           <div className="device-page__stat">
             <div className="device-page__stat-head">

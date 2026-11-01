@@ -8,6 +8,7 @@ import { interaction, radius, spacing } from '../../constants/theme';
 const QUICK_ITEMS = [
   { key: 'Absensi', featureKey: 'absensi', label: 'Absensi', icon: 'calendar-outline', tab: 'Monitoring', screen: 'Absensi' },
   { key: 'Nilai', featureKey: 'nilai', label: 'Nilai', icon: 'school-outline', tab: 'Monitoring', screen: 'Nilai' },
+  { key: 'Rapor', featureKey: 'nilai', label: 'Rapor', icon: 'document-text-outline', tab: 'Monitoring', screen: 'Rapor' },
   { key: 'Hafalan', featureKey: 'hafalan', label: 'Hafalan', icon: 'book-outline', tab: 'Monitoring', screen: 'Hafalan' },
   { key: 'Perizinan', featureKey: 'perizinan', label: 'Perizinan', icon: 'document-text-outline', tab: 'Monitoring', screen: 'Perizinan' },
   { key: 'Pelanggaran', featureKey: 'pelanggaran', label: 'Pelanggaran', icon: 'alert-circle-outline', tab: 'Monitoring', screen: 'Pelanggaran' },

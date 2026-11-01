@@ -6,6 +6,7 @@ const {
   getActiveStudentContext,
   getMapelByNameInUnit,
   listActiveStudentsInClass,
+  resolveAcademicPeriodForDate,
   resolveAcademicUnit,
   sendAcademicError,
 } = require("../services/academicUnitService");
@@ -68,20 +69,35 @@ router.post("/", requirePermission("nilai.manage"), async (req, res) => {
     }
     const context = await getActiveStudentContext(req.tenantId, santri_id, access.unitId);
     const mapelRecord = await getMapelByNameInUnit(req.tenantId, mapel, access.unitId);
+    const period = await resolveAcademicPeriodForDate(
+      req.tenantId,
+      access.unitId,
+      tanggal,
+      { requireActive: true },
+    );
 
     const cek = await pool.query(
-      `SELECT id
-       FROM nilai_mingguan
-       WHERE tenant_id = $1
-         AND unit_id = $2
-         AND santri_id = $3
-         AND mapel = $4
-         AND bulan = $5
-         AND tahun = $6`,
+      `SELECT n.id,n.academic_semester_id,s.status AS semester_status
+       FROM nilai_mingguan n
+       LEFT JOIN academic_semesters s ON s.tenant_id=n.tenant_id AND s.id=n.academic_semester_id
+       WHERE n.tenant_id = $1
+         AND n.unit_id = $2
+         AND n.santri_id = $3
+         AND n.mapel = $4
+         AND n.bulan = $5
+         AND n.tahun = $6`,
       [req.tenantId, access.unitId, santri_id, mapel, bulan, tahun]
     );
 
     if (cek.rows.length > 0) {
+      if (cek.rows[0].semester_status === "CLOSED") {
+        const error = new Error("Semester sudah ditutup; gunakan koreksi administratif teraudit");
+        error.status = 409; error.code = "ACADEMIC_SEMESTER_CLOSED"; throw error;
+      }
+      if (!cek.rows[0].academic_semester_id && period) {
+        const error = new Error("Nilai historis belum dipetakan ke semester dan tidak boleh diubah otomatis");
+        error.status = 409; error.code = "HISTORICAL_PERIOD_UNMAPPED"; throw error;
+      }
       const result = await pool.query(
         `UPDATE nilai_mingguan
          SET nilai = $1, tanggal = $2,
@@ -106,14 +122,15 @@ router.post("/", requirePermission("nilai.manage"), async (req, res) => {
        `INSERT INTO nilai_mingguan (
          santri_id, tanggal, mapel, nilai, bulan, tahun, tenant_id,
          unit_id, santri_unit_id, enrollment_id, kelas_id, mata_pelajaran_id,
-         actor_user_id, source
+         actor_user_id, source, academic_year_id, academic_semester_id
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'admin')
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'admin', $14, $15)
        RETURNING *`,
       [
         santri_id, tanggal, mapel, nilai, bulan, tahun, req.tenantId,
         access.unitId, context.santri_unit_id, context.enrollment_id,
         context.kelas_id, mapelRecord.id, req.user.id,
+        period?.academic_year_id || null, period?.academic_semester_id || null,
       ]
     );
 

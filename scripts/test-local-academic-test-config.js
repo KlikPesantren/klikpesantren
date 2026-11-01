@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const {localAcademicTestConfig:config}=require('./local-academic-test-config');
+const good={AK_TEST_DB_HOST:'127.0.0.1',AK_TEST_DB_PORT:'55439',AK_TEST_DB_USER:'fixture',AK_TEST_DB_NAME:'klikpesantren_ak_nov20261030a_test'};
+assert.equal(config(good).database,good.AK_TEST_DB_NAME);
+for(const override of [{AK_TEST_DB_HOST:'db.neon.tech'},{AK_TEST_DB_HOST:''},{AK_TEST_DB_NAME:'postgres'},{AK_TEST_DB_NAME:'pos_business_v2_test'},{AK_TEST_DB_NAME:'klikpesantren_ak_bad;DROP_test'},{AK_TEST_DB_PORT:'5432'},{AK_TEST_DB_USER:''}])assert.throws(()=>config({...good,...override}));
+const bootstrap=fs.readFileSync(require.resolve('./test-academic-periods-db'),'utf8');
+assert(!bootstrap.includes('DROP DATABASE')&&!bootstrap.includes('pg_terminate_backend'));
+assert(bootstrap.includes('ACADEMIC_TEST_DB_ALREADY_EXISTS_PRESERVE'));
+console.log('PASS local fixture guard: loopback/name/port enforced, production URL ignored, no existing database reset or connection termination');

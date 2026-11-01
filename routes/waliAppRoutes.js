@@ -11,6 +11,8 @@ const router =
 const pool =
   require("../db");
 const { attendanceReadSql } = require("../services/attendanceReadSql");
+const academicReportService = require("../services/academicReportService");
+const { buildAcademicReportPdf } = require("../services/academicReportPdfService");
 
 const waliAppService =
   require("../services/waliAppService");
@@ -3323,6 +3325,48 @@ router.post(
 
   }
 
+);
+
+// Published semester reports only. waliSantriGuard proves the selected child relation;
+// requireWaliUnitFeature proves the selected unit and tenant scope.
+router.get(
+  "/rapor",
+  ...withWaliAuth,
+  waliSantriGuard,
+  requireWaliUnitFeature("nilai"),
+  async (req,res)=>{
+    try{
+      const rows=await academicReportService.listPublishedForWali(pool,{tenantId:req.tenantId,unitId:req.waliUnit.unit_id,santriId:req.santriId});
+      res.json({success:true,data:rows});
+    }catch(error){res.status(error.status||500).json({success:false,error:error.message,code:error.code});}
+  },
+);
+router.get(
+  "/rapor/:id",
+  ...withWaliAuth,
+  waliSantriGuard,
+  requireWaliUnitFeature("nilai"),
+  async (req,res)=>{
+    try{
+      const row=await academicReportService.getPublicationForWali(pool,{tenantId:req.tenantId,unitId:req.waliUnit.unit_id,santriId:req.santriId,publicationId:Number(req.params.id)});
+      res.json({success:true,data:{id:row.id,published_at:row.published_at,snapshot:row.snapshot}});
+    }catch(error){res.status(error.status||500).json({success:false,error:error.message,code:error.code});}
+  },
+);
+router.get(
+  "/rapor/:id/pdf",
+  ...withWaliAuth,
+  waliSantriGuard,
+  requireWaliUnitFeature("nilai"),
+  async (req,res)=>{
+    try{
+      const row=await academicReportService.getPublicationForWali(pool,{tenantId:req.tenantId,unitId:req.waliUnit.unit_id,santriId:req.santriId,publicationId:Number(req.params.id)});
+      const pdf=buildAcademicReportPdf(row.snapshot);
+      res.setHeader("Content-Type","application/pdf");
+      res.setHeader("Content-Disposition",`attachment; filename="rapor-${row.id}.pdf"`);
+      res.send(pdf);
+    }catch(error){res.status(error.status||500).json({success:false,error:error.message,code:error.code});}
+  },
 );
 
 module.exports = router;

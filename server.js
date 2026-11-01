@@ -99,6 +99,8 @@ const auditApi =
 
 const kelasRoutes =
   require("./routes/kelasRoutes");
+const academicPeriodRoutes = require("./routes/academicPeriodRoutes");
+const academicReportRoutes = require("./routes/academicReportRoutes");
 
 const dashboardRoutes =
 require("./routes/dashboardRoutes");
@@ -433,6 +435,16 @@ app.use(
 
   kelasRoutes
 
+);
+
+app.use("/academic-periods", academicPeriodRoutes);
+app.use(
+  "/academic-reports",
+  authMiddleware,
+  tenantMiddleware,
+  requireUnitFeature("nilai"),
+  requirePermission("nilai.view"),
+  academicReportRoutes,
 );
 
 app.use(

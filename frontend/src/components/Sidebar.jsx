@@ -46,6 +46,8 @@ const MENU = [
   { name: "Wali Santri", path: "/wali", perm: "wali.view", feature: "wali", icon: <FaUsers /> },
   { name: "Guru", path: "/guru", perm: "guru.view", feature: "guru", icon: <FaUsers /> },
   { name: "Kelas", path: "/kelas", perm: "kelas.view", feature: "kelas", icon: <FaSchool /> },
+  { name: "Tahun Ajaran & Semester", path: "/academic-periods", perm: "kelas.view", feature: "kelas", icon: <FaSchool /> },
+  { name: "Kenaikan Kelas", path: "/academic-promotions", perm: "kelas.manage", feature: "kelas", icon: <FaSchool /> },
   { name: "Unit Pendidikan", path: "/units", perm: "unit.view", feature: null, icon: <FaSchool /> },
   { name: "Profil Pesantren", path: "/profil-pesantren", perm: "profil.view", feature: "profil", icon: <FaSchool /> },
   { name: "Pengumuman", path: "/pengumuman", perm: "pengumuman.view", feature: "pengumuman", unitFeature: "pengumuman", icon: <FaClipboardList /> },
@@ -99,7 +101,7 @@ const MENU_GROUPS = [
     id: "akademik",
     title: "Akademik",
     collapsible: true,
-    items: ["Nilai", "Mata Pelajaran", "Hafalan", "Program Unit", "Absensi", "Absensi Guru"],
+    items: ["Tahun Ajaran & Semester", "Kenaikan Kelas", "Nilai", "Mata Pelajaran", "Hafalan", "Program Unit", "Absensi", "Absensi Guru"],
   },
   {
     id: "keuangan",

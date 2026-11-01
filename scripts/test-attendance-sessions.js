@@ -37,7 +37,7 @@ assert.match(service, /CROSS_UNIT_STUDENT/, "Cross-unit student spoof must retur
 assert.match(attendance, /getAttendanceSessionInUnit/, "Attendance writes must validate session ownership");
 assert.match(attendance, /getActiveStudentContext/, "Attendance writes must validate active student membership");
 assert.match(attendance, /session_id, session_name_snapshot/, "Attendance writes must persist stable identity and historical label");
-assert.match(attendance, /VALUES \(\$1, \$2, \$3, \$4, \$3, \$5, \$6, \$7, \$8, \$9, \$10, \$11, 'admin'\)/, "Attendance insert placeholders must match the canonical column list");
+assert.match(attendance, /SELECT \$1, \$2, \$3, \$4, \$3, \$5, \$6, \$7, \$8, \$9, \$10, \$11, 'admin',p\.academic_year_id,p\.id/, "Attendance insert must append server-resolved academic period snapshots");
 assert.match(attendance, /ON CONFLICT \(tenant_id, unit_id, santri_id, tanggal, session_id\)/, "Write uniqueness must include unit and session");
 assert.doesNotMatch(attendance, /req\.body[^;]*sesi/, "Attendance writes must not trust a display label from the client");
 

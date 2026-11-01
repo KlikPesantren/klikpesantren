@@ -34,12 +34,15 @@ import AlumniPage from "./pages/AlumniPage";
 import AuditPage from "./pages/AuditPage";
 import DevicePage from "./pages/DevicePage";
 import KelasPage from "./pages/KelasPage";
+import AcademicPeriodsPage from "./pages/AcademicPeriodsPage";
+import AcademicPromotionPage from "./pages/AcademicPromotionPage";
 import AbsensiPage from "./pages/AbsensiPage";
 import PerizinanPage from "./pages/PerizinanPage";
 import PelanggaranPage from "./pages/PelanggaranPage";
 import KesehatanPage from "./pages/KesehatanPage";
 import HafalanPage from "./pages/HafalanPage";
 import NilaiPage from "./pages/NilaiPage";
+import AcademicReportPage from "./pages/AcademicReportPage";
 import MataPelajaranPage from "./pages/MataPelajaranPage";
 import WaliPage from "./pages/WaliPage";
 import AbsensiGuruPage from "./pages/AbsensiGuruPage";
@@ -321,6 +324,8 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/academic-periods" element={<ProtectedRoute><AcademicPeriodsPage /></ProtectedRoute>} />
+        <Route path="/academic-promotions" element={<ProtectedRoute><AcademicPromotionPage /></ProtectedRoute>} />
 
         <Route path="/units" element={<ProtectedRoute><UnitPendidikanPage /></ProtectedRoute>} />
 
@@ -541,6 +546,7 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/academic-reports" element={<ProtectedRoute><AcademicReportPage /></ProtectedRoute>} />
 
         <Route
           path="/mata-pelajaran"

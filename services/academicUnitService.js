@@ -222,6 +222,38 @@ async function getAttendanceSessionInUnit(
   return session;
 }
 
+async function resolveAcademicPeriodForDate(
+  tenantId,
+  unitId,
+  date,
+  { requireActive = false } = {},
+  client = pool,
+) {
+  const configured = await client.query(
+    `SELECT EXISTS(SELECT 1 FROM academic_years WHERE tenant_id=$1 AND unit_id=$2) configured`,
+    [tenantId, unitId],
+  );
+  const { rows } = await client.query(
+    `SELECT s.id AS academic_semester_id,s.academic_year_id,s.status
+     FROM academic_semesters s
+     WHERE s.tenant_id=$1 AND s.unit_id=$2 AND $3::date BETWEEN s.start_date AND s.end_date
+       AND ($4::boolean=false OR s.status='ACTIVE')
+     ORDER BY CASE s.status WHEN 'ACTIVE' THEN 0 WHEN 'CLOSED' THEN 1 ELSE 2 END,s.id DESC
+     LIMIT 1`,
+    [tenantId, unitId, date, requireActive],
+  );
+  if (rows[0]) return rows[0];
+  if (configured.rows[0]?.configured) {
+    throw academicError(
+      requireActive ? "Tidak ada semester aktif untuk tanggal nilai" : "Tanggal tidak berada pada periode akademik yang dikenal",
+      409,
+      requireActive ? "ACADEMIC_SEMESTER_NOT_ACTIVE" : "ACADEMIC_PERIOD_NOT_FOUND",
+    );
+  }
+  // Compatibility for units that have not opted into AK-01 yet. Never infer a period.
+  return null;
+}
+
 module.exports = {
   academicError,
   assertUnitFeature,
@@ -232,6 +264,7 @@ module.exports = {
   listActiveStudentsInClass,
   getMapelByNameInUnit,
   getMapelInUnit,
+  resolveAcademicPeriodForDate,
   resolveAcademicUnit,
   sendAcademicError,
 };

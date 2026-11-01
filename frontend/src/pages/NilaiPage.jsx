@@ -11,6 +11,7 @@ import { FaFilter } from "react-icons/fa";
 import { useActiveUnit } from "../context/ActiveUnitContext";
 import { requireActiveUnitForWrite } from "../utils/unitScopeParams";
 import { MONTH_OPTIONS_ID } from "../constants/monthOptions";
+import { Link } from "react-router-dom";
 
 const filterPanelStyle = {
   display: "flex",
@@ -253,6 +254,10 @@ function NilaiPage() {
       <AkademikResponsiveStyles />
       <OperationalPageStyles />
       <div className="akademik-page ops-page">
+      <div style={{ display: "flex", gap: 8 }}>
+        <Button variant="primary">Nilai Mingguan</Button>
+        <Link to="/academic-reports"><Button variant="secondary">E-Rapor Semester</Button></Link>
+      </div>
       <div className="ops-page__form-card">
       <Card padding="md" shadow="card" border={false} radius="xl">
         <div className="akademik-filter-panel ops-page__filter filter-bar-v3 filter-bar-v3--table">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import AppShell from "../layouts/AppShell";
 import api from "../services/api";
 import KpiCard from "../components/ui/KpiCard";
@@ -10,26 +10,20 @@ import SearchInput from "../components/ui/SearchInput";
 import EmptyState from "../components/ui/EmptyState";
 import StatusBadge from "../components/ui/StatusBadge";
 import { Table, TableScroll } from "../components/ui/table";
+import useVisibilityPolling from "../hooks/useVisibilityPolling";
 
 function RFIDMonitorPage() {  const [devices, setDevices] = useState([]);
   const [tableSearch, setTableSearch] = useState("");
 
-  const getData = async () => {
+  const getData = useCallback(async () => {
     try {
       const res = await api.get("/rfid/monitor");
       setDevices(res.data.data);
     } catch (err) {
       console.error(err);
     }
-  };
-
-  useEffect(() => {
-    getData();
-
-    const interval = setInterval(getData, 10000);
-
-    return () => clearInterval(interval);
   }, []);
+  useVisibilityPolling(getData,30000);
 
   const filteredDevices = useMemo(() => {
     const q = tableSearch.trim().toLowerCase();
@@ -65,9 +59,10 @@ function RFIDMonitorPage() {  const [devices, setDevices] = useState([]);
           title="Status Perangkat"
           subtitle="Monitoring perangkat RFID secara realtime"
           actions={
-            <span style={{ fontSize: "13px", color: "var(--text-secondary)", fontWeight: 600 }}>
-              {filteredDevices.length} device
-            </span>
+            <><button type="button" className="secondary" onClick={getData}>Segarkan</button>
+              <span style={{ fontSize: "13px", color: "var(--text-secondary)", fontWeight: 600 }}>
+                {filteredDevices.length} device
+              </span></>
           }
         >
           <TableToolbar

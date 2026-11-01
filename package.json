@@ -64,7 +64,9 @@
     "test:platform-subscription-billing": "node scripts/test-platform-subscription-billing.js",
     "migration:091:rehearse": "node scripts/run-migration-091-production.js --rollback-rehearsal",
     "migration:091:production": "node scripts/run-migration-091-production.js --confirm-production",
-    "test:migration-line-endings": "node scripts/test-migration-line-ending-equivalence.js"
+    "test:migration-line-endings": "node scripts/test-migration-line-ending-equivalence.js",
+    "test:academic-report": "node scripts/test-academic-report-contract.js",
+    "test:academic-report-scope": "node scripts/test-academic-report-route-scope.js"
   },
   "keywords": [],
   "author": "",

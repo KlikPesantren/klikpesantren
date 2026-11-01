@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FaClipboardList, FaSync } from "react-icons/fa";
 import api from "../services/api";
 import AppShell from "../layouts/AppShell";
@@ -12,6 +12,7 @@ import {
   TablePagination,
   useClientPagination,
 } from "../components/ui/table";
+import useVisibilityPolling from "../hooks/useVisibilityPolling";
 
 function AuditPageStyles() {
   return (
@@ -107,7 +108,7 @@ function AuditPage() {
   const [logs, setLogs] = useState([]);
   const [tableSearch, setTableSearch] = useState("");
 
-  const getLogs = async () => {
+  const getLogs = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
 
@@ -121,17 +122,8 @@ function AuditPage() {
     } catch (err) {
       console.error(err);
     }
-  };
-
-  useEffect(() => {
-    getLogs();
-
-    const interval = setInterval(() => {
-      getLogs();
-    }, 3000);
-
-    return () => clearInterval(interval);
   }, []);
+  useVisibilityPolling(getLogs,60000);
 
   const filteredLogs = useMemo(() => {
     const q = tableSearch.trim().toLowerCase();
@@ -166,7 +158,8 @@ function AuditPage() {
           >
             <div className="audit-page__refresh">
               <FaSync size={11} aria-hidden />
-              Pembaruan otomatis setiap 3 detik
+              Pembaruan otomatis setiap 60 detik saat tab aktif
+              <button type="button" className="secondary" onClick={getLogs}>Segarkan sekarang</button>
             </div>
 
             <div className="audit-page__filter filter-bar-v3 filter-bar-v3--table">

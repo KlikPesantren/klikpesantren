@@ -15,3 +15,7 @@ Before migration approval: Owner obtains a consistent protected production backu
 Rollback: application source/image rollback can retain additive nullable fields/new tables and all snapshots/audits; do not destructive-DOWN or restore a production database over newer financial writes. Forward audited correction after academic data is used. Backup/restore must first be tested offline.
 
 No Release B deployment authorization was given. No push/deploy/production write/plan/env change. Source Release A remains active. No APK is part of B. Native Wali/physical/device and operator acceptance remain untested.
+
+## Final frontend build correction
+
+The initial staging build had an empty API base and is superseded/INVALID. Production Vite now rejects missing/HTTP/credential-bearing/query/fragment API values. Actual missing/HTTP CLI builds failed as required; the HTTPS build passed with VITE_API_BASE_URL=https://api.klikpesantren.com. No production environment was changed. Frontend output .tmp/academic-release-b-20261101-https-build is the only final build. Source build guard from2836413; local backend tests remain unchanged. Production clone gate stays BLOCKED.

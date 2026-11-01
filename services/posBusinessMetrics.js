@@ -38,16 +38,16 @@ function createBusinessMetrics({run,bad,dueDate}) {
       const asOf=req.query.as_of ? dueDate(req.query.as_of) : (await c.query("SELECT to_char(now() AT TIME ZONE $1,'YYYY-MM-DD') AS report_date",[a.member.timezone])).rows[0].report_date;
       const rows=(await c.query(`WITH outstanding AS (
         SELECT d.source_id,d.party_id,sum(d.amount) outstanding
-        FROM pos_debt_movements d JOIN pos_business_operations o ON o.id=d.operation_id AND o.business_id=d.business_id
+        FROM pos_debt_movements d JOIN pos_business_dated_operations o ON o.id=d.operation_id AND o.business_id=d.business_id
         LEFT JOIN pos_business_initialization_items opening_item ON opening_item.operation_id=o.id AND opening_item.business_id=o.business_id
         LEFT JOIN pos_business_initializations opening ON opening.id=opening_item.initialization_id AND opening.business_id=opening_item.business_id
-        WHERE d.business_id=$1 AND d.kind=$2 AND coalesce(opening.accounting_start_date,(o.created_at AT TIME ZONE $4)::date)<=$3::date
+        WHERE d.business_id=$1 AND d.kind=$2 AND o.effective_date<=$3::date AND $4::text IS NOT NULL
         GROUP BY d.source_id,d.party_id HAVING sum(d.amount)>0
       ) SELECT x.source_id,x.party_id,p.name,o.due_date,x.outstanding,
         greatest(0,$3::date-o.due_date) days_overdue,
         CASE WHEN o.due_date >= $3::date THEN 'CURRENT' WHEN $3::date-o.due_date<=30 THEN '1_30'
          WHEN $3::date-o.due_date<=60 THEN '31_60' WHEN $3::date-o.due_date<=90 THEN '61_90' ELSE '91_PLUS' END bucket
-       FROM outstanding x JOIN pos_business_operations o ON o.id=x.source_id AND o.business_id=$1
+       FROM outstanding x JOIN pos_business_dated_operations o ON o.id=x.source_id AND o.business_id=$1
        JOIN pos_business_parties p ON p.id=x.party_id AND p.business_id=$1
        ORDER BY o.due_date,x.source_id`,[a.business,kind,asOf,a.member.timezone])).rows;
       const buckets={CURRENT:0n,'1_30':0n,'31_60':0n,'61_90':0n,'91_PLUS':0n};

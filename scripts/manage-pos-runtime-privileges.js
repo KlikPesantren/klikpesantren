@@ -24,6 +24,8 @@ async function audit(client, runtimeRole) {
   const actualTables = (await client.query("SELECT tablename FROM pg_tables WHERE schemaname=$1 AND tablename LIKE 'pos_%' ORDER BY tablename", [manifest.schema])).rows.map(r => r.tablename);
   const expectedTables = Object.keys(manifest.tables).sort();
   if (JSON.stringify(actualTables) !== JSON.stringify(expectedTables)) throw new Error("POS table manifest/schema mismatch");
+  const views=(await client.query("SELECT viewname FROM pg_views WHERE schemaname=$1 AND viewname LIKE 'pos_%' ORDER BY viewname",[manifest.schema])).rows.map(r=>r.viewname);
+  if(JSON.stringify(views)!==JSON.stringify(Object.keys(manifest.views||{}).sort()))throw Error('POS view manifest/schema mismatch');
   const sequences = (await client.query("SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema=$1 AND sequence_name LIKE 'pos_%' ORDER BY sequence_name", [manifest.schema])).rows.map(r => r.sequence_name);
   if (JSON.stringify(sequences) !== JSON.stringify([...manifest.sequences])) throw new Error("POS sequence manifest/schema mismatch");
   const owners = (await client.query("SELECT DISTINCT tableowner FROM pg_tables WHERE schemaname=$1 AND tablename=ANY($2::text[])", [manifest.schema, expectedTables])).rows.map(r => r.tableowner);
@@ -34,14 +36,14 @@ async function audit(client, runtimeRole) {
   const schemaCreate = (await client.query("SELECT has_schema_privilege($1,$2,'CREATE') allowed", [runtimeRole, manifest.schema])).rows[0].allowed;
   if (!schemaUsage) missing.push({ object: manifest.schema, privilege: "USAGE" });
   if (schemaCreate) excessive.push({ object: manifest.schema, privilege: "CREATE" });
-  const grantTables={...manifest.tables,...(manifest.externalTables||{})};
+  const grantTables={...manifest.tables,...(manifest.views||{}),...(manifest.externalTables||{})};
   for (const [table, rule] of Object.entries(grantTables)) {
     // POS-owned tables are governed exclusively by this manifest, while
     // canonical KlikPesantren tables may legitimately carry privileges for
     // unrelated runtime modules. For external dependencies, require only the
     // minimum POS privileges and never classify pre-existing app privileges as
     // POS grant drift.
-    const strict = Object.prototype.hasOwnProperty.call(manifest.tables, table);
+    const strict = Object.prototype.hasOwnProperty.call(manifest.tables, table)||Object.prototype.hasOwnProperty.call(manifest.views||{},table);
     for (const operation of ["SELECT", "INSERT", "DELETE"]) {
       const allowed = (await client.query("SELECT has_table_privilege($1,$2,$3) allowed", [runtimeRole, `${manifest.schema}.${table}`, operation])).rows[0].allowed;
       const wanted = Boolean(rule[operation.toLowerCase()]);
@@ -71,7 +73,7 @@ async function audit(client, runtimeRole) {
 
 async function apply(client, runtimeRole) {
   await client.query(`GRANT USAGE ON SCHEMA ${quote(manifest.schema)} TO ${quote(runtimeRole)}`);
-  for (const [table, rule] of Object.entries({...manifest.tables,...(manifest.externalTables||{})})) {
+  for (const [table, rule] of Object.entries({...manifest.tables,...(manifest.views||{}),...(manifest.externalTables||{})})) {
     const operations = [rule.select && "SELECT", rule.insert && "INSERT", rule.delete && "DELETE"].filter(Boolean);
     if (operations.length) await client.query(`GRANT ${operations.join(", ")} ON TABLE ${quote(manifest.schema)}.${quote(table)} TO ${quote(runtimeRole)}`);
     if (rule.update?.length) await client.query(`GRANT UPDATE (${rule.update.map(quote).join(", ")}) ON TABLE ${quote(manifest.schema)}.${quote(table)} TO ${quote(runtimeRole)}`);
@@ -83,7 +85,7 @@ async function main() {
   const mode = process.argv[2] || "audit";
   if (!new Set(["audit", "apply"]).has(mode)) throw new Error("Usage: node scripts/manage-pos-runtime-privileges.js <audit|apply>");
   const runtimeRole = required("POS_RUNTIME_DB_ROLE");
-  const client = new Client({ user: required("DB_USER"), host: required("DB_HOST"), database: required("DB_NAME"), password: required("DB_PASSWORD"), port: Number(process.env.DB_PORT || 5432), ssl: { rejectUnauthorized: false } });
+  const client = new Client({ user: required("DB_USER"), host: required("DB_HOST"), database: required("DB_NAME"), password: required("DB_PASSWORD"), port: Number(process.env.DB_PORT || 5432), ssl: { rejectUnauthorized: true } });
   await client.connect();
   try {
     const target = await identity(client);

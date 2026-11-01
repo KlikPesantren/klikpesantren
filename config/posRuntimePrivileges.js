@@ -1,6 +1,11 @@
 // Exact normal-runtime database privileges for POS V1/V2.
 // Environment-specific role names deliberately do not belong in this manifest.
 const tables = {
+  pos_price_levels:{select:true,insert:true,update:['name','active']},
+  pos_product_level_prices:{select:true,insert:true,update:['price'],delete:true},
+  pos_price_promotions:{select:true,insert:true,update:['name','kind','product_id','threshold','group_price','mode','priority','level_id','starts_at','ends_at','active','discount_bps','discount_amount']},
+  pos_price_bundle_components:{select:true,insert:true,delete:true},
+  pos_finance_categories:{select:true,insert:true},
   pos_business_accounts: { select: true, insert: true, update: ["id"] },
   pos_business_admin_audit: { select: true, insert: true },
   pos_business_initialization_items: { select: true, insert: true },
@@ -8,7 +13,7 @@ const tables = {
   pos_business_initializations: { select: true, insert: true },
   pos_business_lines: { select: true, insert: true },
   pos_business_operations: { select: true, insert: true },
-  pos_business_parties: { select: true, insert: true, update: ["name", "phone", "address", "notes", "active", "credit_allowed", "credit_limit", "due_days"] },
+  pos_business_parties: { select: true, insert: true, update: ["name", "phone", "address", "notes", "active", "credit_allowed", "credit_limit", "due_days", "price_level_id"] },
   pos_business_payments: { select: true, insert: true },
   pos_business_products: { select: true, insert: true, update: ["name", "category", "uom", "image_url", "selling_price", "reference_purchase_price", "minimum_stock", "active", "sellable", "online_visible", "online_price", "online_description", "online_long_description", "online_featured", "online_sort"] },
   pos_business_provision_requests: { select: true, insert: true },
@@ -59,4 +64,4 @@ const externalTables = {
 };
 
 module.exports = Object.freeze({ schema: "public", tables: Object.freeze(tables), sequences: Object.freeze([]),
-  externalTables: Object.freeze(externalTables), externalSequences: Object.freeze(["cash_account_transactions_id_seq"]) });
+  views:Object.freeze({pos_business_dated_operations:{select:true}}), externalTables: Object.freeze(externalTables), externalSequences: Object.freeze(["cash_account_transactions_id_seq"]) });

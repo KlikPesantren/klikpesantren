@@ -141,7 +141,7 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
     const kind = req.query?.kind || 'CUSTOMER';
     if (!['CUSTOMER', 'SUPPLIER'].includes(kind)) bad('INVALID_PARTY_KIND');
     return run(req, kind === 'SUPPLIER' ? 'SUPPLIER_VIEW' : 'CUSTOMER_VIEW', async (c, a) => {
-      const rows = (await c.query(`SELECT p.id,p.kind,p.name,p.phone,p.address,p.notes,p.active,p.credit_allowed,p.credit_limit,p.due_days,
+      const rows = (await c.query(`SELECT p.id,p.kind,p.name,p.phone,p.address,p.notes,p.active,p.credit_allowed,p.credit_limit,p.due_days,to_jsonb(p)->>'price_level_id' price_level_id,
         coalesce(d.outstanding,0) outstanding FROM pos_business_parties p
         LEFT JOIN(SELECT party_id,sum(amount) outstanding FROM pos_debt_movements WHERE business_id=$1 GROUP BY party_id)d ON d.party_id=p.id
         WHERE p.business_id=$1 AND p.kind=$2 ORDER BY p.active DESC,p.name LIMIT 300`, [a.business, kind])).rows;

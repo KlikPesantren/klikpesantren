@@ -1,6 +1,6 @@
 // Existing-business opening position. It posts canonical ledgers once and never fabricates sales/purchases.
 function createBusinessInitialization({ run, bad, uuid, amount, text, makeId, hash, serialize, lock,
-  insertOperation, moneyRow, debtRow, stockRow, addLayer, getProduct, availableCost, consume, accountBalance }) {
+  insertOperation, moneyRow, debtRow, stockRow, addLayer, getProduct, availableCost, consume, accountBalance, getAccount }) {
   const date = value => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '') || Number.isNaN(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value) bad('INVALID_ACCOUNTING_START_DATE');
     return value;
@@ -52,7 +52,10 @@ function createBusinessInitialization({ run, bad, uuid, amount, text, makeId, ha
       const normalized = { actor: a.user, startDate, accounts, inventory, receivables, payables };
       const requestHash = hash(serialize(normalized));
       await lock(c, `pos-initialization:${a.business}`);
-      const old = (await c.query('SELECT request_id,request_hash FROM pos_business_initializations WHERE business_id=$1 FOR UPDATE', [a.business])).rows[0];
+      // The advisory lock serializes finalize/correct for this business. The
+      // immutable snapshot is never updated; a row lock would require UPDATE
+      // privilege that the normal runtime must not receive.
+      const old = (await c.query('SELECT request_id,request_hash FROM pos_business_initializations WHERE business_id=$1', [a.business])).rows[0];
       if (old) {
         if (old.request_id !== request || old.request_hash !== requestHash) bad('INITIALIZATION_FINALIZED', 409);
         return response(c, a.business, true);
@@ -134,15 +137,16 @@ function createBusinessInitialization({ run, bad, uuid, amount, text, makeId, ha
       const unitCost = kind === 'INVENTORY' && quantity > 0n ? amount(b.unit_cost) : null;
       const requestHash = hash(serialize({ actor: a.user, kind, target, quantity, requestedAmount, unitCost, reason }));
       await lock(c, `pos-initialization:${a.business}`);
-      const initialization = (await c.query('SELECT id FROM pos_business_initializations WHERE business_id=$1 FOR SHARE', [a.business])).rows[0];
+      const initialization = (await c.query('SELECT id FROM pos_business_initializations WHERE business_id=$1', [a.business])).rows[0];
       if (!initialization) bad('INITIALIZATION_REQUIRED', 409);
       const old = (await c.query('SELECT request_hash FROM pos_business_initialization_corrections WHERE business_id=$1 AND request_id=$2', [a.business, request])).rows[0];
       if (old) { if (old.request_hash !== requestHash) bad('IDEMPOTENCY_CONFLICT', 409); return response(c, a.business, true); }
       const itemKind = kind, item = (await c.query(`SELECT operation_id,due_date FROM pos_business_initialization_items
-        WHERE business_id=$1 AND initialization_id=$2 AND kind=$3 AND coalesce(account_id,product_id,party_id)=$4 FOR SHARE`, [a.business, initialization.id, itemKind, target])).rows[0];
+        WHERE business_id=$1 AND initialization_id=$2 AND kind=$3 AND coalesce(account_id,product_id,party_id)=$4`, [a.business, initialization.id, itemKind, target])).rows[0];
       if (!item) bad('OPENING_ITEM_NOT_FOUND', 404);
       let amountDelta = requestedAmount, movement = null;
       if (kind === 'ACCOUNT') {
+        await getAccount(c,a,target);
         const balance = await accountBalance(c, a.business, target);
         if (balance + amountDelta < 0n) bad('INSUFFICIENT_BUSINESS_FUNDS', 409);
       } else if (kind === 'INVENTORY') {
@@ -151,6 +155,7 @@ function createBusinessInitialization({ run, bad, uuid, amount, text, makeId, ha
         else amountDelta = -(await availableCost(c, a, target, -quantity));
       } else {
         const debtKind = kind === 'RECEIVABLE' ? 'AR' : 'AP';
+        await lock(c,'pos-source:'+a.business+':'+item.operation_id);
         const outstanding = BigInt((await c.query('SELECT coalesce(sum(amount),0) value FROM pos_debt_movements WHERE business_id=$1 AND source_id=$2 AND kind=$3', [a.business, item.operation_id, debtKind])).rows[0].value);
         if (outstanding + amountDelta < 0n) bad('DEBT_OVERPAYMENT', 409);
       }

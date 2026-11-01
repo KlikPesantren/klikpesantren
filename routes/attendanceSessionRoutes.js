@@ -12,6 +12,7 @@ const router = express.Router();
 const {assertUnitAccess}=require("../services/unitAccessService");
 const {setSessionWeekdays,setSessionAdditionalUnits}=require("../services/attendanceCoreService");
 const {loadTodayForEdit,reconcileToday}=require('../services/attendanceScheduleEditService');
+const {requestAutoAlfaReschedule}=require('../services/attendanceAutoAlfaService');
 
 async function loadManageAccess(req, res, { write = false } = {}) {
   const access = await resolveKelasScopeAccess(req);
@@ -118,6 +119,7 @@ router.post("/", async (req, res) => {
                  sort_order, active`,
       [req.tenantId, unitAccess.unitId, code, displayName, startTime, endTime, sortOrder],
     );
+    requestAutoAlfaReschedule();
     res.status(201).json({ success: true, data: rows[0] });
   } catch (error) {
     sendAcademicError(res, error);
@@ -139,7 +141,7 @@ router.patch("/:sessionId/schedule",async(req,res)=>{
     const weekdays=await setSessionWeekdays({tenantId:req.tenantId,sessionId:req.params.sessionId,weekdays:req.body.weekdays},db);
     const today=await reconcileToday(db,{tenantId:req.tenantId,sessionId:req.params.sessionId,
       actorUserId:req.user.id,effectiveScope:req.body.effective_scope,before});
-    await db.query("COMMIT");res.json({success:true,data:{units,weekdays,today}});
+    await db.query("COMMIT");requestAutoAlfaReschedule();res.json({success:true,data:{units,weekdays,today}});
   }catch(e){if(db)await db.query("ROLLBACK");sendAcademicError(res,e);}
   finally{if(db)db.release();}
 });
@@ -198,7 +200,7 @@ router.patch("/:sessionId", async (req, res) => {
     );
     const today=await reconcileToday(db,{tenantId:req.tenantId,sessionId:current.id,
       actorUserId:req.user.id,effectiveScope:req.body.effective_scope,before});
-    await db.query('COMMIT');res.json({ success: true, data: rows[0],today });
+    await db.query('COMMIT');requestAutoAlfaReschedule();res.json({ success: true, data: rows[0],today });
   } catch (error) {
     if(db)await db.query('ROLLBACK');
     sendAcademicError(res, error);

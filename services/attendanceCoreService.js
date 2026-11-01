@@ -293,19 +293,26 @@ async function closeOccurrence({ tenantId, occurrenceId, now = new Date() }, cli
     const inserted = await db.query(
       `WITH allowed_units AS (
          SELECT unit_id FROM attendance_occurrence_units WHERE tenant_id=$1 AND occurrence_id=$2
+       ), cutoff AS (
+         SELECT occurrence_date FROM attendance_occurrences WHERE tenant_id=$1 AND id=$2
        ), eligible AS (
          SELECT DISTINCT 'santri'::varchar person_type,su.santri_id::bigint person_id
          FROM santri_units su JOIN santri s ON s.tenant_id=su.tenant_id AND s.id=su.santri_id
+         CROSS JOIN cutoff
          WHERE su.tenant_id=$1 AND su.unit_id IN(SELECT unit_id FROM allowed_units)
            AND su.status='active' AND su.left_at IS NULL
+           AND (su.joined_at IS NULL OR su.joined_at<=cutoff.occurrence_date)
            AND EXISTS(SELECT 1 FROM santri_kelas_enrollments e WHERE e.tenant_id=su.tenant_id
-             AND e.santri_unit_id=su.id AND e.status='active' AND e.end_date IS NULL)
+             AND e.santri_unit_id=su.id AND e.status='active' AND e.end_date IS NULL
+             AND (e.start_date IS NULL OR e.start_date<=cutoff.occurrence_date))
            AND LOWER(TRIM(COALESCE(s.status,'aktif'))) IN('aktif','active','')
          UNION
          SELECT DISTINCT 'guru'::varchar,gu.guru_id::bigint
          FROM guru_units gu JOIN guru g ON g.tenant_id=gu.tenant_id AND g.id=gu.guru_id
+         CROSS JOIN cutoff
          WHERE gu.tenant_id=$1 AND gu.unit_id IN(SELECT unit_id FROM allowed_units)
            AND gu.status='active' AND gu.left_at IS NULL
+           AND (gu.joined_at IS NULL OR gu.joined_at<=cutoff.occurrence_date)
            AND LOWER(TRIM(COALESCE(g.status,'aktif'))) IN('aktif','active','')
        )
        INSERT INTO attendance_results(tenant_id,occurrence_id,person_type,person_id,status,source,protected_manual,auto_generated)

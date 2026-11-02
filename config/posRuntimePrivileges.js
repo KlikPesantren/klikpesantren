@@ -15,7 +15,7 @@ const tables = {
   pos_business_operations: { select: true, insert: true },
   pos_business_parties: { select: true, insert: true, update: ["name", "phone", "address", "notes", "active", "credit_allowed", "credit_limit", "due_days", "price_level_id"] },
   pos_business_payments: { select: true, insert: true },
-  pos_business_products: { select: true, insert: true, update: ["name", "category", "uom", "image_url", "selling_price", "reference_purchase_price", "minimum_stock", "active", "sellable", "online_visible", "online_price", "online_description", "online_long_description", "online_featured", "online_sort"] },
+  pos_business_products: { select: true, insert: true, update: ["sku", "barcode", "name", "category", "uom", "image_url", "selling_price", "reference_purchase_price", "minimum_stock", "active", "sellable", "online_visible", "online_price", "online_description", "online_long_description", "online_featured", "online_sort"] },
   pos_business_provision_requests: { select: true, insert: true },
   pos_business_shifts: { select: true, insert: true, update: ["status", "closed_at", "actual_cash", "expected_cash", "difference"] },
   pos_business_terminals: { select: true, insert: true, update: ["id"] },

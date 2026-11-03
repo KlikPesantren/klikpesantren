@@ -1,0 +1,48 @@
+{
+  "baseline": "da41d18a601280551eaf471e506681aea4c857b4",
+  "productionApplied": false,
+  "migration": {
+    "filename": "122_pos_operational_policy_controls.sql",
+    "sha256": "c6fb5084fb50837cff542936cb77d0cd111341c5157dd517fbce4fb3aa3af333",
+    "rehearsedOn": "suq_policy_d03ebbe1dd",
+    "newTables": [
+      "pos_business_policy_events"
+    ],
+    "newColumns": [
+      "pos_wallet_credentials.admin_created_by"
+    ],
+    "changedConstraints": [
+      "pos_wallet_credentials.created_by nullable with exactly-one merchant/admin actor constraint"
+    ],
+    "historicalLedgerMutations": false
+  },
+  "newRuntimeGrant": [
+    {
+      "table": "public.pos_business_policy_events",
+      "privileges": [
+        "SELECT",
+        "INSERT"
+      ]
+    }
+  ],
+  "existingDependenciesToRecheck": [
+    {
+      "table": "public.pos_business_products",
+      "columns": [
+        "sku",
+        "barcode"
+      ],
+      "privilege": "UPDATE",
+      "note": "Already in prior source manifest; absent from old clone, rehearsed here"
+    },
+    {
+      "table": "public.cash_accounts",
+      "columns": [
+        "id"
+      ],
+      "privilege": "UPDATE",
+      "note": "WS3 settlement metadata lock; not ledger UPDATE"
+    }
+  ],
+  "newUpdateDeleteOnLedger": false
+}

@@ -281,7 +281,7 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
       const b = req.body || {}, id = uuid(req.params.productId);
       const before=(await c.query('SELECT sku,barcode,selling_price,reference_purchase_price FROM pos_business_products WHERE id=$1 AND business_id=$2 FOR UPDATE',[id,a.business])).rows[0];
       if(!before)bad('PRODUCT_NOT_FOUND',404);
-      if((Object.hasOwn(b,'sku') && b.sku!==before.sku)||(Object.hasOwn(b,'barcode') && (b.barcode||null)!==before.barcode))bad('PRODUCT_IDENTIFIER_POLICY_REQUIRED',409);
+      if((Object.hasOwn(b,'sku') && b.sku!==before.sku)||(Object.hasOwn(b,'barcode') && (b.barcode||null)!==before.barcode))bad('IDENTIFIER_CHANGE_REQUIRES_AUDIT',409);
       if(b.selling_price!=null && amount(b.selling_price,true)!==BigInt(before.selling_price) && !permitted(a,'PRODUCT_PRICE_MANAGE'))bad('MERCHANT_PERMISSION_DENIED',403);
       if(Object.hasOwn(b,'reference_purchase_price') && String(b.reference_purchase_price||'')!==String(before.reference_purchase_price||'') && !permitted(a,'PRODUCT_COST_VIEW'))bad('MERCHANT_PERMISSION_DENIED',403);
       const row = (await c.query(`UPDATE pos_business_products SET name=$1,category=$2,uom=$3,image_url=$4,selling_price=$5,

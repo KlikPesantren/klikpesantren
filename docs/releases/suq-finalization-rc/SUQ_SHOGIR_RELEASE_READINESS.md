@@ -1,114 +1,62 @@
-# SUQ SHOGIR — RC readiness dan rencana rilis WS4
+# Release readiness — WS4 approved policy addendum
 
-3 November 2026. Dokumen ini adalah rencana, **bukan otorisasi eksekusi production**.
+3 November 2026. Baseline da41d18a; semua perubahan WS1–WS4 dipertahankan dalam child RC lokal. SHA actual adalah git HEAD setelah commit. Ini bukan persetujuan production.
 
-## Source
+## Gate
 
-- Satu RC lokal melanjutkan backend 329028cb66d2665b38b036c8b7160bd8e53bec33, mobile b0885269c8b0bc2e55f0e27da3c0fdf2d5673c9e dan hasil WS1–WS4.
-- SHA final dicatat pada laporan penyerahan WS4; untuk checkout paket ini gunakan git rev-parse HEAD.
-- RC tidak mengambil perubahan akademik uncommitted dari canonical.
-- Baseline Release A Auto Alfa tetap dalam ancestry; file scheduler/hook tidak berubah.
-- Android source: com.klikpesantren.pos, versi 1.0.1, versionCode 10, HTTPS https://api.klikpesantren.com, developmentClient false untuk production-apk.
-- SourceCommit harus diinjeksikan saat build melalui POS_BUILD_COMMIT=SHA RC aktual. Tidak menulis SHA sendiri ke source sehingga tidak menimbulkan referensi commit melingkar.
+PARTIAL; **belum siap final acceptance WS5 / production GO**. P1 SQ-07 usaha berhistori belum mempunyai alur cutoff aman yang direhearsal; guard lama dipertahankan. Keputusan tujuh kebijakan tidak pending. Harga manual mixed cart masih memerlukan rincian alokasi bila ingin diaktifkan. Native physical acceptance belum ada. Matriks seluruh22 ada di SUQ_SHOGIR_WS4_FINDINGS.md.
 
-## Dependency database
+## Source/dependency
 
-**Migration baru WS1–WS4: NONE.** Baseline mengasumsikan schema POS production yang telah ada. Jangan menjalankan ulang migrasi akademik 110/111 atau enam migrasi POS lama.
-
-Satu delta privilege yang direhearsal:
-
-    GRANT UPDATE (id) ON TABLE public.cash_accounts TO kp_app_runtime_20260917;
-
-Ini SQL usulan untuk review, **belum dijalankan production**. Nama role/target dan ACL awal wajib diverifikasi pada pre-deploy berizin. Bila hak sudah tersedia, tidak perlu GRANT ulang. Tidak memberi UPDATE pada pos_business_wallet_links, wallet_transactions, money/inventory movements, settlement allocations atau payout ledger.
-
-Tujuan UPDATE(id) hanya memenuhi kebutuhan PostgreSQL FOR UPDATE pada row metadata treasury; source settlement tidak mengubah id/saldo metadata. Manifest strict harus menunjukkan tidak ada delta privilege tabel/kolom lain.
-
-## Perubahan backend
-
-- Proyeksi biaya sesuai capability dan permission field harga/biaya.
-- Pagination/filter pencarian produk/inventori, lookup produk dan cursor sesuai merchant/query.
-- Opname count absolut dengan baseline/version, product lock, idempotency dan audit snapshot.
-- Diagnosis konflik shift sendiri yang deterministik; tidak memberi takeover.
-- Settlement tanpa row lock redundan pada ledger immutable; merchant/treasury locks tetap ada.
-- Metadata remaining qty dan sumber retur hanya untuk SALE_REFUND, tanpa membuka biaya ke Kasir biasa.
-- Preview import memberi before/after perubahan identitas; export mengikuti semua filter aktif. Aturan mutasi/matching existing tetap sama.
-
-## Perubahan Android
-
-- WS1 durable retry, permission projection dan kontrak opname.
-- WS2 browser server berhalaman, modal fokus produk/stok/harga/promo/paket/Excel.
-- WS3 preview Wallet yang mempertahankan kode error, guard stale draft, cancel/timeout/native scanner.
-- WS4 eligibility produk sesuai backend, retur tanpa input UUID, sisa kuantitas dan stale-receipt guard.
-- Metadata versi baru agar hasil build nanti tidak ambigu dengan APK v9.
-- Native dependencies tidak ditambah untuk fitur baru. Introspeksi source menggunakan SDK57 existing; binary/signature/ABI final belum dibangun.
+- Backend baru: policy controls, immutable audit, Owner takeover, approved opname, identity controls, Admin-only token lifecycle; canonical money/stock/Wallet unchanged.
+- Android: PolicyControls, focused Owner identity/shift actions, draft/approval count, price-priority explanation, durable retry paths; production package com.klikpesantren.pos, versionCode10 dan HTTPS tetap. APK belum dibuat.
+- Auto Alfa, akademik/e-Rapor dan modul bisnis di luar dependency POS tidak diubah.
+- Satu migration additive baru **122_pos_operational_policy_controls.sql**, setelah ledger baseline yang relevan. Tidak mengedit isi/checksum migration lama. Reconcile nama/nomor/checksum pada pre-deploy berizin; jangan menjalankan semua migration pending secara otomatis.
+- Schema: pos_business_policy_events append-only; pos_wallet_credentials.admin_created_by + created_by nullable dengan exactly-one actor constraint. Credential lama dipertahankan, tidak backfill/revoke massal. Tidak menambah balance ledger.
+- ACL baru: SELECT, INSERT pada policy events. Existing credential INSERT dan UPDATE(active,revoked_at) tetap. UPDATE(sku,barcode) produk sudah manifest existing, tetapi clone lama belum punya; direhearsal pada clone. UPDATE(id) cash_accounts adalah dependency settlement WS3, tanpa UPDATE ledger. Lihat POLICY_DB_MANIFEST.json untuk checksum/delta.
 
 ## Acceptance matrix
 
-| Alur | Bukti lokal | Status / batas |
+| Alur | Lokal | Sisa gate |
 |---|---|---|
-| Owner/Kasir login, shift dan permissions | Runtime HTTP serta 22 skenario operasional | PASS; takeover tetap ditolak |
-| Produk/katalog | 2.001 produk, 67 halaman, item terakhir nama/SKU/barcode | PASS; API bounded |
-| Detail/edit/back, harga, promo/paket | Handler screen aktual + seluruh tes mobile | PASS lokal; visual HP belum diuji |
-| Import/export | Multipart/SDK57, preview/commit/retry/invalid/oversize/filter | PASS dummy; file asli Owner belum acceptance |
-| Stok/opname | Stale/ABA/retry, real concurrency WS1, journey WS4 dan FIFO | PASS; approval bisnis belum ditambah |
-| Harga/promo → bayar → receipt/refund/report | 22 skenario operasional | PASS; priority/nonstacking existing dipertahankan |
-| Cash/Bank/QRIS manual | Validasi akun, referensi dan konfirmasi | PASS; bukan provider otomatis |
-| Wallet/refund/settlement | 43 skenario operasional/finance dan real concurrency | PASS clone, satu debit/kredit/payout |
-| Audit dan tenant | Actor/reason/request references, row history, negatif role/scope | PASS finansial; audit master SQ-20 masih OPEN |
-| Android source | Config/introspection + library manifest NFC optional | PASS source; final merged APK NOT BUILT |
-| NFC/barcode/perangkat/printer | Native mock/codec | PHYSICAL NOT TESTED |
-| Saldo ekonomi usaha | Agregat internal / tracked assets | Baseline/cutoff dan bukti kas/bank nyata belum disetujui |
+| Owner takeover + discrepancy | PASS, race/retry/forced rollback | Kas fisik nyata belum diuji |
+| Opening baru + corrections | PASS, one-time + concurrency | Existing-history cutoff **PARTIAL/P1** |
+| Admin token lifecycle | PASS, resolver RBAC actual dan unit/tenant | Belum rollout Admin API/schema, belum physical card |
+| SKU/barcode | PASS, Owner-only uniqueness race + immutable audit | UI HP belum diuji |
+| Count/approval/FIFO | PASS draft tanpa posting, stale/ABA/race/rollback | Recount/approval fisik belum diuji |
+| Pricing/promo/bundle | PASS defined rules + immutable refund | Mixed manual allocation belum diaktifkan |
+| Wallet/refund/payout/recovery | PASS, restricted runtime + actual concurrency | Provider/bank reconciliation real NOT TESTED |
+| Catalog/XLSX | PASS 2.001/67 pages, multipart/retry | Actual Owner workbook/native picker belum accepted |
+| Master audit | Financial + policy identity PASS | Price/promo/full master before-after PARTIAL |
+| Android | Config/source/177 handler/unit tests PASS | Final merged binary/signature/ABI dan hardware NOT TESTED |
 
-## Pemeriksaan yang dapat diulang dari RC
+## Reproducible local QA
 
-Di worktree backend, dengan PostgreSQL clone existing localhost 55439 dan role QA terbatas:
+Jalankan hanya dengan cluster testing 127.0.0.1:55439 dan fixture role existing. Tidak membaca DATABASE_URL/.env. Bootstrap memerlukan flag eksplisit dan selalu membuat nama clone baru, tidak menimpa database existing:
 
+    node scripts/prepare-suq-policy-clone.js --create-local-clone
+    $env:SUQ_QA_CLONE='nama_suq_policy_dari_output'
     node scripts/run-suq-release-qa.js
     node scripts/test-suq-ws4-catalog.js
-    node scripts/test-suq-ws3-concurrency.js
+    node scripts/test-suq-policy-concurrency.js
 
-Runner financial terikat literal ke clone lokal, tidak membaca DATABASE_URL atau .env. Suite rollback memverifikasi fingerprint seluruh tabel. Suite concurrency membuat salinan lokal baru, menyimpan data TEST ONLY, dan tidak menimpa database lama.
+Jalankan suite rollback dan template-copy concurrency secara berurutan agar source clone tidak sedang dipakai saat CREATE DATABASE WITH TEMPLATE. Concurrency menyimpan salinan TEST ONLY baru; tidak ada DROP DATABASE/terminate session otomatis. Historic WS1–WS4 harness yang memuat kontrak sebelum kebijakan disetujui digantikan oleh test-suq-policy-db untuk kontrak saat ini, bukan alasan mengembalikan kebijakan lama.
 
-Mobile, memakai SDK57 existing tanpa install dependency:
-
-    $env:POS_EXPO_SDK_ROOT='C:\sqb7e082\node_modules\expo'
-    node --test tests/*.test.cjs
-
-Introspeksi source Android dari root worktree:
+Mobile dari pos-app:
 
     $env:POS_EXPO_SDK_ROOT='C:\sqpromo7\node_modules\expo'
-    node scripts/check-suq-android-source.js
+    node --test tests/*.test.cjs
+    $env:NODE_PATH='C:\sqpromo7\node_modules'
+    node C:\sqpromo7\node_modules\eslint\bin\eslint.js .
 
-Ini konfigurasi/mod source offline, bukan Gradle/EAS/APK build. Manifest library menyatakan NFC optional. Final merged manifest, signature dan ABI tetap harus diperiksa ketika build berikutnya memang diizinkan.
+## Rollout dan recovery — belum dieksekusi
 
-## Blocker dan batas rilis
+1. Tutup SQ-07 dengan rehearsal cutoff usaha berhistori yang tidak double count; selesaikan acceptance/gap yang dipilih sebelum production GO.
+2. Verifikasi source/backend/target/schema/ACL aktual dan backup konsisten terbaru melalui akses sah. Jangan memakai status production historis sebagai bukti current.
+3. Minta persetujuan production khusus untuk migration122/checksum, ACL minimal, backend dan aplikasi yang tepat. Tidak ada izin itu pada addendum ini.
+4. Setelah disetujui, terapkan satu migration terreview + ACL yang belum ada; deploy backend lebih dahulu. Tidak auto-run seluruh migration dan tidak deploy canonical HEAD yang berisi kerja lain.
+5. Verifikasi health/auth/permission/API non-mutating. Old clients tidak boleh mengirim opname direct-post; server mengembalikan OPNAME_APPROVAL_REQUIRED. Import identity change juga membutuhkan editor baru. Komunikasikan update window.
+6. Build/sign/distribusi APK hanya pada instruksi berikutnya, inject SHA actual; periksa merged manifest, HTTPS, cleartext false, package/code10, signature, ABI, SHA-256; lanjut physical acceptance pada backend/data terisolasi.
+7. Bila P0: hentikan rollout, identifikasi baseline source/image yang benar-benar berjalan dan disetujui untuk recovery. Tidak restore database otomatis atau menghapus policy events/ledger. Schema122 additive dapat dipertahankan, tetapi **rollback source da41d18a mengaktifkan kembali credential merchant dan bypass approval opname**: jangan menganggapnya aman; gunakan forward-fix atau hentikan operasi terdampak sesuai otorisasi incident. Tidak mencabut GRANT lama atau mengubah Wallet balance untuk menyamarkan kegagalan.
 
-1. Tiga P1 kebijakan: handover, cutoff pembukuan awal, lifecycle credential Wallet.
-2. Kebijakan tambahan pada BUSINESS_POLICY_DECISIONS.md belum disetujui.
-3. Hardware/file asli/perangkat dan acceptance finansial fisik belum dilakukan.
-4. Delta source/ACL settlement belum di production dan memerlukan persetujuan terpisah.
-5. Audit master SQ-20 belum lengkap; selector legacy dan diagnostik/error masih mempunyai gap P2/P3 pada matriks 22 temuan. Tidak ditutup menggunakan tes modul lain. Fitur audit master baru tidak dibuat dalam larangan fitur baru WS4.
-
-RC siap untuk review keputusan dan acceptance terkontrol di WS5; **belum production GO**.
-
-## Urutan deployment — hanya setelah diotorisasi
-
-1. Cocokkan source/backend aktif, schema ledger dan target database aktual; ambil backup konsisten terbaru melalui jalur sah, simpan provenance/checksum. Jangan mengasumsikan source production masih baseline lama.
-2. Rekam ACL awal dan pastikan satu-satunya delta adalah metadata cash_accounts.id. Tidak perlu migration schema baru.
-3. Setelah persetujuan khusus, terapkan delta minimal yang belum tersedia dan deploy hanya backend RC melalui branch resmi; satu instance/scheduler Auto Alfa tetap.
-4. Smoke test non-destruktif login/context/catalog/permission/report. Tidak melakukan dummy sale pada production.
-5. Build APK hanya setelah instruksi berikutnya, gunakan source SHA RC dan signing existing tanpa membuka private key. Verifikasi package/code10/HTTPS/cleartext/signature/SHA-256/ABI dan final merged manifest.
-6. Distribusi/acceptance perangkat sesuai izin, backend testing terisolasi/data dummy untuk transaksi pengujian.
-7. Baru setelah acceptance dan keputusan bisnis, ajukan go-live yang sesuai. Tidak menggabungkan pengembangan akademik lain.
-
-Backend lebih dahulu, aplikasi baru kemudian. API receipt baru bersifat additive untuk v9; aplikasi v10 memerlukan backend refund context. Opname legacy yang memakai delta stale sengaja ditolak dengan pesan pembaruan aplikasi; komunikasikan jendela update agar operator tidak mengulang mutasi.
-
-## Pemulihan
-
-- Sebelum rollout, simpan identitas image/source backend yang benar-benar berjalan dan compatible mobile sebelumnya.
-- Bila P0, hentikan rollout dan gunakan source/image pemulihan yang telah diverifikasi/disetujui, bukan canonical HEAD.
-- Tidak ada down migration atau restore database otomatis untuk RC ini.
-- Bila privilege cash_accounts.id ditambahkan khusus rollout, kembalikan hanya privilege itu sesuai ACL awal dan izin Owner; jangan mencabut hak yang sudah ada atau memberi UPDATE ledger.
-- Rollback ke backend lama dapat mengembalikan bug permission settlement/opname. Jangan mengklaim rollback aman hanya karena image tersedia; batasi operasi terdampak sampai diverifikasi.
-- Mutasi yang sudah commit tidak dihapus. Refund/reversal/koreksi harus melalui domain canonical dan alasan/audit.
-- Pertahankan Auto Alfa deadline scheduler; amati metrik/log provider existing tanpa SQL keep-alive atau load test Neon.
+Tidak ada scheduler/polling SQL baru. UI list draft hanya dimuat saat halaman/revision berubah, bukan interval background. Pakai log/provider metrics existing untuk observasi cost; tidak ada SQL keep-alive.

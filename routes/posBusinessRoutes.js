@@ -74,6 +74,10 @@ function createPosBusinessRouter({ db, service = createPosBusinessService({ db }
   router.post('/:businessId/parties/:partyId', handle('updateParty'));
   router.get('/:businessId/inventory', handle('inventory'));
   router.post('/:businessId/stock-opnames', handle('stockOpname'));
+  router.post('/:businessId/stock-opname-drafts',handle('draftOpname'));
+  router.get('/:businessId/stock-opname-drafts',handle('policyHistory'));
+  router.post('/:businessId/products/:productId/identity',handle('changeProductIdentity'));
+  router.post('/:businessId/shifts/takeover',handle('takeoverShift'));
   router.get('/:businessId/activity', handle('activity'));
   router.get('/:businessId/sales', handle('sales'));
   router.get('/:businessId/purchases', handle('purchases'));

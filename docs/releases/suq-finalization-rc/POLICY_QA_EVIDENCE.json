@@ -1,0 +1,113 @@
+{
+  "date": "2026-11-03",
+  "baseline": "da41d18a601280551eaf471e506681aea4c857b4",
+  "productionChanged": false,
+  "apkBuilt": false,
+  "financial": {
+    "clone": "suq_policy_d03ebbe1dd",
+    "productionChanged": false,
+    "tests": [
+      {
+        "name": "test-suq-policy-db.js",
+        "status": "PASS",
+        "checks": 29,
+        "rollbackFingerprint": true
+      },
+      {
+        "name": "test-pos-finance-db.js",
+        "status": "PASS",
+        "checks": 21,
+        "rollbackFingerprint": true
+      }
+    ],
+    "status": "PASS",
+    "role": "suq_clone_runtime_7d4e9e147f",
+    "requiredSantriColumns": [
+      "nama",
+      "tenant_id"
+    ],
+    "prerequisites": {
+      "tenant1": true,
+      "unit2": true
+    },
+    "runtimeTransactions": 474,
+    "dbFailure": {
+      "code": "23514"
+    },
+    "allTableFingerprints": "UNCHANGED"
+  },
+  "race": {
+    "at": "2026-11-03T06:00:29.926Z",
+    "source": "codex/suq-finalization-ws1 working tree",
+    "target": "suq_policy_race_f930cd7166",
+    "productionChanged": false,
+    "checks": [
+      {
+        "id": "REAL_COMMIT_CONCURRENT_WALLET_SALE_ONE_DEBIT",
+        "status": "PASS"
+      },
+      {
+        "id": "REAL_COMMIT_CONCURRENT_SETTLEMENT_ONE_TREASURY_OUTFLOW",
+        "status": "PASS"
+      },
+      {
+        "id": "REAL_COMMIT_CONCURRENT_POST_PAYOUT_REFUND_ONE_CREDIT_AND_RECOVERY",
+        "status": "PASS"
+      },
+      {
+        "id": "TAKEOVER_RACE_TWO_OWNERS_ONE_HANDOVER_NO_FICTITIOUS_CASH",
+        "status": "PASS"
+      },
+      {
+        "id": "IDENTITY_RACE_TWO_PRODUCTS_ONE_UNIQUE_SKU_HISTORY_UNCHANGED",
+        "status": "PASS"
+      },
+      {
+        "id": "OPNAME_TWO_APPROVALS_ONE_FIFO_MOVEMENT_DRAFT_NO_POST",
+        "status": "PASS"
+      },
+      {
+        "id": "OPENING_CONCURRENT_OWNERS_ONE_FINALIZATION_ONE_CANONICAL_POST",
+        "status": "PASS"
+      },
+      {
+        "id": "ADMIN_CREDENTIAL_ISSUE_REPLACE_REVOKE_RACES_ONCE_NO_WALLET_MUTATION",
+        "status": "PASS"
+      }
+    ],
+    "openingRace": [
+      {
+        "status": 200
+      },
+      {
+        "status": 409,
+        "code": "INITIALIZATION_FINALIZED"
+      }
+    ],
+    "fixtureDatabasePreserved": true,
+    "status": "PASS"
+  },
+  "mobile": {
+    "tests": 177,
+    "pass": 177,
+    "fail": 0,
+    "skip": 0
+  },
+  "catalog": {
+    "products": 2001,
+    "pages": 67,
+    "groups": 7,
+    "status": "PASS",
+    "note": "clone runtime, approved draft/approval protocol + blocked unaudited identifier import"
+  },
+  "lint": {
+    "errors": 0,
+    "warnings": 3
+  },
+  "physical": "NOT_TESTED",
+  "p1": {
+    "SQ-01": "CLOSED_LOCAL",
+    "SQ-07": "PARTIAL_EXISTING_HISTORY_CUTOFF",
+    "SQ-08": "CLOSED_LOCAL"
+  }
+}

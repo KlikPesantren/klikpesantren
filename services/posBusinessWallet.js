@@ -70,21 +70,8 @@ function createBusinessWallet(h) {
  }
  const preview=req=>run(req,'wallet.preview',async(c,a)=>{const f=input(req.body),{w,p}=await resolve(c,a,f,false);
   return {name:p.nama,unit_id:f.unit,available_balance:w.current_balance,eligible:true,credential_method:f.type};});
- const provision=req=>run(req,'wallet.credentials.manage',async(c,a)=>{
-  const unit=Number(amount(req.body.unit_id,true)),person=Number(amount(req.body.santri_id,true));
-  await authority(c,a,unit);await eligible(c,a,unit,person);
-  const token='kpw_'+crypto.randomBytes(32).toString('base64url'),id=makeId();
-  await c.query(`INSERT INTO pos_wallet_credentials(id,tenant_id,santri_id,created_business_id,created_by,token_hash) VALUES($1,$2,$3,$4,$5,$6)`,[id,a.member.tenant_id,person,a.business,a.user,digest(token)]);
-  await c.query("INSERT INTO pos_wallet_credential_audits(id,credential_id,business_id,actor_id,action) VALUES($1,$2,$3,$4,'PROVISION')",[makeId(),id,a.business,a.user]);
-  return {id,token,one_time:true};
- });
- const revoke=req=>run(req,'wallet.credentials.manage',async(c,a)=>{
-  const card=(await c.query('SELECT * FROM pos_wallet_credentials WHERE id=$1 AND created_business_id=$2 AND tenant_id=$3 FOR UPDATE',[uuid(req.params.credentialId),a.business,a.member.tenant_id])).rows[0];
-  if(!card)bad('CREDENTIAL_DENIED',403);await authority(c,a,Number(amount(req.body.unit_id,true)));
-  if(card.active){await c.query('UPDATE pos_wallet_credentials SET active=false,revoked_at=now() WHERE id=$1',[card.id]);
-   await c.query("INSERT INTO pos_wallet_credential_audits(id,credential_id,business_id,actor_id,action) VALUES($1,$2,$3,$4,'REVOKE')",[makeId(),card.id,a.business,a.user]);}
-  return {id:card.id,active:false};
- });
+ const provision=req=>run(req,'SALE_CREATE',()=>bad('WALLET_CREDENTIAL_ADMIN_ONLY',403));
+ const revoke=provision;
  return {input,resolve,clearing,movement,refund,preview,provision,revoke};
 }
 module.exports={createBusinessWallet};

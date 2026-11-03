@@ -1,15 +1,23 @@
 {
   "algorithm": "SHA-256",
-  "backendBaseline": "329028cb66d2665b38b036c8b7160bd8e53bec33",
-  "mobileBaseline": "b0885269c8b0bc2e55f0e27da3c0fdf2d5673c9e",
+  "byteScope": "Working tree bytes on Windows; Git line ending normalization may differ across platforms.",
+  "baseline": "da41d18a601280551eaf471e506681aea4c857b4",
   "entries": [
     {
       "file": "config/posRuntimePrivileges.js",
-      "sha256": "4f6ce982debf8504d096dc2ee5f0f075bafe3e56c7e93bbadff77ab5929003ce"
+      "sha256": "5bcc99503ac0af136d47d598131687f6b82ed0b222bc2eccd49a6d9ce2ededc3"
     },
     {
       "file": "docs/releases/suq-finalization-rc/BUSINESS_POLICY_DECISIONS.md",
-      "sha256": "8f03e92516f725846fcb01b8d75115e25cdef2db78b397031fdc54693a475896"
+      "sha256": "67f224cb2f57c539da37580083fd1255e281acbb9f4febe7784bd523a61b9120"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/POLICY_DB_MANIFEST.json",
+      "sha256": "daefd14879bcf5237f66f6089d977ae0a87ff60823bcfe1bd0635179b260207d"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/POLICY_QA_EVIDENCE.json",
+      "sha256": "17094fb0368b39fa17853e565ef1df177bc9f37d28f5e0c58d851a3a60a23120"
     },
     {
       "file": "docs/releases/suq-finalization-rc/QA_EVIDENCE.json",
@@ -17,7 +25,7 @@
     },
     {
       "file": "docs/releases/suq-finalization-rc/README.md",
-      "sha256": "c3f00a764f3dc354986849697231c5afaf9f40d8eceee84b32c786f990901bc9"
+      "sha256": "d7fb09b101939003738d416cfad28a2002d31a9d1f28d5159c21fcb18c77ff47"
     },
     {
       "file": "docs/releases/suq-finalization-rc/SUQ_SHOGIR_FINALIZATION_WS1.md",
@@ -37,11 +45,19 @@
     },
     {
       "file": "docs/releases/suq-finalization-rc/SUQ_SHOGIR_RELEASE_READINESS.md",
-      "sha256": "231e161acb299f70a974df2643708506508eb267cbb9f0064fee83aa76409a97"
+      "sha256": "d3b8f17dcfc725783293dffc06e0d9dc5f80e7926d645453a9efbf7752b8c5c2"
     },
     {
       "file": "docs/releases/suq-finalization-rc/SUQ_SHOGIR_WS4_FINDINGS.md",
-      "sha256": "8dede1611569dba2c5fe7e044c6667c8775c409fba232cf0be7937724f2446b3"
+      "sha256": "a198b43fb848d8cef9c3509b6e9fce623f5960d89be1adb2a6f2bb9110fbef65"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/SUQ_SHOGIR_WS4_POLICY_ADDENDUM.md",
+      "sha256": "35c8b8adc6c5b31c8a59fc56de87d477b512ee15d864388ced1ed5f7f0f7d027"
+    },
+    {
+      "file": "migrations/122_pos_operational_policy_controls.sql",
+      "sha256": "c6fb5084fb50837cff542936cb77d0cd111341c5157dd517fbce4fb3aa3af333"
     },
     {
       "file": "pos-app/.easignore",
@@ -113,7 +129,11 @@
     },
     {
       "file": "pos-app/src/MerchantBusinessApp.jsx",
-      "sha256": "2e778116aba6786be784a2a5ba03d8ab01db383ef52f19e60e8110a4c9b6e428"
+      "sha256": "e9ce75560fedc88e7e0de68798d30e49459797f94c238ad06965131e0204df89"
+    },
+    {
+      "file": "pos-app/src/PolicyControls.jsx",
+      "sha256": "1886c1e928d6b56ef3473bc650da2c54c2cc09c94877690a7711d5edd7418a8e"
     },
     {
       "file": "pos-app/src/PricingScreens.jsx",
@@ -189,7 +209,7 @@
     },
     {
       "file": "pos-app/src/mutationJournal.cjs",
-      "sha256": "aa31fc172b5447284023c7e4424f60b27e88d354c56c57a874922177b634d5e3"
+      "sha256": "961e46e0214a36dae4f6ea6dc75653d99dc1c72f57cc0475685826195c3c93f9"
     },
     {
       "file": "pos-app/src/nativeUpload.cjs",
@@ -332,6 +352,10 @@
       "sha256": "f066961b76f2960bd62a0e122a36a507121dab18867eb3186b81f0a024044d32"
     },
     {
+      "file": "pos-app/tests/policy-ui.test.cjs",
+      "sha256": "42a19804fbe98a2a90f6dbacdd27f9c00e418a0cdbdbee18de1e51f0d5f4241f"
+    },
+    {
       "file": "pos-app/tests/pricing-ui.test.cjs",
       "sha256": "7de6288f75ec442251bf94276b99d36e17d986ea0552a16e3a6bf1123a6c93d4"
     },
@@ -413,7 +437,7 @@
     },
     {
       "file": "pos-app/tests/ws2-navigation.test.cjs",
-      "sha256": "555b42b84cd60b3b636ff29a64b87ac276c625320d3f248436e611c88d833e36"
+      "sha256": "c82d3703fdb1b10f1f8408497b5f08535da46f76c9f41c4edb5d47f88d07133e"
     },
     {
       "file": "pos-app/tests/ws3-wallet-scanner.test.cjs",
@@ -421,23 +445,39 @@
     },
     {
       "file": "pos-app/tests/ws4-release-qa.test.cjs",
-      "sha256": "298daf1157fee8845abcf7153f9fb09a7ddf139d97478d65f4599a9211111a23"
+      "sha256": "84b813525f6f13caf6e460fe5db763dbd9848e239d4a6ae2ec095b9b12ec61d9"
+    },
+    {
+      "file": "routes/posAdminRoutes.js",
+      "sha256": "b717206a5bb5bd5167d19c879fc21bb4286844466c8602c2ca1f1ebb7e75bbb6"
     },
     {
       "file": "routes/posBusinessRoutes.js",
-      "sha256": "7f6fb90e40e8484d017d1239ef3c332d343d05bcf57d1b30f55a71ab04ec6353"
+      "sha256": "7bea8b30cfa68302a108bdeba90ce95efa744d92632805d16afe83db86332bc0"
     },
     {
       "file": "scripts/check-suq-android-source.js",
       "sha256": "636908dbeeaa93bf167c340524aefebf97dfcd23c0718129563ee5b351912171"
     },
     {
+      "file": "scripts/prepare-suq-policy-clone.js",
+      "sha256": "95177f0893b256f6ac61d961cbd8e0ed4f6a9acaaa5fd84393ae3808a101d91a"
+    },
+    {
       "file": "scripts/run-suq-release-qa.js",
-      "sha256": "74a3dfe76bba315e99a4226022a89e3333a941c7b692415c6aefaf3e21b1affb"
+      "sha256": "0c945cca102f3e0aa95b2e633f4994a755daf09250dce03f32eb32e9cc9ed534"
     },
     {
       "file": "scripts/test-pos-finance-db.js",
       "sha256": "e2847d1416272a5055c76a2f3acee419ae512737242af47850a528ecd4e7d2ac"
+    },
+    {
+      "file": "scripts/test-suq-policy-concurrency.js",
+      "sha256": "b53de0edcd34bbd58eb3dc0edde5de2590c5c258cface963428ea2325f0f0d21"
+    },
+    {
+      "file": "scripts/test-suq-policy-db.js",
+      "sha256": "62e46fc1361406f4f4196d081f4481e0bf4bee3af3e7d44f86356b7b9dd1e7c5"
     },
     {
       "file": "scripts/test-suq-ws1-concurrency.js",
@@ -449,7 +489,7 @@
     },
     {
       "file": "scripts/test-suq-ws2-runtime.js",
-      "sha256": "4148fc8424221c8325dad6ac32c2ad3f6f00192b75f1eaee6d70250fd23f06d9"
+      "sha256": "9f099cb66869f31c5f0d88137dd8ea7f3bff3f0ac023986463a4072ec97ddf18"
     },
     {
       "file": "scripts/test-suq-ws3-concurrency.js",
@@ -461,23 +501,35 @@
     },
     {
       "file": "scripts/test-suq-ws4-catalog.js",
-      "sha256": "02c043b8e0b64f6ac1936672281080e85d885d59ed30f7106d79b8d5274c6fd9"
+      "sha256": "16ccf264b3c112ccabecdcde466dcb85b493cff79030fc0bdb8f925efd6fcb3b"
     },
     {
       "file": "scripts/test-suq-ws4-operations-db.js",
       "sha256": "d51fc06a6bfe861329a7fcf386d233e21af3032bb47e09591eff64e755576c9d"
     },
     {
+      "file": "services/posAdminCredentials.js",
+      "sha256": "e13047eef1e2eb0f5e3ec00311d0694b408eb79684d9fab3d4681a9df784caed"
+    },
+    {
       "file": "services/posAdminService.js",
-      "sha256": "10dfea4551b31afbec70175e78d2e3df61256157850199773388b72420f633d2"
+      "sha256": "4eec8992dda85e5959f40e638c5215f03b50d0e1dbb07b26ae18cae26febf5ba"
+    },
+    {
+      "file": "services/posBusinessPolicies.js",
+      "sha256": "646e033403cd0647bda46cf0d60a46d11b62928091b0b3cf09488c21740d2186"
     },
     {
       "file": "services/posBusinessService.js",
-      "sha256": "e1b28b7ba009ad05f05fdf963b7476f9c2b7dfac736f5835779aa081e09ebd3f"
+      "sha256": "a9a54d82b42cff27514114eb7dffdc1253cd60159a9dd1d4f6b1f721ae832cff"
+    },
+    {
+      "file": "services/posBusinessWallet.js",
+      "sha256": "0dd8dcb08e29a41c70012142e23afaf148cf4e6edea46b172226c5f44762cfd8"
     },
     {
       "file": "services/posBusinessWorkspace.js",
-      "sha256": "0c912e75dc2211ef9d8aa8f7b9dff3b915a516c0ce9c06eb7bda01ed67f9382e"
+      "sha256": "d2e3346886e9c863e6ae789f82c3d3d589a2ffabcb3cc311af97cc7b7050bc90"
     },
     {
       "file": "services/posProductPage.js",
@@ -485,12 +537,11 @@
     },
     {
       "file": "services/posProductWorkbookService.js",
-      "sha256": "083f6d6587b5bbf1bb38874cdbf3f7b6e98aa086d328aba0e81af98e724ccbe0"
+      "sha256": "f00168b74d85683860df023f8c02074eab851737c23cff2ba89fe205ec9ee31f"
     },
     {
       "file": "services/posRefundContext.js",
       "sha256": "03a6410a16247abd2d6b692334c150bc03bd72a8f381ebb4840c71663899cd3b"
     }
-  ],
-  "byteScope": "Working tree bytes on Windows at packaging; Git line-ending normalization may differ across platforms."
+  ]
 }

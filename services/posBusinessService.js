@@ -346,10 +346,9 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       return { id: op.id, replay: false };
     });
   }
-  async function stockOpname(req) {
-    return run(req,'INVENTORY_ADJUST',async(c,a)=>{
+  async function postApprovedOpname(c,a,b) {
       if(!merchantPermissions.has(a.member,'INVENTORY_OPNAME')) bad('MERCHANT_PERMISSION_DENIED',403);
-      const b=req.body||{}, product=uuid(b.product_id), actual=amount(b.actual_stock), expected=amount(b.expected_stock), version=amount(b.expected_version);
+      const product=uuid(b.product_id), actual=amount(b.actual_stock), expected=amount(b.expected_stock), version=amount(b.expected_version);
       const fields={product,actual,expected,version,reason:text(b.reason,500),unitCost:amount(b.unit_cost||0),total:0n,paid:0n};
       const op=await beginOperation(c,a,b,'STOCK_ADJUSTMENT',fields);
       if(op.replay)return {id:op.id,replay:true};
@@ -357,7 +356,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       const current=(await c.query('SELECT coalesce(sum(quantity),0)::text stock,count(*)::text version FROM pos_inventory_movements WHERE business_id=$1 AND product_id=$2',[a.business,product])).rows[0];
       if(BigInt(current.stock)!==expected || BigInt(current.version)!==version)bad('STOCK_SNAPSHOT_STALE',409);
       const delta=actual-expected;
-      if(!delta)bad('STOCK_COUNT_UNCHANGED',409);
+      if(!delta)return {id:null,replay:false,on_hand:actual.toString(),unchanged:true};
       if(delta>0n && !merchantPermissions.has(a.member,'PRODUCT_COST_VIEW'))bad('MERCHANT_PERMISSION_DENIED',403);
       const f={...fields,snapshot:{kind:'STOCK_OPNAME',expected_stock:expected.toString(),actual_stock:actual.toString(),expected_version:version.toString(),reason:fields.reason}};
       await insertOperation(c,a,op,'STOCK_ADJUSTMENT',f);
@@ -365,7 +364,6 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       if(delta>0n){await stockRow(c,a,op.id,product,movement,delta,delta*fields.unitCost,'ADJUSTMENT_IN',fields.reason);await addLayer(c,a,product,movement,delta,fields.unitCost);}
       else{const cost=await availableCost(c,a,product,-delta);await stockRow(c,a,op.id,product,movement,delta,cost,'ADJUSTMENT_OUT',fields.reason);if(await consume(c,a,product,-delta,movement)!==cost)bad('COST_MISMATCH',409);}
       return {id:op.id,replay:false,on_hand:actual.toString()};
-    });
   }
   async function availableCost(c, a, product, quantity) {
     // Product is already locked. Reservations share this SAME stock, never a second counter.
@@ -480,6 +478,10 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
   async function closeShift(req) {
     return run(req, 'SHIFT_CLOSE', async (c, a) => {
       const s = await shiftRow(c, a, req.body.shift_id), actual = amount(req.body.actual_cash);
+      return closeShiftWork(c,a,s,actual);
+    });
+  }
+  async function closeShiftWork(c,a,s,actual) {
       if (s.status === 'CLOSED') {
         if (BigInt(s.actual_cash) !== actual) bad('SHIFT_ALREADY_CLOSED', 409);
         return { ...s, replay: true };
@@ -491,7 +493,6 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       const expected = BigInt(s.opening_cash) + movement + settlementCash;
       return (await c.query(`UPDATE pos_business_shifts SET status='CLOSED',closed_at=now(),actual_cash=$1,expected_cash=$2,difference=$3
         WHERE id=$4 AND business_id=$5 RETURNING *`, [actual.toString(), expected.toString(), (actual - expected).toString(), s.id, a.business])).rows[0];
-    });
   }
   async function sale(req) {
     return run(req, 'SALE_CREATE', async (c, a) => {
@@ -781,9 +782,18 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     getProduct,getAccount,saleWork,returns,beginOperation,insertOperation,moneyRow,afterStage,
     permitted:(access,key)=>merchantPermissions.has(access.member,key)});
   const workspace=require('./posBusinessWorkspace').createBusinessWorkspace({run,bad,uuid,amount,text,makeId,bcrypt,passwordInput,crypto,hash});
-  const initialization=require('./posBusinessInitialization').createBusinessInitialization({run,bad,uuid,amount,text,makeId,hash,serialize,lock,
+  // Serialize opening before access takes its business FOR SHARE lock; otherwise two
+  // finalizers can deadlock while upgrading that lock to change accounting_start_date.
+  const runInitialization=(req,permission,work)=>transaction(async c=>{
+    await authenticatedUser(c,req);
+    await lock(c,'pos-initialization:'+uuid(req.params?.businessId));
+    return work(c,await access(c,req,permission));
+  });
+  const initialization=require('./posBusinessInitialization').createBusinessInitialization({run:runInitialization,bad,uuid,amount,text,makeId,hash,serialize,lock,
     insertOperation,moneyRow,debtRow,stockRow,addLayer,getProduct,availableCost,consume,accountBalance,getAccount});
-  const productWorkbooks=require('./posProductWorkbookService').createPosProductWorkbookService({run,bad,makeId});
+  const policies=require('./posBusinessPolicies').createBusinessPolicies({run,read,bad,uuid,amount,text,makeId,hash,serialize,lock,getProduct,getAccount,closeShiftWork,postApprovedOpname,afterStage});
+  const stockOpname=policies.approveOpname;
+  const productWorkbooks=require('./posProductWorkbookService').createPosProductWorkbookService({run,bad,makeId,identityWork:policies.identityWork});
   const moneyRevisions=require('./posBusinessMoneyRevisions').createMoneyRevisions({run,read,bad,uuid,text,amount,hash,lock,beginOperation,insertOperation,moneyRow,moneyWork,getAccount,accountBalance,afterStage});
   const cashBookWorkbooks=require('./posCashBookWorkbookService').createCashBookWorkbookService({cashBook});
   const pricing=require('./posBusinessPricing').createBusinessPricing({run,bad,uuid,text,makeId,lock});
@@ -796,7 +806,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     const outstanding=(await c.query("SELECT coalesce(sum(amount),0) outstanding FROM pos_debt_movements WHERE business_id=$1 AND source_id=$2 AND kind='AP'",[a.business,op.id])).rows[0].outstanding;
     return {invoice:{...op,status:'POSTED',outstanding,payment_status:BigInt(outstanding)>0n?'OUTSTANDING':'SETTLED'},items};
   });
-  return { ...moneyRevisions,...online,...workspace,...initialization,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, activate, logout, context, member, product, authorizeProductAsset, catalog, party, account, purchase, adjustment, stockOpname, money, payDebt,
+  return { ...policies,...moneyRevisions,...online,...workspace,...initialization,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, activate, logout, context, member, product, authorizeProductAsset, catalog, party, account, purchase, adjustment, stockOpname, money, payDebt,
     ...productWorkbooks, ...cashBookWorkbooks,financeCategories:finance.categories, pricing:pricing.pricing,pricingQuote:pricing.pricingQuote,savePriceLevel:pricing.savePriceLevel,saveLevelPrice:pricing.saveLevelPrice,assignCustomerPriceLevel:pricing.assignCustomerPriceLevel,savePromotion:pricing.savePromotion,purchaseDetail,memberships, terminal, openShift, closeShift, sale, receipt, report, cashBook,books:finance.books };
 }
 module.exports = { createPosBusinessService, amount };

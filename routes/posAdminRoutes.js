@@ -11,6 +11,7 @@ function createPosAdminRouter({admin=service}={}){
  }};
  for(const operation of ['dashboard','transactions','shifts','refunds','reconciliation','settlements'])router.get('/'+operation,handle(operation));
  router.post('/settlements',handle('settleWallet'));
+ router.post('/wallet-credentials',handle('credentialAction'));
  router.get('/transactions/:id',handle('detail'));
  router.get('/management/:kind',handle('management'));
  router.get('/businesses-v2',handle('businessesV2'));

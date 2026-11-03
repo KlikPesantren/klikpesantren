@@ -31,8 +31,8 @@ const update={sku:product.sku,barcode:product.barcode,name:'Audit product 0001',
 assert.equal((await call(prefix+'products/'+product.id,ct,{...update,selling_price:'6000'})).status,403);
 assert.equal((await call(prefix+'products/'+product.id,ct,{...update,reference_purchase_price:'2000'})).status,403);
 const safeEdit=await call(prefix+'products/'+product.id,ct,update);assert.equal(safeEdit.status,200);assert(!Object.hasOwn(safeEdit.j.data,'reference_purchase_price'));
-assert.equal((await call(prefix+'products/'+product.id,ot,{...update,sku:'DIFFERENT'})).j.code,'PRODUCT_IDENTIFIER_POLICY_REQUIRED');
-assert.equal((await call(prefix+'products/'+product.id,ot,{...update,barcode:null})).j.code,'PRODUCT_IDENTIFIER_POLICY_REQUIRED');
+assert.equal((await call(prefix+'products/'+product.id,ot,{...update,sku:'DIFFERENT'})).j.code,'IDENTIFIER_CHANGE_REQUIRES_AUDIT');
+assert.equal((await call(prefix+'products/'+product.id,ot,{...update,barcode:null})).j.code,'IDENTIFIER_CHANGE_REQUIRES_AUDIT');
 assert.equal((await call(prefix+'products',ct,{...update,sku:'TEST-NO-PRICE'})).status,403);
 out.checks.push({id:'COST_REDACTION_FIELD_AUTHORITY_AND_IDENTIFIER_FAIL_CLOSED',status:'PASS'});
 const svc=createPosBusinessService({db}),authReq=token=>({headers:{authorization:'Bearer '+token},params:{businessId:biz},query:{},body:{}});

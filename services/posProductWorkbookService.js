@@ -223,6 +223,7 @@ function createPosProductWorkbookService({ run, bad, makeId }) {
       if (!req.file?.buffer) fail(bad, 'PRODUCT_WORKBOOK_REQUIRED', 400);
       await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`pos-product-import:${a.business}`]);
       const analysis = analyzeRows(readRows(req.file.buffer), await existingProducts(c, a.business, true));
+      if(analysis.rows.some(row=>row.identity_changes?.length))fail(bad,'PRODUCT_IDENTIFIER_CHANGE_USE_EDITOR',409);
       if (!analysis.can_commit) fail(bad, 'PRODUCT_IMPORT_VALIDATION_FAILED', 422, analysis);
       for (const row of analysis.rows) {
         if (row.status === 'CREATE') {

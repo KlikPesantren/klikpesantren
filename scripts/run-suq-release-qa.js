@@ -2,7 +2,8 @@
 require('fs').mkdirSync(require('path').resolve(__dirname,'../.tmp'),{recursive:true});
 const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('assert/strict'),crypto=require('crypto');
 const {createRequire}=require('module'),pg=require('pg');
-const target='suq_production_rc_ac8c7ae9d4_test';
+const target=process.env.SUQ_QA_CLONE||'suq_production_rc_ac8c7ae9d4_test';
+assert(/^suq_(?:policy_[a-f0-9]{10}|production_rc_ac8c7ae9d4_test)$/.test(target),'ALLOWLIST_CLONE_REQUIRED');
 const staged=path.resolve(__dirname,'..');
 const legacy=__dirname;
 const role='suq_clone_runtime_7d4e9e147f';
@@ -41,13 +42,13 @@ async function runSuite(name){
 }
 (async()=>{
  const c=new pg.Client(opt);await c.connect();let before;
- try{await identity(c);assert.equal((await c.query('SELECT count(*)::int n FROM public.schema_migrations')).rows[0].n,88);
+ try{await identity(c);assert.equal((await c.query('SELECT count(*)::int n FROM public.schema_migrations')).rows[0].n,target.startsWith('suq_policy_')?89:88);
   report.requiredSantriColumns=(await c.query("SELECT column_name FROM information_schema.columns WHERE table_name='santri' AND table_schema='public' AND is_nullable='NO' AND column_default IS NULL")).rows.map(x=>x.column_name);
   report.prerequisites=(await c.query('SELECT EXISTS(SELECT 1 FROM tenants WHERE id=1) tenant1,EXISTS(SELECT 1 FROM unit_pendidikan WHERE id=2 AND tenant_id=1) unit2')).rows[0];assert(report.prerequisites.tenant1&&report.prerequisites.unit2,'FIXTURE_PREREQUISITE_MISSING');
   report.runtimeTransactions=0;
   before=await fingerprint(c);
  }finally{await c.end();}
- const suites=process.env.SUQ_TEST_ONLY==='finance'?['test-pos-finance-db.js']:['test-suq-ws4-operations-db.js','test-pos-finance-db.js'];
+ const suites=process.env.SUQ_TEST_ONLY==='finance'?['test-pos-finance-db.js']:['test-suq-policy-db.js','test-pos-finance-db.js'];
  for(const name of suites){phase=name;await runSuite(name);}
  phase='all-table-integrity';const check=new pg.Client(opt);await check.connect();try{await identity(check);assert.deepEqual(await fingerprint(check),before,'CLONE_ROWS_CHANGED');report.allTableFingerprints='UNCHANGED';}finally{await check.end();}
  report.status='PASS';

@@ -1,6 +1,8 @@
 // Exact normal-runtime database privileges for POS V1/V2.
 // Environment-specific role names deliberately do not belong in this manifest.
 const tables = {
+  pos_business_cutoff_corrections:{select:true,insert:true},
+  pos_business_cutoffs:{select:true,insert:true},
   pos_business_policy_events:{select:true,insert:true},
   pos_price_levels:{select:true,insert:true,update:['name','active']},
   pos_product_level_prices:{select:true,insert:true,update:['price'],delete:true},

@@ -59,6 +59,11 @@ function createBusinessPolicies(h) {
   const rows=(await c.query(`SELECT d.id,d.subject_id,d.actor_id,d.payload,d.created_at,p.name,ap.id approval_id,ap.actor_id approved_by FROM pos_business_policy_events d JOIN pos_business_products p ON p.id=d.subject_id AND p.business_id=d.business_id LEFT JOIN pos_business_policy_events ap ON ap.source_event_id=d.id AND ap.business_id=d.business_id AND ap.kind='OPNAME_APPROVAL' WHERE d.business_id=$1 AND d.kind='OPNAME_DRAFT' ORDER BY d.created_at DESC,d.id LIMIT 100`,[a.business])).rows;
   return {drafts:rows,limit:100};
  });
- return {takeoverShift,identityWork,changeProductIdentity,draftOpname,approveOpname,policyHistory};
+ const policyAudit=req=>read(req,'BUSINESS_SETTINGS_VIEW',async(c,a)=>{
+  owner(a);const values=[a.business],q=req.query||{};let cursor='';if(q.before_at||q.before_id){if(!q.before_at||!q.before_id||Number.isNaN(Date.parse(q.before_at)))bad('INVALID_AUDIT_CURSOR');values.push(q.before_at,uuid(q.before_id));cursor=' AND (e.created_at,e.id)<($2::timestamptz,$3::uuid)';}
+  const rows=(await c.query(`SELECT e.id,e.kind,e.actor_id,e.admin_actor_id,e.payload,e.created_at,u.name actor_name FROM pos_business_policy_events e LEFT JOIN pos_merchant_users u ON u.id=e.actor_id WHERE e.business_id=$1${cursor} ORDER BY e.created_at DESC,e.id DESC LIMIT 51`,values)).rows;
+  const events=rows.slice(0,50),last=events[events.length-1];return {events,next:rows.length>50?{before_at:last.created_at.toISOString(),before_id:last.id}:null};
+ });
+ return {policyAudit,takeoverShift,identityWork,changeProductIdentity,draftOpname,approveOpname,policyHistory};
 }
 module.exports={createBusinessPolicies};

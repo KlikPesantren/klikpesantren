@@ -1,5 +1,5 @@
 const {createSaleJournal}=require('./saleJournal.cjs');
-const PATHS=new Set(['/purchases','/sale-returns','/purchase-returns','/debt-payments','/stock-adjustments','/stock-opnames','/stock-opname-drafts','/shifts/takeover','/initialization/finalize','/initialization/corrections']);
+const PATHS=new Set(['/purchases','/sale-returns','/purchase-returns','/debt-payments','/stock-adjustments','/cutoff/finalize','/cutoff/corrections','/stock-opnames','/stock-opname-drafts','/shifts/takeover','/initialization/finalize','/initialization/corrections']);
 const accepts=path=>PATHS.has(path)||/^\/products\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/identity$/i.test(path)||/^\/money\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/revise$/i.test(path);
 function createMutationJournal({vault,send,server}){
  const journal=createSaleJournal({vault,key:'merchant-mutation-v1',retainStatuses:[401,403,408,429],send:envelope=>{

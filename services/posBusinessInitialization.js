@@ -56,6 +56,7 @@ function createBusinessInitialization({ run, bad, uuid, amount, text, makeId, ha
       // immutable snapshot is never updated; a row lock would require UPDATE
       // privilege that the normal runtime must not receive.
       const old = (await c.query('SELECT request_id,request_hash FROM pos_business_initializations WHERE business_id=$1', [a.business])).rows[0];
+      if((await c.query('SELECT id FROM pos_business_cutoffs WHERE business_id=$1',[a.business])).rowCount)bad('CUTOFF_ALREADY_FINALIZED',409);
       if (old) {
         if (old.request_id !== request || old.request_hash !== requestHash) bad('INITIALIZATION_FINALIZED', 409);
         return response(c, a.business, true);

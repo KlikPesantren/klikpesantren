@@ -15,6 +15,7 @@ export function makeApi(token, onConnection = () => {}, apiBase = Constants.expo
     : "";
   const request = async (path, { method = "GET", body, formData, query } = {}) => {
     guardNetwork();
+    let requestId=null,httpStatus=null;
     const controller = new AbortController(),
       timer = setTimeout(() => controller.abort(), 15000);
     try {
@@ -28,6 +29,8 @@ export function makeApi(token, onConnection = () => {}, apiBase = Constants.expo
         body: formData || (body ? JSON.stringify(body) : undefined),
         signal: controller.signal,
       });
+      requestId=res.headers?.get?.("x-request-id")||null;httpStatus=res.status;
+      globalThis.__suqDiagnostics={...globalThis.__suqDiagnostics,lastRequest:{status:res.status,requestId,at:new Date().toISOString()}};
       onConnection(true);
       let json;
       try {
@@ -56,6 +59,8 @@ export function makeApi(token, onConnection = () => {}, apiBase = Constants.expo
         onConnection(false);
         e.code = controller.signal.aborted || e.name === "AbortError" ? "NETWORK_TIMEOUT" : "NETWORK";
       }
+      const code=/^[A-Z0-9_]{1,80}$/.test(String(e.code))?e.code:"UNKNOWN";
+      globalThis.__suqDiagnostics={...globalThis.__suqDiagnostics,lastError:{code,status:httpStatus,requestId,at:new Date().toISOString()}};
       throw e;
     } finally {
       clearTimeout(timer);

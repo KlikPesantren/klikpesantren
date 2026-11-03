@@ -1,0 +1,50 @@
+{
+  "baseline": "2edffe6a770722a5085941dd1306ea8883fe1bec",
+  "productionBaseline": "329028cb66d2665b38b036c8b7160bd8e53bec33",
+  "productionDeployment": "073dfd34-d36f-4f8b-8b1a-5cf78ec6dce1",
+  "productionChanged": false,
+  "migrations": [
+    {
+      "filename": "122_pos_operational_policy_controls.sql",
+      "sha256": "c6fb5084fb50837cff542936cb77d0cd111341c5157dd517fbce4fb3aa3af333"
+    },
+    {
+      "filename": "123_pos_cutoff_master_audit.sql",
+      "sha256": "2dd2d80e50f3efe435ab22e711a34e9f54d486ddfc1ae3fe6ebdbc21ff39bceb"
+    }
+  ],
+  "grants": [
+    {
+      "table": "public.pos_business_policy_events",
+      "privileges": [
+        "SELECT",
+        "INSERT"
+      ]
+    },
+    {
+      "table": "public.pos_business_cutoffs",
+      "privileges": [
+        "SELECT",
+        "INSERT"
+      ]
+    },
+    {
+      "table": "public.pos_business_cutoff_corrections",
+      "privileges": [
+        "SELECT",
+        "INSERT"
+      ]
+    },
+    {
+      "table": "public.cash_accounts",
+      "privilege": "UPDATE",
+      "columns": [
+        "id"
+      ],
+      "purpose": "existing settlement metadata row lock only"
+    }
+  ],
+  "noLedgerUpdateDeleteGrants": true,
+  "existingSkuBarcodeUpdateAlreadyVerified": true,
+  "productionAuthorization": "NOT_GRANTED_FOR_THIS_RC"
+}

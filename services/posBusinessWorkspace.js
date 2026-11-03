@@ -15,7 +15,7 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
         EXISTS(SELECT 1 FROM pos_business_accounts WHERE business_id=$1 AND active AND kind='CASH') cash_drawer,
         EXISTS(SELECT 1 FROM pos_business_terminals WHERE business_id=$1 AND active) terminal,
         EXISTS(SELECT 1 FROM pos_business_products WHERE business_id=$1 AND active) product,
-        EXISTS(SELECT 1 FROM pos_business_initializations WHERE business_id=$1) initialization,
+        (EXISTS(SELECT 1 FROM pos_business_initializations WHERE business_id=$1) OR EXISTS(SELECT 1 FROM pos_business_cutoffs WHERE business_id=$1)) initialization,
         EXISTS(SELECT 1 FROM pos_merchant_memberships WHERE business_id=$1 AND role<>'OWNER' AND active) employee,
         accounting_start_date,storefront_enabled,storefront_slug FROM pos_businesses WHERE id=$1`, [a.business])).rows[0];
       const out = {

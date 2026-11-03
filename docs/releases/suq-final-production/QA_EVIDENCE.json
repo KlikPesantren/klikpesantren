@@ -1,0 +1,175 @@
+{
+  "at": "2026-11-03T09:50:16.668Z",
+  "financial": {
+    "clone": "suq_final_24ecb8652e",
+    "productionChanged": false,
+    "tests": [
+      {
+        "name": "test-suq-final-db.js",
+        "status": "PASS",
+        "checks": 33,
+        "rollbackFingerprint": true
+      },
+      {
+        "name": "test-pos-finance-db.js",
+        "status": "PASS",
+        "checks": 21,
+        "rollbackFingerprint": true
+      }
+    ],
+    "status": "PASS",
+    "role": "suq_clone_runtime_7d4e9e147f",
+    "requiredSantriColumns": [
+      "nama",
+      "tenant_id"
+    ],
+    "prerequisites": {
+      "tenant1": true,
+      "unit2": true
+    },
+    "runtimeTransactions": 530,
+    "dbFailure": {
+      "code": "23514"
+    },
+    "allTableFingerprints": "UNCHANGED"
+  },
+  "race": {
+    "at": "2026-11-03T09:28:07.814Z",
+    "source": "codex/suq-finalization-ws1 working tree",
+    "target": "suq_final_race_defa57654a",
+    "productionChanged": false,
+    "checks": [
+      {
+        "id": "REAL_COMMIT_CONCURRENT_WALLET_SALE_ONE_DEBIT",
+        "status": "PASS"
+      },
+      {
+        "id": "REAL_COMMIT_CONCURRENT_SETTLEMENT_ONE_TREASURY_OUTFLOW",
+        "status": "PASS"
+      },
+      {
+        "id": "REAL_COMMIT_CONCURRENT_POST_PAYOUT_REFUND_ONE_CREDIT_AND_RECOVERY",
+        "status": "PASS"
+      },
+      {
+        "id": "TAKEOVER_RACE_TWO_OWNERS_ONE_HANDOVER_NO_FICTITIOUS_CASH",
+        "status": "PASS"
+      },
+      {
+        "id": "IDENTITY_RACE_TWO_PRODUCTS_ONE_UNIQUE_SKU_HISTORY_UNCHANGED",
+        "status": "PASS"
+      },
+      {
+        "id": "OPNAME_TWO_APPROVALS_ONE_FIFO_MOVEMENT_DRAFT_NO_POST",
+        "status": "PASS"
+      },
+      {
+        "id": "OPENING_CONCURRENT_OWNERS_ONE_FINALIZATION_ONE_CANONICAL_POST",
+        "status": "PASS"
+      },
+      {
+        "id": "ADMIN_CREDENTIAL_ISSUE_REPLACE_REVOKE_RACES_ONCE_NO_WALLET_MUTATION",
+        "status": "PASS"
+      },
+      {
+        "id": "CUTOFF_STALE_AND_TWO_OWNER_FINALIZATION_ONE_CHECKPOINT_NO_DOUBLE_OPENING",
+        "status": "PASS"
+      },
+      {
+        "id": "CONCURRENT_CUTOFF_CORRECTION_ONE_FIFO_POST_AND_TYPED_AUDIT",
+        "status": "PASS"
+      }
+    ],
+    "openingRace": [
+      {
+        "status": 200
+      },
+      {
+        "status": 409,
+        "code": "INITIALIZATION_FINALIZED"
+      }
+    ],
+    "fixtureDatabasePreserved": true,
+    "status": "PASS"
+  },
+  "catalog": {
+    "at": "2026-11-03T09:40:51.064Z",
+    "source": "codex/suq-finalization-ws1 + WS2 working tree",
+    "target": "suq_final_24ecb8652e",
+    "productionChanged": false,
+    "checks": [
+      {
+        "id": "SHIFT_RESOURCE_VISIBILITY_AND_LEGITIMATE_CLOSE",
+        "status": "PASS"
+      },
+      {
+        "id": "2001_PRODUCTS_67_PAGES_REMOTE_NAME_SKU_BARCODE_FILTERS_AND_SCOPED_CURSOR",
+        "status": "PASS"
+      },
+      {
+        "id": "COST_REDACTION_FIELD_AUTHORITY_AND_IDENTIFIER_FAIL_CLOSED",
+        "status": "PASS"
+      },
+      {
+        "id": "WORKBOOK_COST_REDACTION_AND_IMPORT_CAPABILITIES",
+        "status": "PASS"
+      },
+      {
+        "id": "OPNAME_STALE_ABA_REPLAY_SNAPSHOT_AND_FIFO",
+        "status": "PASS"
+      },
+      {
+        "id": "MULTIPART_XLSX_PARSE_PREVIEW_CONFIRM_RETRY_PERMISSIONS_NO_STOCK_WALLET_EFFECT",
+        "status": "PASS"
+      },
+      {
+        "id": "CROSS_TENANT_READ_WRITE",
+        "status": "PASS"
+      }
+    ],
+    "rollback": "ALL_SYNTHETIC_FIXTURES_ROLLED_BACK",
+    "status": "PASS"
+  },
+  "clone": {
+    "target": "suq_final_24ecb8652e",
+    "source": "suq_production_rc_ac8c7ae9d4_test",
+    "role": "suq_clone_runtime_7d4e9e147f",
+    "host": "127.0.0.1",
+    "port": 55439,
+    "migrations": [
+      {
+        "file": "122_pos_operational_policy_controls.sql",
+        "checksum": "c6fb5084fb50837cff542936cb77d0cd111341c5157dd517fbce4fb3aa3af333"
+      },
+      {
+        "file": "123_pos_cutoff_master_audit.sql",
+        "checksum": "2dd2d80e50f3efe435ab22e711a34e9f54d486ddfc1ae3fe6ebdbc21ff39bceb"
+      }
+    ],
+    "status": "PASS",
+    "productionChanged": false
+  },
+  "mobile": {
+    "total": 184,
+    "status": "PASS",
+    "failed": 0,
+    "skipped": 0,
+    "fullSuite": true
+  },
+  "androidBundle": {
+    "status": "PASS",
+    "modules": 742,
+    "hermes": true,
+    "output": "local ignored dist-final-preflight-20261103-v3",
+    "nativeReleaseCompile": "EAS_PENDING"
+  },
+  "autoAlfa": {
+    "scheduler": 21,
+    "hooks": 11,
+    "postgres": 24,
+    "unitJob": "PASS",
+    "productionQueries": 0
+  },
+  "physical": "NOT_TESTED",
+  "productionChanged": false
+}

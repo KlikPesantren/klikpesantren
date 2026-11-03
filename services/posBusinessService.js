@@ -52,6 +52,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     if (req.body?.tenant_id != null || req.query?.tenant_id != null || req.body?.role != null && !['users.manage','USER_MANAGE','PERMISSION_MANAGE'].includes(permission)) bad('CLIENT_AUTHORITY_REJECTED', 403);
     const effectivePermissions = merchantPermissions.effective(m.role, m.permissions);
     if (permission && !effectivePermissions.includes(merchantPermissions.canonical(permission))) bad('MERCHANT_PERMISSION_DENIED', 403);
+    if(!c.posReadOnly)await c.query("SELECT set_config('app.pos_actor',$1,true),set_config('app.pos_business',$2,true)",[user.id,business]);
     return { business, user: user.id, userName: user.name, member: { ...m, effective_permissions: effectivePermissions } };
   }
   const run = (req, permission, work) => transaction(async c => work(c, await access(c, req, permission)));
@@ -550,7 +551,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
         i.cogs = await availableCost(c, a, i.product, i.quantity);
       }
       if (f.discount >= subtotal) bad('INVALID_DISCOUNT');
-      if(f.discount&&quote?.protected_pricing)bad('DISCOUNT_STACKING_DENIED');
+      const manualAllocation=quote?require('./posManualDiscount').allocateManualDiscount(quote,f.discount):null;
       if (f.discount && !a.member.effective_permissions.includes('SALE_DISCOUNT')) bad('DISCOUNT_DENIED', 403);
       f.total = subtotal - f.discount;
       if (payments.reduce((sum, p) => sum + p.amount, 0n) !== f.total) bad('PAYMENT_TOTAL_MISMATCH');
@@ -567,15 +568,15 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
         logo: a.member.receipt_logo ? a.member.logo_url : null, header: a.member.receipt_header, footer: a.member.receipt_footer,
         address: a.member.address, phone: a.member.phone, timezone: a.member.timezone, currency: a.member.currency,
         cashier_id: a.user, cashier_name: a.userName, powered_by: 'KlikPesantren' };
-      if(quote)brand.pricing={level:quote.level,offers:quote.offers,promotion_discount:quote.discount,manual_discount:String(f.discount)};
+      if(quote)brand.pricing={level:quote.level,offers:quote.offers,promotion_discount:quote.discount,manual_discount:String(f.discount),manual_eligible_total:manualAllocation.eligible_total,manual_rounding:manualAllocation.rounding};
       f.snapshot = brand;
       await insertOperation(c, a, op, 'SALE', f);
       let allocated = 0n, cumulative = 0n;
       for (const i of items) {
-        cumulative += i.gross; const next = f.discount * cumulative / subtotal, discount = next - allocated; allocated = next;
+        cumulative += i.gross; const next = f.discount * cumulative / subtotal; const manualLine=manualAllocation?.lines.find(l=>l.product_id===i.product); const discount=manualLine?BigInt(manualLine.discount):next-allocated; allocated=next;
         const lineDiscount=discount+(i.quoted?BigInt(i.quoted.discount):0n);
         await c.query(`INSERT INTO pos_business_lines(id,business_id,operation_id,product_id,sku,name,quantity,unit_price,discount,total,cogs${pricingEnabled?',pricing_snapshot,uom_snapshot':''})
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11${pricingEnabled?',$12,$13':''})`, [makeId(), a.business, op.id, i.p.id, i.p.sku, i.p.name, i.quantity.toString(), i.p.selling_price, lineDiscount.toString(), (i.gross - discount).toString(), i.cogs.toString(),...(pricingEnabled?[i.quoted?serialize({...i.quoted.pricing_snapshot,manual_discount:String(discount)}):null,i.p.uom]:[])]);
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11${pricingEnabled?',$12,$13':''})`, [makeId(), a.business, op.id, i.p.id, i.p.sku, i.p.name, i.quantity.toString(), i.p.selling_price, lineDiscount.toString(), (i.gross - discount).toString(), i.cogs.toString(),...(pricingEnabled?[i.quoted?serialize({...i.quoted.pricing_snapshot,parts:manualLine.parts,manual_discount:String(discount),manual_rounding:manualAllocation.rounding}):null,i.p.uom]:[])]);
         const movement = makeId(); await stockRow(c, a, op.id, i.p.id, movement, -i.quantity, i.cogs, 'SALE_OUT');
         if (await consume(c, a, i.p.id, i.quantity, movement) !== i.cogs) bad('COST_MISMATCH', 409);
       }
@@ -755,6 +756,8 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
           exclusions:['Aset tetap, pinjaman, pajak, depresiasi dan kewajiban di luar ledger belum tercakup.',...(Number(settlement.missing_destination_payouts||0)>0?['Legacy settlement payouts without merchant destination account are excluded from physical account balances.']:[]),
             ...(inventoryValue===null?['Inventory valuation is hidden without product-cost permission.']:[])],
           label:'Posisi keuangan operasional terpantau; bukan laporan akuntansi statutory.'};
+        const cutoffMemo=(await c.query(`SELECT id,cutoff_date,finalized_at,snapshot_hash,snapshot->'totals' AS totals FROM pos_business_cutoffs WHERE business_id=$1 AND cutoff_date<=$2::date`,[a.business,to])).rows[0];
+        if(cutoffMemo)financialPosition.cutoff_checkpoint={...cutoffMemo,posted_again:false,semantics:'Immutable checkpoint of existing ledger; not added to current assets or liabilities.'};
       }
       const topCustomers=canCustomer?(await c.query(`SELECT p.id,p.name,count(*) FILTER(WHERE o.kind='SALE') transaction_count,sum(CASE WHEN o.kind='SALE' THEN o.total ELSE -o.total END)::text net_spend FROM pos_business_dated_operations o JOIN pos_business_parties p ON p.id=o.party_id AND p.business_id=o.business_id WHERE ${where} AND o.kind IN('SALE','SALE_RETURN') AND p.kind='CUSTOMER' GROUP BY p.id ORDER BY sum(CASE WHEN o.kind='SALE' THEN o.total ELSE -o.total END) DESC,p.id LIMIT 20`,v)).rows:undefined;
       const chart=canSales?await finance.chart(c,a,{from,to},req.query):undefined;
@@ -793,6 +796,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     insertOperation,moneyRow,debtRow,stockRow,addLayer,getProduct,availableCost,consume,accountBalance,getAccount});
   const policies=require('./posBusinessPolicies').createBusinessPolicies({run,read,bad,uuid,amount,text,makeId,hash,serialize,lock,getProduct,getAccount,closeShiftWork,postApprovedOpname,afterStage});
   const stockOpname=policies.approveOpname;
+  const cutoff=require('./posBusinessCutoff').createBusinessCutoff({run:runInitialization,bad,uuid,amount,text,makeId,hash,serialize,lock,accountBalance,getAccount,getProduct,availableCost,consume,addLayer,stockRow,moneyRow,debtRow,beginOperation,insertOperation,afterStage});
   const productWorkbooks=require('./posProductWorkbookService').createPosProductWorkbookService({run,bad,makeId,identityWork:policies.identityWork});
   const moneyRevisions=require('./posBusinessMoneyRevisions').createMoneyRevisions({run,read,bad,uuid,text,amount,hash,lock,beginOperation,insertOperation,moneyRow,moneyWork,getAccount,accountBalance,afterStage});
   const cashBookWorkbooks=require('./posCashBookWorkbookService').createCashBookWorkbookService({cashBook});
@@ -806,7 +810,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     const outstanding=(await c.query("SELECT coalesce(sum(amount),0) outstanding FROM pos_debt_movements WHERE business_id=$1 AND source_id=$2 AND kind='AP'",[a.business,op.id])).rows[0].outstanding;
     return {invoice:{...op,status:'POSTED',outstanding,payment_status:BigInt(outstanding)>0n?'OUTSTANDING':'SETTLED'},items};
   });
-  return { ...policies,...moneyRevisions,...online,...workspace,...initialization,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, activate, logout, context, member, product, authorizeProductAsset, catalog, party, account, purchase, adjustment, stockOpname, money, payDebt,
+  return { ...cutoff,...policies,...moneyRevisions,...online,...workspace,...initialization,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, activate, logout, context, member, product, authorizeProductAsset, catalog, party, account, purchase, adjustment, stockOpname, money, payDebt,
     ...productWorkbooks, ...cashBookWorkbooks,financeCategories:finance.categories, pricing:pricing.pricing,pricingQuote:pricing.pricingQuote,savePriceLevel:pricing.savePriceLevel,saveLevelPrice:pricing.saveLevelPrice,assignCustomerPriceLevel:pricing.assignCustomerPriceLevel,savePromotion:pricing.savePromotion,purchaseDetail,memberships, terminal, openShift, closeShift, sale, receipt, report, cashBook,books:finance.books };
 }
 module.exports = { createPosBusinessService, amount };

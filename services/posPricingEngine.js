@@ -44,6 +44,7 @@ function calculatePricing({products,level,levels=[],prices=[],promotions=[],item
  const lines=[...result.values()].sort((a,b)=>a.product_id.localeCompare(b.product_id)).map(i=>{const gross=i.quantity*i.unit_price;if(gross>MAX||i.total>MAX||i.total>gross)fail('INVALID_TOTAL');const commercialGross=i.pricing_snapshot.parts.reduce((sum,p)=>sum+BigInt(p.quantity)*BigInt(p.unit_price),0n);i.pricing_snapshot.commercial_gross=String(commercialGross);i.pricing_snapshot.commercial_discount=String(commercialGross-i.total);return {...i,quantity:String(i.quantity),unit_price:String(i.unit_price),total:String(i.total),discount:String(gross-i.total)};});
  const subtotal=lines.reduce((s,l)=>s+BigInt(l.pricing_snapshot.commercial_gross),0n),total=lines.reduce((s,l)=>s+BigInt(l.total),0n);
  if(subtotal>MAX||total>MAX||lines.length>100)fail('INVALID_TOTAL');
- return {level:{id:level.id,name:'Harga dipilih per item'},lines,offers,subtotal:String(subtotal),discount:String(subtotal-total),total:String(total),currency:'IDR',protected_pricing:offers.length>0||lines.some(l=>l.pricing_snapshot.parts.some(p=>p.level_id!==general.id))};
+ const manualEligible=lines.reduce((sum,l)=>sum+l.pricing_snapshot.parts.filter(p=>p.kind==='BASE'&&p.level_id===general.id).reduce((n,p)=>n+BigInt(p.total),0n),0n);
+ return {general_level_id:general.id,manual_discount_eligible_total:String(manualEligible),level:{id:level.id,name:'Harga dipilih per item'},lines,offers,subtotal:String(subtotal),discount:String(subtotal-total),total:String(total),currency:'IDR',protected_pricing:offers.length>0||lines.some(l=>l.pricing_snapshot.parts.some(p=>p.level_id!==general.id))};
 }
 module.exports={calculatePricing,integer,allocate};

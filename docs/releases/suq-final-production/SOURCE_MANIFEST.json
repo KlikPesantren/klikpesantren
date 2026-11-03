@@ -1,0 +1,611 @@
+{
+  "algorithm": "SHA-256",
+  "byteScope": "Windows worktree snapshot; Git line endings may differ across platforms",
+  "baseline": "2edffe6a770722a5085941dd1306ea8883fe1bec",
+  "files": [
+    {
+      "file": "config/posRuntimePrivileges.js",
+      "sha256": "6a890f82f7ad58ead2fa67e6331f5a21e5b3bd4ee06047cf8a254a199bf0e4f1"
+    },
+    {
+      "file": "docs/releases/suq-final-production/DB_ACL_MANIFEST.json",
+      "sha256": "397cf02c0ea37cc0505311247443ae6d3f628f96ff7a7bf422952402abdcf5f5"
+    },
+    {
+      "file": "docs/releases/suq-final-production/PRODUCTION_READONLY.json",
+      "sha256": "5542eced8bc70ee2491d738c402a69fdf9d512ced07bece9b14cabbeeac942e8"
+    },
+    {
+      "file": "docs/releases/suq-final-production/QA_EVIDENCE.json",
+      "sha256": "0087d0364be323197a0510b227e801dac0b7bda25f92f03d7df76f429ce524a5"
+    },
+    {
+      "file": "docs/releases/suq-final-production/README.md",
+      "sha256": "96ea4cd6553c8e025c0d071d89639bc7d6ff1f0a34c4c38aa63364da6ce952f3"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/BUSINESS_POLICY_DECISIONS.md",
+      "sha256": "67f224cb2f57c539da37580083fd1255e281acbb9f4febe7784bd523a61b9120"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/POLICY_DB_MANIFEST.json",
+      "sha256": "daefd14879bcf5237f66f6089d977ae0a87ff60823bcfe1bd0635179b260207d"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/POLICY_QA_EVIDENCE.json",
+      "sha256": "17094fb0368b39fa17853e565ef1df177bc9f37d28f5e0c58d851a3a60a23120"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/QA_EVIDENCE.json",
+      "sha256": "7fa42fcd7ebc9bd775e64696d96a0db063f75ed1895561ee30ad3e711822e31e"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/README.md",
+      "sha256": "d7fb09b101939003738d416cfad28a2002d31a9d1f28d5159c21fcb18c77ff47"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/SUQ_SHOGIR_FINALIZATION_WS1.md",
+      "sha256": "3ec221f92e744bc1532a5a873896e216349fc5541cea01b203e260825cf4b1da"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/SUQ_SHOGIR_FINALIZATION_WS2.md",
+      "sha256": "1db4b61c0fe62f898efc1f915db49839b35b3c93f731ef3c64eec1dba906191a"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/SUQ_SHOGIR_FINALIZATION_WS3.md",
+      "sha256": "160c71345f868b9da8cea0be1a23f1c5327324977682b70d6caf966f0fb5bf72"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/SUQ_SHOGIR_FINAL_PRODUCT_AUDIT.md",
+      "sha256": "273f0743526cc2b94df92ed3043375a449c20c0f66ad0e178353ddfc3dac99fd"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/SUQ_SHOGIR_RELEASE_READINESS.md",
+      "sha256": "d3b8f17dcfc725783293dffc06e0d9dc5f80e7926d645453a9efbf7752b8c5c2"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/SUQ_SHOGIR_WS4_FINDINGS.md",
+      "sha256": "a198b43fb848d8cef9c3509b6e9fce623f5960d89be1adb2a6f2bb9110fbef65"
+    },
+    {
+      "file": "docs/releases/suq-finalization-rc/SUQ_SHOGIR_WS4_POLICY_ADDENDUM.md",
+      "sha256": "35c8b8adc6c5b31c8a59fc56de87d477b512ee15d864388ced1ed5f7f0f7d027"
+    },
+    {
+      "file": "migrations/122_pos_operational_policy_controls.sql",
+      "sha256": "c6fb5084fb50837cff542936cb77d0cd111341c5157dd517fbce4fb3aa3af333"
+    },
+    {
+      "file": "migrations/123_pos_cutoff_master_audit.sql",
+      "sha256": "2dd2d80e50f3efe435ab22e711a34e9f54d486ddfc1ae3fe6ebdbc21ff39bceb"
+    },
+    {
+      "file": "pos-app/.easignore",
+      "sha256": "6177ed5d1f07e83167ec3efafc08798d379dfc1f47ca404a944e820cda4539df"
+    },
+    {
+      "file": "pos-app/.gitignore",
+      "sha256": "b395f4a506f1a7e54d9c7964ad444d324cf4f7c0fa6fdca1763d9b73ba1192bd"
+    },
+    {
+      "file": "pos-app/App.js",
+      "sha256": "a332f819bc96cdcc0dcf1ea3e68b25cfaefac8173b443c0c52abb10075b63b43"
+    },
+    {
+      "file": "pos-app/app.config.js",
+      "sha256": "df6d14ff36c4b7d07282fa73270473e34a224b1976c624aa7a7df5f6661f5d3f"
+    },
+    {
+      "file": "pos-app/assets/suq-shogir-adaptive-foreground.png",
+      "sha256": "7ff045277fcc090afb0f7418844edee69f0a9d4c268bf43f106800f4192ca725"
+    },
+    {
+      "file": "pos-app/assets/suq-shogir-icon.png",
+      "sha256": "8955cb8342e9585147952b8e4e5332db34d992dfb9059b3c1feeadadc86cee0f"
+    },
+    {
+      "file": "pos-app/assets/suq-shogir-splash.png",
+      "sha256": "7ff045277fcc090afb0f7418844edee69f0a9d4c268bf43f106800f4192ca725"
+    },
+    {
+      "file": "pos-app/eas.json",
+      "sha256": "d686540a0f6492435bd84b3935eb1ebe69551059925fea3c6fac3f4042543041"
+    },
+    {
+      "file": "pos-app/eslint.config.js",
+      "sha256": "30821ae6f0922f939c62f7e17058ad994d1cef6eea934e96591a67eecf76a88f"
+    },
+    {
+      "file": "pos-app/index.js",
+      "sha256": "bd5900c3419fa39727c350ce6192b2ea699a37078d2432094cc84665d5069f06"
+    },
+    {
+      "file": "pos-app/metro.config.js",
+      "sha256": "5a5ac0339fe17d48241328fa57494cc7112a99ee3e74e79a2f564817c9e399bf"
+    },
+    {
+      "file": "pos-app/package-lock.json",
+      "sha256": "61611a19103e1137f1c59b70cdeaae265291705db5ae3c40570bd6fae6c927ae"
+    },
+    {
+      "file": "pos-app/package.json",
+      "sha256": "513e1a06d5e6b4ee577850a7405d287e3731b3605dbb2965d7a9006c0ed17db8"
+    },
+    {
+      "file": "pos-app/plugins/withTestingNetwork.cjs",
+      "sha256": "9226df9020c3e3540a00e8e9451c9e5169aca16afcdd0121781d2c34bda32fea"
+    },
+    {
+      "file": "pos-app/scripts/check-review-export.cjs",
+      "sha256": "1d50130e564cec83f6c7c72fb8121148827a6c2791b7a9deaf7a308e25b8804e"
+    },
+    {
+      "file": "pos-app/scripts/review.cjs",
+      "sha256": "4eaeb350fde5c8bed1bc4c48850138f37d6d409a27f5457f3940089375bf115c"
+    },
+    {
+      "file": "pos-app/src/AuditDiagnostics.jsx",
+      "sha256": "e4b4977464213218ac2f08f9d4071ead026fd7850e11add2a766097783781dde"
+    },
+    {
+      "file": "pos-app/src/CutoffPanel.jsx",
+      "sha256": "58206ff0c112539a6ead83b6397da43c50ff60dfd38fa1de428ee65892117592"
+    },
+    {
+      "file": "pos-app/src/FinanceDatePicker.jsx",
+      "sha256": "5798301a414dd388747b361b075ed5a0e1ba69515b860b0015d2084c813e8a26"
+    },
+    {
+      "file": "pos-app/src/FinancialWorkspace.jsx",
+      "sha256": "e9575511f65a148de5e34b93dbf2a709c02d42a1b3aa4ce1c9fa90e3e55fc3ab"
+    },
+    {
+      "file": "pos-app/src/MerchantBusinessApp.jsx",
+      "sha256": "464de913fbcc3889be472e87091483223180a8d11c619df730065e66c5c6673b"
+    },
+    {
+      "file": "pos-app/src/PolicyControls.jsx",
+      "sha256": "8dbcfa9ee9a2f4ecbb5bf8b482ed3f5722307a1724dd20c0ea984d964e743106"
+    },
+    {
+      "file": "pos-app/src/PricingScreens.jsx",
+      "sha256": "3be9a2caa48163aa7fa8f46ad0151fdc9736320e477d5b361822b5df62e74a50"
+    },
+    {
+      "file": "pos-app/src/ProductBrowser.jsx",
+      "sha256": "c89831943151c4aa99d1b778d22a4685cdfe05857d597f1c95d6166fb06ba565"
+    },
+    {
+      "file": "pos-app/src/PurchaseInvoiceSheet.jsx",
+      "sha256": "38ccc9117769d0cdc08ceace2b1b424de9416afa41cc0f31a4884ea278c5c56f"
+    },
+    {
+      "file": "pos-app/src/ReviewMerchantApp.jsx",
+      "sha256": "03d1ea7c398c1e1a751705fac2cd02d169ded0d1e14eed2034c965876835a67f"
+    },
+    {
+      "file": "pos-app/src/WalletCredentialScanner.jsx",
+      "sha256": "34ef2b5f5c0d27e2931c0c19da091d6c5ea2b562dc3f17ea487673633b9c8b4f"
+    },
+    {
+      "file": "pos-app/src/api.js",
+      "sha256": "904d5c48cca1e04905da56e04e77e0c0991b6c9770e73367bbd83e9c6eaa9e30"
+    },
+    {
+      "file": "pos-app/src/businessWallet.cjs",
+      "sha256": "c32ff77c30d22354be5d16453ca9f3f77bbad2fecbfbbf951402a0755301412b"
+    },
+    {
+      "file": "pos-app/src/cashierCustomer.cjs",
+      "sha256": "d17d7810356a3a24043e957c67e5dad994232275c6e18190bc446f5b7aab15d4"
+    },
+    {
+      "file": "pos-app/src/cashierFlow.cjs",
+      "sha256": "115fdf9cb6c1f164cf6dddc64f82b4eae817ef2987ac04665c2d46e3243643c3"
+    },
+    {
+      "file": "pos-app/src/domain.cjs",
+      "sha256": "6019b8b9b7416f2301122635571dd744bae7819283b54c8fe81075724321609e"
+    },
+    {
+      "file": "pos-app/src/financePresentation.cjs",
+      "sha256": "4d03a61c3cd5be6c0f6c6431c906d23170dc2258692341c2579aeec787526292"
+    },
+    {
+      "file": "pos-app/src/financialReceipt.cjs",
+      "sha256": "94364b4251639f592a56af60ae230cd3be212f8624444c70a0d0b1e5ef63a492"
+    },
+    {
+      "file": "pos-app/src/homeLayout.cjs",
+      "sha256": "cb2be49fff09937cff6a1e71843a543b07b68cb541a427234542c274ac46cbeb"
+    },
+    {
+      "file": "pos-app/src/inventoryUx.cjs",
+      "sha256": "30ac37a24c26e1c32aa94c185b2914ef6351a8fd8c85e78cc79a1efca86e9817"
+    },
+    {
+      "file": "pos-app/src/merchantAccess.cjs",
+      "sha256": "72644f61aec4a11099b1bf48dcea190fa912df7c402287bddfb31b1e99c0c466"
+    },
+    {
+      "file": "pos-app/src/merchantBootstrap.cjs",
+      "sha256": "c0e052dd335ebbbe362f8876f75588400fb89a4c8b3bc18ee7d5aa3436124119"
+    },
+    {
+      "file": "pos-app/src/moduleDataCache.cjs",
+      "sha256": "9cb957f7e6ff90b6c51971f6645c82929f996aa163112cd7de190034c4317204"
+    },
+    {
+      "file": "pos-app/src/moneyFormat.cjs",
+      "sha256": "3dad0b224d612743211b2da20777540f1a68c95633703a53c7fa06c8b5e46c11"
+    },
+    {
+      "file": "pos-app/src/mutationJournal.cjs",
+      "sha256": "526e40d0cebf6ea0488313dd1b0b5821418b128a7124b91d78356e4dbfc0d05b"
+    },
+    {
+      "file": "pos-app/src/nativeUpload.cjs",
+      "sha256": "8f0408458b73128204b96a57b8a67e9d1de32627fe9ad1b633673ce142816a9d"
+    },
+    {
+      "file": "pos-app/src/nfcFeedback.cjs",
+      "sha256": "b975edb5eb52778bd9696cb8fd6f450a6fdc19fdda2b078e5693dec0d6bdfb06"
+    },
+    {
+      "file": "pos-app/src/operationalQa.cjs",
+      "sha256": "e1f54e7c93b02e51bb046d14d8ecdac42cb3b41f394758a4d7ac2790494824eb"
+    },
+    {
+      "file": "pos-app/src/paymentCredential.cjs",
+      "sha256": "424236d98e0f25013cc8a06e5da171a3e88dfabdabdb10d4cac6ef5cf34a9df5"
+    },
+    {
+      "file": "pos-app/src/pricingCart.cjs",
+      "sha256": "c56317ca1c55d4b0e66d12389874e5b5e85534a1d721154d9e0a96c8627f0b49"
+    },
+    {
+      "file": "pos-app/src/productPages.cjs",
+      "sha256": "55c3f237a925fd3e81fd4f2e774b648dc662627bb63beb6820ab8d6dcc3385c3"
+    },
+    {
+      "file": "pos-app/src/productSearch.cjs",
+      "sha256": "7d468c066ed52cbb22b3157ee30498bc3ab46fe65b26c53fa5dd3539f7bd734f"
+    },
+    {
+      "file": "pos-app/src/promotionForm.cjs",
+      "sha256": "98e73b2a0e54f3a9d9c883079ff571e05206d10520032795ae6ed3a1b90ed572"
+    },
+    {
+      "file": "pos-app/src/purchaseDraft.cjs",
+      "sha256": "0779283be9fb0ce8929f46894d9fb5e69ceb89921bedb7944ed9a8762039dbd9"
+    },
+    {
+      "file": "pos-app/src/receiptFile.cjs",
+      "sha256": "284bd72add5bf5c5fcad7b739239f073539796f16ed1aa7df498da6042388d87"
+    },
+    {
+      "file": "pos-app/src/receiptOutput.cjs",
+      "sha256": "3b39f850ade786c8236fffa875ba11d74a4aa6114c6d53ed94b86dad6359c3b6"
+    },
+    {
+      "file": "pos-app/src/receiptPresentation.cjs",
+      "sha256": "eb935933fbea3f9efe5e6f60f32ef36ecc7d1f4819ebcbe4b2f7df4b00e9a35c"
+    },
+    {
+      "file": "pos-app/src/reviewFixtures.cjs",
+      "sha256": "1711dd5c58cfa53269128722be66b126ff9070e5c306b3528be31475b56b2a21"
+    },
+    {
+      "file": "pos-app/src/rupiahInput.cjs",
+      "sha256": "ee83548ff5b0dc932afa43229548cf6cb008118fedeca90cff5f371b5edfc5b3"
+    },
+    {
+      "file": "pos-app/src/saleJournal.cjs",
+      "sha256": "65651b47116ebdd1305e6036096816b3eed9f1de33e7c5567fd2d6e11d7ea5b7"
+    },
+    {
+      "file": "pos-app/src/testingServer.cjs",
+      "sha256": "371c8c1133e25e30f4f76a99f821465b765560a536d3494bf1042427aaeaf92e"
+    },
+    {
+      "file": "pos-app/src/typography.js",
+      "sha256": "a02f480ed71be8ed975c9f9f5e228f21f8dfbefb15949ab6caf352ae812c172f"
+    },
+    {
+      "file": "pos-app/src/ui.js",
+      "sha256": "3e051e8f93eb9d412aef3dc23840e2cbe25244c39204044f0e9fbab1bc7ef00e"
+    },
+    {
+      "file": "pos-app/src/vault.cjs",
+      "sha256": "e115ff32a965ec3e5261f6531ab991256c20fd09f2f234edf10b817c8c8c2d64"
+    },
+    {
+      "file": "pos-app/src/walletPreview.cjs",
+      "sha256": "76b4bdfd62c52f753481c079429dd2b1a01b1c05640c8876e466722cb5e936c2"
+    },
+    {
+      "file": "pos-app/src/workflow.cjs",
+      "sha256": "d739b8ea7801bfd00e4dd1db24021dd1b06dacf3748bdacfd9bd3db5844b369c"
+    },
+    {
+      "file": "pos-app/tests/acceptance.test.cjs",
+      "sha256": "2d8c4e5a5a22e5c0ef55fcf2c64341d1c69abb348bc0d57d9164f9f9862e83fc"
+    },
+    {
+      "file": "pos-app/tests/business-wallet.test.cjs",
+      "sha256": "9993ebf5ae95c0873fe4ea87fcb958c4adb28f0a547e0013eddd8e68a10d003b"
+    },
+    {
+      "file": "pos-app/tests/cashflow-discount-final.test.cjs",
+      "sha256": "c5899821659b26bf22e5ae7f96d9c077b137d5512a802ca52b479697c40f3a97"
+    },
+    {
+      "file": "pos-app/tests/cashier-customer.test.cjs",
+      "sha256": "b93f7a61f1a66b7f827c8ed02fbc8f00bca951b147a8bbbfbbfa029a1fdd4a85"
+    },
+    {
+      "file": "pos-app/tests/cashier-ux.test.cjs",
+      "sha256": "fe4ff446f7aec4791f205062f943f6ab07d870a1543742db86dc1b56808bab47"
+    },
+    {
+      "file": "pos-app/tests/cashier.test.cjs",
+      "sha256": "a81a6565da962632edfa191004756f2ec68780a3fe2b0b8842d43f804f8cbf1d"
+    },
+    {
+      "file": "pos-app/tests/expoUploadHarness.cjs",
+      "sha256": "9c13334fa0265a9e1f73f4eda5eb19385b88bd7e739452f4aef8c9ec1bf3c5b7"
+    },
+    {
+      "file": "pos-app/tests/final-ui.test.cjs",
+      "sha256": "05a8481b4e5e37f2eac6fe8ea76c1d4de33b167ec5ff8d905f35e731c39c7d10"
+    },
+    {
+      "file": "pos-app/tests/finance-presentation.test.cjs",
+      "sha256": "b42ce0ef722804759f8c8f407035336ebf81b35ec9ad525ae3eb2a02c0268c65"
+    },
+    {
+      "file": "pos-app/tests/home-navigation.test.cjs",
+      "sha256": "015610367837ce20f51d93ed5f4ca3107f44a10e92f0268b7946472301b04686"
+    },
+    {
+      "file": "pos-app/tests/inventory-ux.test.cjs",
+      "sha256": "6612d4369ae6653cdeecc162f3e67863f1ab1dce593f634e2c825327a39986a4"
+    },
+    {
+      "file": "pos-app/tests/merchant-access.test.cjs",
+      "sha256": "88fe2c283e95dc2ccdab0064eeb301cdea5eb5ab9fff491a1a493fe0318da848"
+    },
+    {
+      "file": "pos-app/tests/merchant-bootstrap.test.cjs",
+      "sha256": "ad4dc142d3694f5ce8147f4ff69cf4eab5d20cb2df6ff9d4e21d4b8416fcc927"
+    },
+    {
+      "file": "pos-app/tests/native-upload.test.cjs",
+      "sha256": "2d07d6b47c83e76e68e4999cc75a7b8a53d201098406faca1c7d3263c846f942"
+    },
+    {
+      "file": "pos-app/tests/owner-operations.test.cjs",
+      "sha256": "f066961b76f2960bd62a0e122a36a507121dab18867eb3186b81f0a024044d32"
+    },
+    {
+      "file": "pos-app/tests/policy-ui.test.cjs",
+      "sha256": "42a19804fbe98a2a90f6dbacdd27f9c00e418a0cdbdbee18de1e51f0d5f4241f"
+    },
+    {
+      "file": "pos-app/tests/pricing-ui.test.cjs",
+      "sha256": "7de6288f75ec442251bf94276b99d36e17d986ea0552a16e3a6bf1123a6c93d4"
+    },
+    {
+      "file": "pos-app/tests/production-release-guards.test.cjs",
+      "sha256": "f4ede4decb6e57d317e2d6955dcfb3c3e3ffa5047279a954da78f1fb5dd48f19"
+    },
+    {
+      "file": "pos-app/tests/promotion-form.test.cjs",
+      "sha256": "5dd1d8c597e0cf6b07540db9d901761fc9779aaea75471dc7bf36028de21d326"
+    },
+    {
+      "file": "pos-app/tests/purchase-draft.test.cjs",
+      "sha256": "9047d84b809c48630cd0b7104b6b6d080ece36cc86867668cd272df9cb7a2665"
+    },
+    {
+      "file": "pos-app/tests/review.test.cjs",
+      "sha256": "5bc0f77efc45b85e7df0435266d44525b1edd010491a6a718f3e879a0240e18c"
+    },
+    {
+      "file": "pos-app/tests/rupiah-input.test.cjs",
+      "sha256": "68acf03a89022170a561b287627b9f4d1f32aeaf27e22eb927abae1afb339692"
+    },
+    {
+      "file": "pos-app/tests/ss041-production-ux.test.cjs",
+      "sha256": "7d77cc41fcc1eeb5ab8b7c62a538ec17f9eab0e00bcab3281efbbc5d7872116f"
+    },
+    {
+      "file": "pos-app/tests/ss042-ss047-one-screen-nfc.test.cjs",
+      "sha256": "3044629abbf9c09c78e42d6aca73d10d50d25b860f1b65d626bea062440ad5b0"
+    },
+    {
+      "file": "pos-app/tests/ss043-product-excel.test.cjs",
+      "sha256": "b68c877b4a934e06c18d66ce795a09482bcdd4c7f3ab819f96ae135b2a75f15e"
+    },
+    {
+      "file": "pos-app/tests/ss044-cash-flow-excel.test.cjs",
+      "sha256": "44de69e4a8fc9c6af08e948c3d4dfd791f7ba0184123001a376646c87fc86f58"
+    },
+    {
+      "file": "pos-app/tests/ss045-receipt-printer.test.cjs",
+      "sha256": "ab6647392589c48ecb9ccb3ef0f7cb22a52845d4468c26020f7cfd1b629dec4b"
+    },
+    {
+      "file": "pos-app/tests/ss046-cash-book.test.cjs",
+      "sha256": "4f2ab09e9cdc754f4eb1d0bb83f80f41681c92f954887c208aee6d491e223bc2"
+    },
+    {
+      "file": "pos-app/tests/testing-server.test.cjs",
+      "sha256": "36548f08026caddead3508cb570845d207ab8405394b0ecdb75c024f4a1f68eb"
+    },
+    {
+      "file": "pos-app/tests/typography.test.cjs",
+      "sha256": "1fcdd59f1400b1939763f56c2b95226de7126f0e7b2f267c62c4cfcabbc666a0"
+    },
+    {
+      "file": "pos-app/tests/ux-receipt-network.test.cjs",
+      "sha256": "c57c889660918b31328838f93901d01244b817cb4d9340637d4b5b65eefc74b0"
+    },
+    {
+      "file": "pos-app/tests/workflow.test.cjs",
+      "sha256": "337c85dde139e36e62347097103d4bf5a9d6aa13d45c70ab1074f895d7b945ba"
+    },
+    {
+      "file": "pos-app/tests/wp3-ui-contract.test.cjs",
+      "sha256": "05efad8eda0731f3bb2edc97518b5eafbd1d15d2583dc3e954c6a560786b502e"
+    },
+    {
+      "file": "pos-app/tests/wp4-payments.test.cjs",
+      "sha256": "7a1ff0848409de3137a6ba445aaf4f789a4ed0283f3c5091d3fb1bf3fd97557f"
+    },
+    {
+      "file": "pos-app/tests/wp6-performance.test.cjs",
+      "sha256": "a436550847cb9925a1a7dfa7f0a9de66216c1aab973676d00a61ef42d6379597"
+    },
+    {
+      "file": "pos-app/tests/ws1-foundation.test.cjs",
+      "sha256": "fbffd0291a91229ce3868f0a4206cb3fea0a2f056790e3a965bd1cb523f40d24"
+    },
+    {
+      "file": "pos-app/tests/ws2-navigation.test.cjs",
+      "sha256": "c82d3703fdb1b10f1f8408497b5f08535da46f76c9f41c4edb5d47f88d07133e"
+    },
+    {
+      "file": "pos-app/tests/ws3-wallet-scanner.test.cjs",
+      "sha256": "5dbb880c9070049ae6e39e0db4f21605678e0cb5103839e240d03aa948749ffe"
+    },
+    {
+      "file": "pos-app/tests/ws4-release-qa.test.cjs",
+      "sha256": "84b813525f6f13caf6e460fe5db763dbd9848e239d4a6ae2ec095b9b12ec61d9"
+    },
+    {
+      "file": "routes/posAdminRoutes.js",
+      "sha256": "b717206a5bb5bd5167d19c879fc21bb4286844466c8602c2ca1f1ebb7e75bbb6"
+    },
+    {
+      "file": "routes/posBusinessRoutes.js",
+      "sha256": "cf8f144b8d6a1fe4b9e4bc10119ffced597b1c2cd5556cdcd94c4553d4b88e8b"
+    },
+    {
+      "file": "scripts/check-suq-android-source.js",
+      "sha256": "636908dbeeaa93bf167c340524aefebf97dfcd23c0718129563ee5b351912171"
+    },
+    {
+      "file": "scripts/prepare-suq-final-clone.js",
+      "sha256": "9efda0fd1b561be8427ea80923074e68563c060f0b58aae9971256700abfc6a4"
+    },
+    {
+      "file": "scripts/prepare-suq-policy-clone.js",
+      "sha256": "95177f0893b256f6ac61d961cbd8e0ed4f6a9acaaa5fd84393ae3808a101d91a"
+    },
+    {
+      "file": "scripts/run-suq-release-qa.js",
+      "sha256": "740dea280629e89aef16eeee92e03b2588e72c74f5aa8fda136fde2396e89841"
+    },
+    {
+      "file": "scripts/test-pos-finance-db.js",
+      "sha256": "e2847d1416272a5055c76a2f3acee419ae512737242af47850a528ecd4e7d2ac"
+    },
+    {
+      "file": "scripts/test-suq-final-concurrency.js",
+      "sha256": "7dd9147a2d72ec9bd1676a2db068ba073d30a0c86b0c83a14de790239afeb4d9"
+    },
+    {
+      "file": "scripts/test-suq-final-db.js",
+      "sha256": "fe00a1dbb5719ee324ff60ff178a89f16d23309903fd59adad9da4a3a1f6eac2"
+    },
+    {
+      "file": "scripts/test-suq-policy-concurrency.js",
+      "sha256": "b53de0edcd34bbd58eb3dc0edde5de2590c5c258cface963428ea2325f0f0d21"
+    },
+    {
+      "file": "scripts/test-suq-policy-db.js",
+      "sha256": "62e46fc1361406f4f4196d081f4481e0bf4bee3af3e7d44f86356b7b9dd1e7c5"
+    },
+    {
+      "file": "scripts/test-suq-ws1-concurrency.js",
+      "sha256": "5cbe55a0f71b573ad4194f113bc212d27a9807ca093c0ff300c9414d52403711"
+    },
+    {
+      "file": "scripts/test-suq-ws1-runtime.js",
+      "sha256": "640fc9b093b64aea6883f363d190b61f48e05250fef9cb64afafec930ee7d0d8"
+    },
+    {
+      "file": "scripts/test-suq-ws2-runtime.js",
+      "sha256": "9f099cb66869f31c5f0d88137dd8ea7f3bff3f0ac023986463a4072ec97ddf18"
+    },
+    {
+      "file": "scripts/test-suq-ws3-concurrency.js",
+      "sha256": "6e5947e648fd48525894f38240931a5ae76345bb0e286823eb705acad340f2fa"
+    },
+    {
+      "file": "scripts/test-suq-ws3-operations-db.js",
+      "sha256": "a29f2fcd67c4c5acc980908d1c0fbb538de704f32c2ffa729e70d2b36dd513bc"
+    },
+    {
+      "file": "scripts/test-suq-ws4-catalog.js",
+      "sha256": "16ccf264b3c112ccabecdcde466dcb85b493cff79030fc0bdb8f925efd6fcb3b"
+    },
+    {
+      "file": "scripts/test-suq-ws4-operations-db.js",
+      "sha256": "d51fc06a6bfe861329a7fcf386d233e21af3032bb47e09591eff64e755576c9d"
+    },
+    {
+      "file": "services/posAdminCredentials.js",
+      "sha256": "e13047eef1e2eb0f5e3ec00311d0694b408eb79684d9fab3d4681a9df784caed"
+    },
+    {
+      "file": "services/posAdminService.js",
+      "sha256": "4eec8992dda85e5959f40e638c5215f03b50d0e1dbb07b26ae18cae26febf5ba"
+    },
+    {
+      "file": "services/posBusinessCutoff.js",
+      "sha256": "762e16aad501fa10b9eabe13f21ce6e4d33553b007366397c766136a7babd58d"
+    },
+    {
+      "file": "services/posBusinessInitialization.js",
+      "sha256": "9e69f6040a4627c05850485f57cfe8edb4ad346202f796839ffae993ed901202"
+    },
+    {
+      "file": "services/posBusinessPolicies.js",
+      "sha256": "76711290a79d50b24b31dd5a3e681be6810f1e8839c6dd1ca36b3565ede6ec4a"
+    },
+    {
+      "file": "services/posBusinessService.js",
+      "sha256": "239b322f2b18135703622ca41507038895a851082c2f1375bee005732a985815"
+    },
+    {
+      "file": "services/posBusinessWallet.js",
+      "sha256": "0dd8dcb08e29a41c70012142e23afaf148cf4e6edea46b172226c5f44762cfd8"
+    },
+    {
+      "file": "services/posBusinessWorkspace.js",
+      "sha256": "6884d10bb199c6849104b89beeb9cab4220a64a3813cec4c863b3015c78b0602"
+    },
+    {
+      "file": "services/posManualDiscount.js",
+      "sha256": "2698626bb0ffcc079c5f255a3e6741bffe51ca39a772866f3ecb32f981542a18"
+    },
+    {
+      "file": "services/posPricingEngine.js",
+      "sha256": "7bf66514b6a3d3d302f3c8cd8c2cfc8b81a83ba1eb806475043ce954818e4e38"
+    },
+    {
+      "file": "services/posProductPage.js",
+      "sha256": "e67e27e89f1cbb7733033155ba4d63093d4896fb0fa656470c8e04d73cb7a449"
+    },
+    {
+      "file": "services/posProductWorkbookService.js",
+      "sha256": "f00168b74d85683860df023f8c02074eab851737c23cff2ba89fe205ec9ee31f"
+    },
+    {
+      "file": "services/posRefundContext.js",
+      "sha256": "03a6410a16247abd2d6b692334c150bc03bd72a8f381ebb4840c71663899cd3b"
+    }
+  ]
+}

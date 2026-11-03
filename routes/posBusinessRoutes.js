@@ -7,6 +7,7 @@ const { uploadImageBuffer } = require('../services/cloudinaryUploadService');
 // authentication and mounted under /pos-business.
 function createPosBusinessRouter({ db, service = createPosBusinessService({ db }), uploadImage = uploadImageBuffer }) {
   const router = express.Router();
+  router.use((req,res,next)=>{res.locals.requestId=require('node:crypto').randomUUID();res.set('X-Request-ID',res.locals.requestId);next();});
   router.use(express.json({ limit: '64kb' }));
   const productUpload = multer({
     storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 },
@@ -34,12 +35,14 @@ function createPosBusinessRouter({ db, service = createPosBusinessService({ db }
     const safeDbCodes=new Set(['INVALID_ACCOUNTING_DATE','ACCOUNTING_TIMEZONE_LOCKED','ACTIVE_DRAWER_REQUIRES_CURRENT_DATE']);
     if(safeDbCodes.has(e.message)){e.status=400;e.code=e.message;}
     if(new Set(['INVALID_MONEY_REVERSAL','MONEY_REVERSAL_LEGS_MISMATCH','MONEY_CORRECTION_REPLACEMENT_REQUIRED','MONEY_CORRECTION_REQUIRES_REVERSAL','LINKED_OPERATION_REQUIRES_DOMAIN_REVERSAL']).has(e.message)){e.status=409;e.code=e.message;}
-    if(e.code==='55P03'){e.status=409;e.code='FINANCE_POST_RETRY';}
+    if(['55P03','40P01','40001'].includes(e.code)){e.status=409;e.code='FINANCE_POST_RETRY';}
+    if(e.code==='57014'){e.status=503;e.code='SERVER_REQUEST_TIMEOUT';}
+    if(['ECONNREFUSED','ECONNRESET','57P01'].includes(e.code)){e.status=503;e.code='DATABASE_UNAVAILABLE';}
     const status = e.status || (e.code === 'LIMIT_FILE_SIZE' ? 413 : e.message === 'INVALID_PRODUCT_IMAGE' ? 400
       : e.code === '23505' ? 409 : ['23503', '23514', '22003', '22007', '22P02'].includes(e.code) ? 400 : 500);
-    if (status === 500) console.error('[POS business]', { operation, code: 'INTERNAL' });
-    res.status(status).json({ success: false, code: e.status ? e.code : status === 413 ? (operation.startsWith('productWorkbook') ? 'PRODUCT_WORKBOOK_TOO_LARGE' : 'PRODUCT_IMAGE_TOO_LARGE')
-      : status === 409 ? 'CONFLICT' : status === 400 ? 'INVALID_PRODUCT_IMAGE' : 'POS_INTERNAL_ERROR' });
+    if (status === 500) console.error('[POS business]', { operation, code: 'INTERNAL',requestId:res.locals.requestId });
+    res.status(status).json({ success: false, request_id:res.locals.requestId, code: e.status ? e.code : status === 413 ? (operation.startsWith('productWorkbook') ? 'PRODUCT_WORKBOOK_TOO_LARGE' : 'PRODUCT_IMAGE_TOO_LARGE')
+      : status === 409 ? 'CONFLICT' : status === 400 ? (e.message==='INVALID_PRODUCT_IMAGE'?'INVALID_PRODUCT_IMAGE':'VALIDATION_REJECTED') : 'POS_INTERNAL_ERROR' });
   };
   const handle = method => async (req, res) => {
     res.set({ 'Cache-Control': 'no-store', Pragma: 'no-cache' });
@@ -73,6 +76,10 @@ function createPosBusinessRouter({ db, service = createPosBusinessService({ db }
   router.get('/:businessId/parties', handle('directory'));
   router.post('/:businessId/parties/:partyId', handle('updateParty'));
   router.get('/:businessId/inventory', handle('inventory'));
+  router.get('/:businessId/policy-audit',handle('policyAudit'));
+  router.get('/:businessId/cutoff',handle('cutoffStatus'));
+  router.post('/:businessId/cutoff/finalize',handle('finalizeCutoff'));
+  router.post('/:businessId/cutoff/corrections',handle('correctCutoff'));
   router.post('/:businessId/stock-opnames', handle('stockOpname'));
   router.post('/:businessId/stock-opname-drafts',handle('draftOpname'));
   router.get('/:businessId/stock-opname-drafts',handle('policyHistory'));

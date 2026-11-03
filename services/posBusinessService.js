@@ -177,13 +177,17 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
   async function product(req) {
     return run(req, 'products.manage', async (c, a) => {
       const b = req.body, image = productImageUrl(b.image_url);
+      if (!merchantPermissions.has(a.member,'PRODUCT_PRICE_MANAGE') ||
+        (b.reference_purchase_price != null && b.reference_purchase_price !== '' && !merchantPermissions.has(a.member,'PRODUCT_COST_VIEW'))) bad('MERCHANT_PERMISSION_DENIED',403);
       const id = makeId();
-      return (await c.query(`INSERT INTO pos_business_products(id,business_id,sku,barcode,name,category,uom,image_url,selling_price,reference_purchase_price,minimum_stock,online_visible)
+      const row=(await c.query(`INSERT INTO pos_business_products(id,business_id,sku,barcode,name,category,uom,image_url,selling_price,reference_purchase_price,minimum_stock,online_visible)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,false) RETURNING id,sku,name,selling_price,reference_purchase_price,online_visible`,
       [id, a.business, text(b.sku, 80), b.barcode ? text(b.barcode, 120) : null, text(b.name), b.category ? text(b.category, 120) : null,
         b.uom ? text(b.uom, 32) : 'pcs', image, amount(b.selling_price, true).toString(),
         b.reference_purchase_price == null || b.reference_purchase_price === '' ? null : amount(b.reference_purchase_price).toString(),
         amount(b.minimum_stock || 0).toString()])).rows[0];
+      if(!merchantPermissions.has(a.member,'PRODUCT_COST_VIEW'))delete row.reference_purchase_price;
+      return row;
     });
   }
   async function authorizeProductAsset(req) {
@@ -193,13 +197,14 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     return run(req, 'products.read', async (c, a) => {
       const hasOnline=(await c.query("SELECT to_regclass('public.pos_online_reservations') present")).rows[0].present;
       if(hasOnline)await online.expireOnline(a.business);
-      const products=(await c.query(`SELECT p.id,p.sku,p.barcode,p.name,p.category,p.uom,p.image_url,p.selling_price,p.reference_purchase_price,p.online_price,p.minimum_stock,
+      const page=require('./posProductPage').productPage(req,a.business,bad);
+      const products=(await c.query(`SELECT p.id,p.sku,p.barcode,p.name,p.category,p.uom,p.image_url,p.selling_price,${merchantPermissions.has(a.member,'PRODUCT_COST_VIEW') ? 'p.reference_purchase_price,' : ''}p.online_price,p.minimum_stock,
       p.active,p.sellable,p.online_visible,coalesce(s.on_hand,0) on_hand FROM pos_business_products p
       LEFT JOIN(SELECT product_id,sum(quantity) on_hand FROM pos_inventory_movements WHERE business_id=$1 GROUP BY product_id)s ON s.product_id=p.id
-      WHERE p.business_id=$1 ORDER BY p.name,p.id LIMIT 200`, [a.business])).rows;
+      WHERE p.business_id=$1 ${page.filter} ORDER BY p.name,p.id LIMIT ${page.limit}`, page.values)).rows;
       if(hasOnline){const reserved=(await c.query("SELECT product_id,sum(quantity) quantity FROM pos_online_reservations WHERE business_id=$1 AND state='RESERVED' GROUP BY product_id",[a.business])).rows;
         for(const p of products){p.reserved=reserved.find(r=>r.product_id===p.id)?.quantity||'0';p.available=(BigInt(p.on_hand)-BigInt(p.reserved)).toString();}}
-      return products;
+      return page.finish(products);
     });
   }
   async function party(req) {
@@ -318,7 +323,11 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
   }
   async function adjustment(req) {
     return run(req, 'INVENTORY_ADJUST', async (c, a) => {
-      const b = req.body, direction = b.direction;
+      const b = req.body;
+      // Old clients calculated a relative delta from a stale cached count. Fail closed.
+      if (/^OPNAME:/i.test(String(b.reason||''))) bad('OPNAME_CLIENT_UPDATE_REQUIRED',409);
+      const direction = b.direction;
+      if(direction==='IN' && !merchantPermissions.has(a.member,'PRODUCT_COST_VIEW'))bad('MERCHANT_PERMISSION_DENIED',403);
       if (!['IN', 'OUT', 'DAMAGE'].includes(direction)) bad('INVALID_DIRECTION');
       const f = { product: uuid(b.product_id), quantity: amount(b.quantity, true), reason: text(b.reason, 500), direction,
         unitCost: direction === 'IN' ? amount(b.unit_cost) : null, total: 0n, paid: 0n };
@@ -335,6 +344,27 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
         if (await consume(c, a, f.product, f.quantity, movement) !== cost) bad('COST_MISMATCH', 409);
       }
       return { id: op.id, replay: false };
+    });
+  }
+  async function stockOpname(req) {
+    return run(req,'INVENTORY_ADJUST',async(c,a)=>{
+      if(!merchantPermissions.has(a.member,'INVENTORY_OPNAME')) bad('MERCHANT_PERMISSION_DENIED',403);
+      const b=req.body||{}, product=uuid(b.product_id), actual=amount(b.actual_stock), expected=amount(b.expected_stock), version=amount(b.expected_version);
+      const fields={product,actual,expected,version,reason:text(b.reason,500),unitCost:amount(b.unit_cost||0),total:0n,paid:0n};
+      const op=await beginOperation(c,a,b,'STOCK_ADJUSTMENT',fields);
+      if(op.replay)return {id:op.id,replay:true};
+      await getProduct(c,a,product); // Same product lock as sales, refunds and purchases.
+      const current=(await c.query('SELECT coalesce(sum(quantity),0)::text stock,count(*)::text version FROM pos_inventory_movements WHERE business_id=$1 AND product_id=$2',[a.business,product])).rows[0];
+      if(BigInt(current.stock)!==expected || BigInt(current.version)!==version)bad('STOCK_SNAPSHOT_STALE',409);
+      const delta=actual-expected;
+      if(!delta)bad('STOCK_COUNT_UNCHANGED',409);
+      if(delta>0n && !merchantPermissions.has(a.member,'PRODUCT_COST_VIEW'))bad('MERCHANT_PERMISSION_DENIED',403);
+      const f={...fields,snapshot:{kind:'STOCK_OPNAME',expected_stock:expected.toString(),actual_stock:actual.toString(),expected_version:version.toString(),reason:fields.reason}};
+      await insertOperation(c,a,op,'STOCK_ADJUSTMENT',f);
+      const movement=makeId();
+      if(delta>0n){await stockRow(c,a,op.id,product,movement,delta,delta*fields.unitCost,'ADJUSTMENT_IN',fields.reason);await addLayer(c,a,product,movement,delta,fields.unitCost);}
+      else{const cost=await availableCost(c,a,product,-delta);await stockRow(c,a,op.id,product,movement,delta,cost,'ADJUSTMENT_OUT',fields.reason);if(await consume(c,a,product,-delta,movement)!==cost)bad('COST_MISMATCH',409);}
+      return {id:op.id,replay:false,on_hand:actual.toString()};
     });
   }
   async function availableCost(c, a, product, quantity) {
@@ -431,7 +461,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
       if (!t) bad('TERMINAL_DENIED', 403);
       const active = (await c.query(`SELECT user_id,terminal_id,cash_account_id FROM pos_business_shifts
         WHERE business_id=$1 AND status='OPEN' AND (user_id=$2 OR terminal_id=$3 OR cash_account_id=$4)
-        ORDER BY opened_at,id LIMIT 1 FOR UPDATE`, [a.business, a.user, t.id, ac.id])).rows[0];
+        ORDER BY (user_id=$2) DESC,opened_at,id LIMIT 1 FOR UPDATE`, [a.business, a.user, t.id, ac.id])).rows[0];
       if (active) bad(active.user_id === a.user ? 'SHIFT_ALREADY_OPEN' : 'SHIFT_RESOURCE_IN_USE', 409);
       try {
         return (await c.query(`INSERT INTO pos_business_shifts(id,business_id,user_id,terminal_id,cash_account_id,opening_cash) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
@@ -576,7 +606,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     const lines = (await c.query(`SELECT product_id,sku,name,quantity,unit_price,discount,total,to_jsonb(l)->'pricing_snapshot' pricing_snapshot,to_jsonb(l)->>'uom_snapshot' uom FROM pos_business_lines l WHERE operation_id=$1 AND business_id=$2 ORDER BY product_id`, [id, a.business])).rows;
     const payments = (await c.query(`SELECT method,CASE WHEN method='DOMPET_SANTRI' THEN 'Dompet Santri' ELSE method END AS label,
       amount,tendered,change,reference,to_jsonb(p)->>'credential_method' AS credential_method FROM pos_business_payments p WHERE operation_id=$1 AND business_id=$2 ORDER BY method`, [id, a.business])).rows;
-    return { sale: op, items: lines, payments, replay };
+    return { sale: op, items: lines, payments, replay, ...(merchantPermissions.has(a.member,'SALE_REFUND')?{refund_context:await require('./posRefundContext')(c,a,id)}:{}) };
   }
   async function receipt(req) { return run(req, 'SALE_VIEW', (c, a) => receiptData(c, a, uuid(req.params.operationId))); }
   async function report(req) {
@@ -766,7 +796,7 @@ function createPosBusinessService({ db, afterStage = async () => {}, featureEnab
     const outstanding=(await c.query("SELECT coalesce(sum(amount),0) outstanding FROM pos_debt_movements WHERE business_id=$1 AND source_id=$2 AND kind='AP'",[a.business,op.id])).rows[0].outstanding;
     return {invoice:{...op,status:'POSTED',outstanding,payment_status:BigInt(outstanding)>0n?'OUTSTANDING':'SETTLED'},items};
   });
-  return { ...moneyRevisions,...online,...workspace,...initialization,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, activate, logout, context, member, product, authorizeProductAsset, catalog, party, account, purchase, adjustment, money, payDebt,
+  return { ...moneyRevisions,...online,...workspace,...initialization,walletPreview:wallet.preview,provisionWalletCredential:wallet.provision,revokeWalletCredential:wallet.revoke,saleReturn:returns.saleReturn,purchaseReturn:returns.purchaseReturn, ...metrics, login, activate, logout, context, member, product, authorizeProductAsset, catalog, party, account, purchase, adjustment, stockOpname, money, payDebt,
     ...productWorkbooks, ...cashBookWorkbooks,financeCategories:finance.categories, pricing:pricing.pricing,pricingQuote:pricing.pricingQuote,savePriceLevel:pricing.savePriceLevel,saveLevelPrice:pricing.saveLevelPrice,assignCustomerPriceLevel:pricing.assignCustomerPriceLevel,savePromotion:pricing.savePromotion,purchaseDetail,memberships, terminal, openShift, closeShift, sale, receipt, report, cashBook,books:finance.books };
 }
 module.exports = { createPosBusinessService, amount };

@@ -202,14 +202,16 @@ function createPosAdminService({db=pool,permissionList=permission.getPermissionL
   let selectedAllocations=null,value=legacyValue;
   if(selection){
    const ids=selection.map(item=>item.obligation_id);
-   await c.query(`SELECT id FROM pos_business_wallet_links WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE`,[ids]);
+   // Merchant row is held FOR UPDATE; all POS sale/refund mutations hold
+   // FOR SHARE on that same merchant row until commit. Ledger links remain
+   // SELECT/INSERT-only: locking immutable link rows is redundant.
    selectedAllocations=(await c.query(`SELECT d.id,d.amount-coalesce((SELECT sum(r.amount) FROM pos_business_wallet_links r WHERE r.payment_id=d.payment_id AND r.direction='credit'),0)-coalesce((SELECT sum(sa.amount) FROM pos_wallet_settlement_allocations sa WHERE sa.obligation_link_id=d.id),0) available
      FROM pos_business_wallet_links d WHERE d.id=ANY($1::uuid[]) AND d.business_id=$2 AND d.tenant_id=$3 AND d.unit_id=$4 AND d.direction='debit' ORDER BY d.id`,[ids,merchant,a.tenantId,a.unitId])).rows;
    if(selectedAllocations.length!==selection.length)fail('SETTLEMENT_SELECTION_DENIED',403);
    const expected=new Map(selection.map(item=>[item.obligation_id,item.expected_outstanding]));
    if(selectedAllocations.some(item=>BigInt(item.available)<=0n||String(item.available)!==expected.get(item.id)))fail('SETTLEMENT_SELECTION_STALE',409);
    value=selectedAllocations.reduce((sum,item)=>sum+BigInt(item.available),0n);
-  }else await c.query('SELECT id FROM pos_business_wallet_links WHERE business_id=$1 AND tenant_id=$2 ORDER BY id FOR UPDATE',[merchant,a.tenantId]);
+  }
   const position=(await c.query(`SELECT coalesce(sum(l.amount) FILTER(WHERE l.direction='debit'),0) gross,
     coalesce(sum(l.amount) FILTER(WHERE l.direction='credit'),0) refunds,
     (SELECT coalesce(sum(amount),0) FROM pos_wallet_settlement_payouts WHERE business_id=$1 AND tenant_id=$2) payouts

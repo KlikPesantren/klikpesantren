@@ -25,9 +25,11 @@ if (mode !== "development" && url.protocol !== "https:")
   throw new Error("POS requires HTTPS");
 if (url.username || url.password || url.search || url.hash)
   throw new Error("Credential-free API base required");
+const privateDevelopmentHost = mode === "development" && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(url.hostname);
 if (
   url.protocol !== "https:" &&
-  !["127.0.0.1", "localhost", "10.0.2.2"].includes(url.hostname)
+  !["127.0.0.1", "localhost", "10.0.2.2"].includes(url.hostname) &&
+  !privateDevelopmentHost
 )
   throw new Error("Local HTTP only");
 module.exports = {
@@ -35,7 +37,7 @@ module.exports = {
     name: "Suq Shogir",
     slug: "klikpesantren-pos",
     owner: "kliksantridemo",
-    version: "1.0.0",
+    version: "1.0.1",
     orientation: "portrait",
     userInterfaceStyle: "light",
     icon: "./assets/suq-shogir-icon.png",
@@ -46,7 +48,7 @@ module.exports = {
     },
     android: {
       package: "com.klikpesantren.pos",
-      versionCode: 4,
+      versionCode: mode === "production" ? 10 : mode === "development" ? 7 : 4,
       adaptiveIcon: {
         foregroundImage: "./assets/suq-shogir-adaptive-foreground.png",
         backgroundColor: "#0E5A37",
@@ -57,8 +59,10 @@ module.exports = {
       ],
     },
     plugins: [
+      ["./plugins/withTestingNetwork.cjs", { enabled: mode === "development" }],
       "expo-font",
       "expo-secure-store",
+      "expo-sharing",
       ["expo-camera", {
         cameraPermission: "Pindai barcode kartu Dompet Santri untuk pembayaran.",
         microphonePermission: false,
@@ -78,6 +82,7 @@ module.exports = {
       posEnvironment: mode,
       apiUrl: api,
       posReview: review,
+      ...(process.env.POS_BUILD_COMMIT ? { sourceCommit: process.env.POS_BUILD_COMMIT } : {}),
       eas: { projectId: "28970813-9740-42d8-a81d-e762ca36d66c" },
     },
     web: { bundler: "metro" },

@@ -59,7 +59,7 @@ const tables = {
 // Existing canonical KlikPesantren treasury objects used only by the
 // tenant-superadmin settlement endpoint. They are not POS-owned schema.
 const externalTables = {
-  cash_accounts: { select: true },
+  cash_accounts: { select: true, update: ["id"] }, // Minimal metadata permission for row lock; never ledger UPDATE.
   cash_account_transactions: { select: true, insert: true },
 };
 

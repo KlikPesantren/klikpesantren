@@ -1,0 +1,5 @@
+module.exports=async function refundContext(c,a,id){
+ const items=(await c.query("SELECT l.product_id,l.name,l.quantity-coalesce((SELECT sum(r.quantity) FROM pos_business_lines r JOIN pos_business_operations o ON o.id=r.operation_id AND o.business_id=r.business_id WHERE o.business_id=$1 AND o.source_id=$2 AND o.kind='SALE_RETURN' AND r.product_id=l.product_id),0) remaining_quantity FROM pos_business_lines l WHERE l.business_id=$1 AND l.operation_id=$2 ORDER BY l.product_id",[a.business,id])).rows;
+ const sources=(await c.query("SELECT ac.id,ac.name,ac.kind,sum(m.amount)::text capacity FROM pos_money_movements m JOIN pos_business_operations o ON o.id=m.operation_id AND o.business_id=m.business_id JOIN pos_business_accounts ac ON ac.id=m.account_id AND ac.business_id=m.business_id WHERE m.business_id=$1 AND (o.id=$2 OR (o.source_id=$2 AND o.kind IN('AR_COLLECTION','SALE_RETURN'))) GROUP BY ac.id,ac.name,ac.kind HAVING sum(m.amount)>0 ORDER BY ac.id",[a.business,id])).rows;
+ return {items,cash_accounts:sources.filter(p=>p.kind==='CASH').map(p=>({id:p.id,name:p.name})),external_source:sources.some(p=>!['CASH','WALLET_CLEARING'].includes(p.kind))};
+};

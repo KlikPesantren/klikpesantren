@@ -16,8 +16,8 @@ function receiptPresentation(value = {}) {
   const sale = value.sale || {};
   const items = (value.items || []).map(item => ({
     ...item,
-    lineGross: money(item.unit_price) * money(item.quantity),
-    lineDiscount: money(item.discount),
+    lineGross: item.pricing_snapshot?.commercial_gross!=null?money(item.pricing_snapshot.commercial_gross):money(item.unit_price) * money(item.quantity),
+    lineDiscount: item.pricing_snapshot?.commercial_discount!=null?money(item.pricing_snapshot.commercial_discount)+money(item.pricing_snapshot.manual_discount):money(item.discount),
     lineTotal: money(item.total),
   }));
   const subtotal = items.reduce((sum, item) => sum + item.lineGross, 0n);

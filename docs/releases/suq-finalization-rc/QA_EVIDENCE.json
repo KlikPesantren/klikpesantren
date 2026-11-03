@@ -1,0 +1,63 @@
+{
+  "date": "2026-11-03",
+  "productionChanged": false,
+  "apkBuilt": false,
+  "mobile": {
+    "tests": 172,
+    "pass": 172,
+    "fail": 0,
+    "log": "local .tmp/ws4-mobile-tests.log"
+  },
+  "financial": {
+    "clone": "suq_production_rc_ac8c7ae9d4_test",
+    "productionChanged": false,
+    "tests": [
+      {
+        "name": "test-suq-ws4-operations-db.js",
+        "status": "PASS",
+        "checks": 22,
+        "rollbackFingerprint": true
+      },
+      {
+        "name": "test-pos-finance-db.js",
+        "status": "PASS",
+        "checks": 21,
+        "rollbackFingerprint": true
+      }
+    ],
+    "status": "PASS",
+    "role": "suq_clone_runtime_7d4e9e147f",
+    "requiredSantriColumns": [
+      "nama",
+      "tenant_id"
+    ],
+    "prerequisites": {
+      "tenant1": true,
+      "unit2": true
+    },
+    "runtimeTransactions": 402,
+    "dbFailure": {
+      "code": "23514"
+    },
+    "allTableFingerprints": "UNCHANGED"
+  },
+  "catalog": {
+    "products": 2001,
+    "pages": 67,
+    "groups": 7,
+    "status": "PASS",
+    "suite": "scripts/test-suq-ws4-catalog.js",
+    "scope": "name/SKU/barcode/filter/cursor; XLSX preview/commit/retry; stock/Wallet unchanged"
+  },
+  "concurrency": {
+    "status": "PASS",
+    "clone": "suq_ws3_payments_e2b0538400",
+    "cases": [
+      "same-ID Wallet sale one debit",
+      "different-ID payout race one success + stale loser + winner replay",
+      "same-ID post-payout refund one credit + recovery"
+    ]
+  },
+  "physicalAcceptance": "NOT_TESTED",
+  "finalMergedApkManifest": "NOT_BUILT"
+}

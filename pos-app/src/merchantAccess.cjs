@@ -1,7 +1,7 @@
 const GROUPS=Object.freeze({
  SALES:[['SALE_CREATE','Melakukan Penjualan'],['SALE_VIEW','Melihat Transaksi'],['SALE_REFUND','Retur Penjualan'],['SALE_DISCOUNT','Memberikan Diskon']],
  SHIFT:[['SHIFT_OPEN','Buka Shift'],['SHIFT_CLOSE','Tutup Shift'],['SHIFT_VIEW_HISTORY','Riwayat Shift']],
- PRODUCT:[['PRODUCT_VIEW','Melihat Produk'],['PRODUCT_MANAGE','Kelola Produk'],['PRODUCT_PRICE_MANAGE','Kelola Harga'],['PRODUCT_COST_VIEW','Melihat HPP']],
+ PRODUCT:[['PRODUCT_VIEW','Melihat Produk'],['PRODUCT_MANAGE','Kelola Produk'],['PRODUCT_PRICE_MANAGE','Kelola Harga'],['PRODUCT_COST_VIEW','Melihat HPP'],['PRICING_MANAGE','Kelola Level Harga & Promo'],['PRICE_LEVEL_SELECT','Pilih Level Harga Manual']],
  INVENTORY:[['INVENTORY_VIEW','Melihat Stok'],['INVENTORY_ADJUST','Penyesuaian Stok'],['INVENTORY_OPNAME','Stok Opname'],['INVENTORY_MOVEMENT_VIEW','Pergerakan Stok']],
  CUSTOMER:[['CUSTOMER_VIEW','Melihat Customer'],['CUSTOMER_MANAGE','Kelola Customer'],['CUSTOMER_CREDIT_VIEW','Melihat Kredit Customer'],['CUSTOMER_CREDIT_MANAGE','Kelola Kredit Customer']],
  AR:[['AR_VIEW','Melihat Piutang'],['AR_COLLECT','Menerima Pembayaran Piutang']],
@@ -9,7 +9,7 @@ const GROUPS=Object.freeze({
  SUPPLIER:[['SUPPLIER_VIEW','Melihat Supplier'],['SUPPLIER_MANAGE','Kelola Supplier']],
  AP:[['AP_VIEW','Melihat Utang Supplier'],['AP_PAY','Bayar Utang Supplier']],
  FINANCE:[['FINANCE_ACCOUNT_VIEW','Lihat Kas/Rekening'],['FINANCE_TRANSACTION_VIEW','Lihat Mutasi'],['EXPENSE_CREATE','Catat Pengeluaran'],['OTHER_INCOME_CREATE','Pendapatan Lain'],['TRANSFER_CREATE','Transfer']],
- OWNER_FINANCE:[['CAPITAL_MANAGE','Modal'],['PRIVE_MANAGE','Prive']],
+ OWNER_FINANCE:[['CAPITAL_MANAGE','Modal'],['PRIVE_MANAGE','Prive'],['FINANCE_CORRECT','Koreksi/Pembatalan Keuangan']],
  REPORTS:[['REPORT_SALES','Penjualan'],['REPORT_PROFIT','Laba Kotor'],['REPORT_INVENTORY','Stok'],['REPORT_FINANCE','Keuangan'],['REPORT_CUSTOMER','Customer'],['REPORT_ONLINE','Online Store']],
  ONLINE:[['ONLINE_STORE_VIEW','Lihat Toko Online'],['ONLINE_STORE_MANAGE','Kelola Toko'],['ONLINE_ORDER_MANAGE','Kelola Pesanan']],
  USERS:[['USER_VIEW','Lihat Pengguna'],['USER_MANAGE','Kelola Pengguna'],['PERMISSION_MANAGE','Kelola Hak Akses']],
@@ -17,18 +17,20 @@ const GROUPS=Object.freeze({
 });
 const MODULES=Object.freeze([
  ['BERANDA',null,'home'],['KASIR','SALE_CREATE','shopping-bag'],['TRANSAKSI','SALE_VIEW','file-text'],['SHIFT','SHIFT_VIEW_HISTORY','clock'],
- ['PRODUK','PRODUCT_VIEW','grid'],['STOK','INVENTORY_VIEW','archive'],['CUSTOMER','CUSTOMER_VIEW','users'],
+ ['LEVEL HARGA','PRICING_MANAGE','tag'],['PAKET & PROMO','PRICING_MANAGE','package'],['PRODUK','PRODUCT_VIEW','grid'],['STOK','INVENTORY_VIEW','archive'],['CUSTOMER','CUSTOMER_VIEW','users'],
  ['SUPPLIER','SUPPLIER_VIEW','truck'],['PEMBELIAN','PURCHASE_VIEW','shopping-cart'],['PIUTANG','AR_VIEW','arrow-down-circle'],
- ['UTANG','AP_VIEW','arrow-up-circle'],['KEUANGAN',['FINANCE_ACCOUNT_VIEW','FINANCE_TRANSACTION_VIEW','EXPENSE_CREATE','OTHER_INCOME_CREATE','TRANSFER_CREATE','CAPITAL_MANAGE','PRIVE_MANAGE'],'credit-card'],['LAPORAN',['REPORT_SALES','REPORT_PROFIT','REPORT_INVENTORY','REPORT_FINANCE','REPORT_CUSTOMER','REPORT_ONLINE'],'bar-chart-2'],
+ ['ARUS KAS',null,'activity'],['PENGELUARAN','EXPENSE_CREATE','arrow-up-right'],['PEMASUKAN','OTHER_INCOME_CREATE','arrow-down-left'],
+ ['LAPORAN HARIAN',['REPORT_SALES','REPORT_PROFIT','REPORT_INVENTORY','REPORT_FINANCE','REPORT_CUSTOMER'],'calendar'],['LAPORAN BULANAN',['REPORT_SALES','REPORT_PROFIT','REPORT_INVENTORY','REPORT_FINANCE','REPORT_CUSTOMER'],'bar-chart-2'],['LAPORAN TAHUNAN',['REPORT_SALES','REPORT_PROFIT','REPORT_INVENTORY','REPORT_FINANCE','REPORT_CUSTOMER'],'trending-up'],['LAPORAN SALDO','REPORT_FINANCE','pie-chart'],
+ ['UTANG','AP_VIEW','arrow-up-circle'],['KEUANGAN',['FINANCE_ACCOUNT_VIEW','FINANCE_TRANSACTION_VIEW','EXPENSE_CREATE','OTHER_INCOME_CREATE','TRANSFER_CREATE','CAPITAL_MANAGE','PRIVE_MANAGE','FINANCE_CORRECT'],'credit-card'],['LAPORAN',['REPORT_SALES','REPORT_PROFIT','REPORT_INVENTORY','REPORT_FINANCE','REPORT_CUSTOMER','REPORT_ONLINE'],'bar-chart-2'],
  ['TOKO ONLINE','ONLINE_STORE_VIEW','globe'],['PENGGUNA','USER_VIEW','user-check'],['PENGATURAN','BUSINESS_SETTINGS_VIEW','settings'],
 ]);
 const DEFAULTS=Object.freeze({
- CASHIER:['SALE_CREATE','SALE_VIEW','SHIFT_OPEN','SHIFT_CLOSE','SHIFT_VIEW_HISTORY','CUSTOMER_VIEW','PRODUCT_VIEW'],
- SUPERVISOR:['SALE_CREATE','SALE_VIEW','SALE_REFUND','SALE_DISCOUNT','SHIFT_OPEN','SHIFT_CLOSE','SHIFT_VIEW_HISTORY','CUSTOMER_VIEW','CUSTOMER_MANAGE','CUSTOMER_CREDIT_VIEW','PRODUCT_VIEW','PRODUCT_MANAGE','PRODUCT_PRICE_MANAGE','PRODUCT_COST_VIEW','INVENTORY_VIEW','INVENTORY_ADJUST','INVENTORY_OPNAME','INVENTORY_MOVEMENT_VIEW','PURCHASE_VIEW','PURCHASE_CREATE','PURCHASE_RETURN','SUPPLIER_VIEW','SUPPLIER_MANAGE','AP_VIEW','AP_PAY','AR_VIEW','AR_COLLECT','REPORT_SALES','REPORT_INVENTORY','REPORT_CUSTOMER','REPORT_ONLINE','ONLINE_STORE_VIEW','ONLINE_ORDER_MANAGE','BUSINESS_SETTINGS_VIEW'],
+ CASHIER:['PRICE_LEVEL_SELECT','SALE_CREATE','SALE_VIEW','SHIFT_OPEN','SHIFT_CLOSE','SHIFT_VIEW_HISTORY','CUSTOMER_VIEW','PRODUCT_VIEW'],
+ SUPERVISOR:['PRICE_LEVEL_SELECT','SALE_CREATE','SALE_VIEW','SALE_REFUND','SALE_DISCOUNT','SHIFT_OPEN','SHIFT_CLOSE','SHIFT_VIEW_HISTORY','CUSTOMER_VIEW','CUSTOMER_MANAGE','CUSTOMER_CREDIT_VIEW','PRODUCT_VIEW','PRODUCT_MANAGE','PRODUCT_PRICE_MANAGE','PRODUCT_COST_VIEW','INVENTORY_VIEW','INVENTORY_ADJUST','INVENTORY_OPNAME','INVENTORY_MOVEMENT_VIEW','PURCHASE_VIEW','PURCHASE_CREATE','PURCHASE_RETURN','SUPPLIER_VIEW','SUPPLIER_MANAGE','AP_VIEW','AP_PAY','AR_VIEW','AR_COLLECT','REPORT_SALES','REPORT_INVENTORY','REPORT_CUSTOMER','REPORT_ONLINE','ONLINE_STORE_VIEW','ONLINE_ORDER_MANAGE','BUSINESS_SETTINGS_VIEW'],
 });
 function navigationItems(permissions=[]){const allowed=new Set(permissions);return MODULES.filter(([,permission])=>!permission||(Array.isArray(permission)?permission.some(item=>allowed.has(item)):allowed.has(permission))).map(([id,permission,icon])=>({id,permission,icon}));}
 function navigation(permissions=[]){return navigationItems(permissions).map(item=>item.id);}
-function primaryNavigation(items=[]){return ['BERANDA','KASIR','TRANSAKSI'].filter(id=>items.some(item=>(item.id||item)===id));}
+function primaryNavigation(items=[]){return ['BERANDA','KASIR','ARUS KAS'].filter(id=>items.some(item=>(item.id||item)===id));}
 function dashboardActions(role,permissions=[]){
  const allowed=new Set(permissions),actions=[];
  if(allowed.has('SALE_CREATE'))actions.push({id:'KASIR',label:role==='CASHIER'?'Mulai Jualan':'Buka Kasir',icon:'shopping-bag'});

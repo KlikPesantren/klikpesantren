@@ -60,7 +60,7 @@ test("reader UI is native, preview-first, and never logs raw UID/token", () => {
   const server = fs.readFileSync(path.join(root, "..", "services", "posBusinessService.js"), "utf8");
   assert.match(scanner, /CameraView/); assert.match(scanner, /react-native-nfc-manager/);
   assert.doesNotMatch(scanner, /console\.(?:log|info|warn|error)/);
-  assert.match(app, /wallet\/preview/); assert.match(app, /available_balance/);
+  assert.match(app, /verifyWalletPreview/);const preview=fs.readFileSync(path.join(root,"src","walletPreview.cjs"),"utf8");assert.match(preview,/wallet\/preview/);assert.match(preview,/isCurrent/); assert.match(app, /available_balance/);
   assert.match(app, /title="Unit santri"/); assert.match(app, /scannerAvailability\(context\.units,payment\.unit_id\)/);
   assert.match(scanner, /disabledReason/);
   assert.match(scanner, /nfcFailureMessage/);

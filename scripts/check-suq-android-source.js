@@ -1,0 +1,12 @@
+const fs=require('fs'),cp=require('child_process'),path=require('path'),root=path.resolve(__dirname,'../pos-app');
+const sdk=process.env.POS_EXPO_SDK_ROOT||'C:/sqpromo7/node_modules/expo',modules=path.dirname(sdk);
+const result={mode:'SOURCE_INTROSPECTION_ONLY',apkBuild:false,productionChanged:false};
+try{
+ const output=cp.execFileSync(process.execPath,[path.join(sdk,'bin/cli'),'config','--type','introspect','--json'],{cwd:root,env:{...process.env,NODE_PATH:modules,POS_ENV:'production',EXPO_PUBLIC_POS_API_URL:'https://api.klikpesantren.com',POS_REVIEW:'0',EXPO_PUBLIC_POS_ACCEPTANCE:'0',POS_BUILD_COMMIT:process.env.POS_BUILD_COMMIT||cp.execFileSync('git',['-c','safe.directory='+path.dirname(root),'rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),EXPO_NO_DOTENV:'1',EXPO_OFFLINE:'1',EXPO_NO_TELEMETRY:'1',CI:'1'},encoding:'utf8',maxBuffer:12*1024*1024,stdio:['ignore','pipe','pipe']});
+ const config=JSON.parse(output);let manifest;function visit(v){if(!v||typeof v!=='object'||manifest)return;if(v.manifest?.application){manifest=v.manifest;return;}for(const item of Object.values(v))visit(item);}visit(config);
+ result.package=config.android?.package;result.versionCode=config.android?.versionCode;result.version=config.version;result.api=config.extra?.apiUrl;result.sourceCommit=config.extra?.sourceCommit;
+ result.manifestFound=!!manifest;if(manifest){result.cleartext=manifest.application[0]?.$?.['android:usesCleartextTraffic'];result.permissions=(manifest['uses-permission']||[]).filter(p=>p.$?.['tools:node']!=='remove').map(p=>p.$?.['android:name']).filter(Boolean);result.nfcOptional=(manifest['uses-feature']||[]).some(f=>f.$?.['android:name']==='android.hardware.nfc'&&f.$?.['android:required']==='false');}
+ result.libraryNfcOptional=/android:required="false"/.test(fs.readFileSync(path.join(modules,'react-native-nfc-manager/android/src/main/AndroidManifest.xml'),'utf8'));result.finalMergedApkManifest='NOT_BUILT';
+ result.status=manifest&&result.cleartext==='false'&&result.package==='com.klikpesantren.pos'?'PASS':'PARTIAL';
+}catch(e){result.status='BLOCKED';result.exitCode=e.status;const text=String(e.stderr||e.message);const match=text.match(/Failed to resolve plugin for module ["']([^"']+)/);result.blocker=match?'PLUGIN_RESOLUTION: '+match[1]:'EXPO_CONFIG_INTROSPECTION_FAILED';}
+fs.mkdirSync(path.resolve(root,'../.tmp'),{recursive:true});fs.writeFileSync(path.resolve(root,'../.tmp/suq-rc-android-source-qa.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2));

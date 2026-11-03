@@ -3,8 +3,9 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const {ALL,effective}=require('../../services/posBusinessPermissions');
+const {errorText}=require('../src/domain.cjs');
 
-const app=fs.readFileSync(path.join(__dirname,'../src/MerchantBusinessApp.jsx'),'utf8');
+const app=fs.readFileSync(path.join(__dirname,'../src/MerchantBusinessApp.jsx'),'utf8')+fs.readFileSync(path.join(__dirname,'../src/FinancialWorkspace.jsx'),'utf8');
 const service=fs.readFileSync(path.join(__dirname,'../../services/posBusinessService.js'),'utf8');
 
 test('a true Owner receives every canonical operational permission',()=>{
@@ -21,19 +22,20 @@ test('cashier identity is the authenticated membership and is not manufactured b
   assert.match(service,/cashier_id:\s*a\.user/);
 });
 
-test('owner finance is grouped, permission-derived, and uses canonical money endpoint',()=>{
-  for(const label of ['Kas & Bank','Catat','Riwayat','Piutang Customer','Utang Supplier','Laporan Keuangan'])assert.ok(app.includes(label),label);
-  assert.match(app,/submit\("\/money"/);
-  assert.match(app,/request_id:requestId\.current/);
-  assert.match(app,/account\.id!==form\.account_id/);
-  assert.match(app,/can\("AR_VIEW"\)/);
-  assert.match(app,/can\("AP_VIEW"\)/);
+test('occupied terminal or cash drawer gives an actionable shift error',()=>{
+  assert.equal(errorText({code:'SHIFT_RESOURCE_IN_USE'}),'Terminal atau laci kas sedang dipakai shift pengguna lain. Tutup shift tersebut atau pilih terminal/laci lain.');
+  assert.match(service,/SHIFT_RESOURCE_IN_USE/);
+  assert.match(service,/pos_business_shift_terminal/);
+  assert.match(service,/pos_business_shift_drawer/);
 });
 
-test('reports distinguish sales, receipts, credit, and non-statutory operating result',()=>{
-  assert.match(app,/Penjualan bersih adalah nilai penjualan setelah retur/);
-  assert.match(app,/penjualan piutang tetap outstanding sampai ditagih/);
-  assert.match(app,/bukan laba bersih\/statutory final/);
-  assert.match(app,/HPP FIFO aktual/);
-  assert.match(app,/context\.permissions\.includes\("REPORT_FINANCE"\)/);
+test('owner finance has reviewed sheet confirmation and idempotent canonical posting',()=>{
+ for(const text of ['Kasbox','Transfer Saldo','Pengeluaran','Pemasukan Lain-lain','Arus Kas'])assert.ok(app.includes(text));
+ assert.ok(app.includes("post.current('/money'"));assert.match(app,/request_id:requestId.current/);
+ assert.match(app,/saveLock.current/);assert.match(app,/Konfirmasi & Simpan/);
+});
+test('clean reports preserve truthful scope and omit metrics outside permission',()=>{
+ assert.match(app,/Hasil Usaha Operasional/);assert.match(app,/HPP FIFO/);
+ assert.match(app,/k\[key\]!=null/);assert.match(app,/belum mencakup seluruh aset dan kewajiban/);
+ assert.doesNotMatch(app,/SalesChart|Arti Angka|Cakupan Hasil Usaha/);
 });

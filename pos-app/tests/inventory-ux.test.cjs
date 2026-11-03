@@ -27,9 +27,10 @@ test("purchase payment choices keep cash, bank and supplier debt explicit", () =
   assert.deepEqual(applyPurchasePaymentMode({ paid: "0", account_id: "old", due_date: "2030-01-01" }, "CASH", "900"), { paid: "900", account_id: "", due_date: "" });
 });
 
-test("inventory UX routes opening stock to canonical initialization and purchases to canonical posting", () => {
-  assert.match(appSource, /Buka Posisi Awal Usaha/);
-  assert.match(appSource, /navigate\("PENGATURAN"\)/);
+test("inventory UX keeps opening stock in business settings and purchases in canonical posting", () => {
+  assert.match(appSource, /Card title="Posisi Awal Usaha"/);
+  assert.doesNotMatch(appSource, /\["OPENING","Stok Awal"\]/);
+  assert.match(appSource, /PENGATURAN: \[\["store".*\["initialization", "\/initialization"/);
   assert.match(appSource, /Barang Masuk dari Pembelian/);
   assert.match(appSource, /navigate\("PEMBELIAN"\)/);
   assert.match(appSource, /purchasePayload\(\{\.\.\.form,paid:effectivePaid\.toString\(\)\},requestId\.current\)/);

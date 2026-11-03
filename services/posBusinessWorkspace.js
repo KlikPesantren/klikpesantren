@@ -24,6 +24,12 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
         readiness,
         open_shift: (await c.query("SELECT id,terminal_id,cash_account_id,opening_cash,opened_at FROM pos_business_shifts WHERE business_id=$1 AND user_id=$2 AND status='OPEN'", [a.business, a.user])).rows[0] || null,
       };
+      if(permitted(a,'SHIFT_OPEN')) out.active_shifts=(await c.query(`SELECT s.id,s.user_id,s.terminal_id,s.cash_account_id,s.opened_at,
+        u.name operator_name,t.name terminal_name,ac.name drawer_name,(s.user_id=$2) is_own
+        FROM pos_business_shifts s JOIN pos_merchant_users u ON u.id=s.user_id
+        JOIN pos_business_terminals t ON t.id=s.terminal_id AND t.business_id=s.business_id
+        JOIN pos_business_accounts ac ON ac.id=s.cash_account_id AND ac.business_id=s.business_id
+        WHERE s.business_id=$1 AND s.status='OPEN' ORDER BY s.opened_at,s.id`,[a.business,a.user])).rows;
       if (sales) {
         out.sales_today = (await c.query(`SELECT count(*) transactions,coalesce(sum(total),0) sales,
           CASE WHEN count(*)=0 THEN 0 ELSE trunc(coalesce(sum(total),0)/count(*))::bigint END average_ticket
@@ -190,15 +196,17 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
   async function inventory(req) {
     return run(req, 'INVENTORY_VIEW', async (c, a) => {
       const costs = permitted(a, 'PRODUCT_COST_VIEW');
-      const products = (await c.query(`SELECT p.*,coalesce(s.on_hand,0) on_hand,coalesce(r.reserved,0) reserved,
+      const page=require('./posProductPage').productPage(req,a.business,bad,300);
+      const products = (await c.query(`SELECT p.id,p.sku,p.barcode,p.name,p.category,p.uom,p.image_url,p.selling_price,p.minimum_stock,p.active,p.sellable,
+        ${costs ? 'p.reference_purchase_price,' : ''}coalesce(s.version,0)::text stock_version,coalesce(s.on_hand,0) on_hand,coalesce(r.reserved,0) reserved,
         coalesce(s.on_hand,0)-coalesce(r.reserved,0) available FROM pos_business_products p
-        LEFT JOIN(SELECT product_id,sum(quantity) on_hand FROM pos_inventory_movements WHERE business_id=$1 GROUP BY product_id)s ON s.product_id=p.id
+        LEFT JOIN(SELECT product_id,sum(quantity) on_hand,count(*) version FROM pos_inventory_movements WHERE business_id=$1 GROUP BY product_id)s ON s.product_id=p.id
         LEFT JOIN(SELECT product_id,sum(quantity) reserved FROM pos_online_reservations WHERE business_id=$1 AND state='RESERVED' GROUP BY product_id)r ON r.product_id=p.id
-        WHERE p.business_id=$1 ORDER BY p.name LIMIT 300`, [a.business])).rows;
-      const movements = (await c.query(`SELECT m.id,m.product_id,p.name,m.quantity,m.kind,m.reason,m.created_at,
-        ${costs ? 'm.cost' : 'NULL::bigint'} cost FROM pos_inventory_movements m JOIN pos_business_products p ON p.id=m.product_id
+        WHERE p.business_id=$1 ${page.filter} ORDER BY p.name,p.id LIMIT ${page.limit}`, page.values)).rows;
+      const movements = (await c.query(`SELECT m.id,m.product_id,p.name,m.quantity,m.kind,m.reason,m.created_at${costs ? ',m.cost' : ''} FROM pos_inventory_movements m JOIN pos_business_products p ON p.id=m.product_id
         WHERE m.business_id=$1 ORDER BY m.created_at DESC,m.id LIMIT 200`, [a.business])).rows;
-      return { products, movements, cost_visible: costs };
+      const result=page.finish(products);
+      return { products:page.paged?result.items:result, ...(page.paged?{next_cursor:result.next_cursor}:{}), movements, cost_visible: costs };
     });
   }
 
@@ -271,14 +279,20 @@ function createBusinessWorkspace({ run, bad, uuid, amount, text, makeId, bcrypt,
   async function updateProduct(req) {
     return run(req, 'PRODUCT_MANAGE', async (c, a) => {
       const b = req.body || {}, id = uuid(req.params.productId);
+      const before=(await c.query('SELECT sku,barcode,selling_price,reference_purchase_price FROM pos_business_products WHERE id=$1 AND business_id=$2 FOR UPDATE',[id,a.business])).rows[0];
+      if(!before)bad('PRODUCT_NOT_FOUND',404);
+      if((Object.hasOwn(b,'sku') && b.sku!==before.sku)||(Object.hasOwn(b,'barcode') && (b.barcode||null)!==before.barcode))bad('PRODUCT_IDENTIFIER_POLICY_REQUIRED',409);
+      if(b.selling_price!=null && amount(b.selling_price,true)!==BigInt(before.selling_price) && !permitted(a,'PRODUCT_PRICE_MANAGE'))bad('MERCHANT_PERMISSION_DENIED',403);
+      if(Object.hasOwn(b,'reference_purchase_price') && String(b.reference_purchase_price||'')!==String(before.reference_purchase_price||'') && !permitted(a,'PRODUCT_COST_VIEW'))bad('MERCHANT_PERMISSION_DENIED',403);
       const row = (await c.query(`UPDATE pos_business_products SET name=$1,category=$2,uom=$3,image_url=$4,selling_price=$5,
         reference_purchase_price=$6,minimum_stock=$7,active=$8,sellable=$9 WHERE id=$10 AND business_id=$11
         RETURNING id,name,selling_price,reference_purchase_price`,
       [text(b.name), optional(b.category, 120), optional(b.uom, 32) || 'pcs', productImageUrl(b.image_url),
-        amount(b.selling_price, true).toString(), b.reference_purchase_price == null || b.reference_purchase_price === ''
+        amount(b.selling_price ?? before.selling_price, true).toString(), !Object.hasOwn(b,'reference_purchase_price') ? before.reference_purchase_price : b.reference_purchase_price == null || b.reference_purchase_price === ''
           ? null : amount(b.reference_purchase_price).toString(), amount(b.minimum_stock || 0).toString(), b.active !== false,
         b.sellable !== false, id, a.business])).rows[0];
       if (!row) bad('PRODUCT_NOT_FOUND', 404);
+      if(!permitted(a,'PRODUCT_COST_VIEW'))delete row.reference_purchase_price;
       return row;
     });
   }

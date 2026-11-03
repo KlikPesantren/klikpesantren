@@ -27,13 +27,19 @@ test("cash tender computes exact integer Rupiah change", () => {
   assert.equal(cashChange("17000", "18000"), null);
 });
 
-test("cashier uses four-step mobile flow, auto total, and keyboard-safe login", () => {
+test("cashier uses one-screen workspace, payment sheet, auto total, and keyboard-safe input", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "src", "MerchantBusinessApp.jsx"), "utf8");
-  assert.match(source, /PRODUCTS.*CART.*PAYMENT.*CONFIRM/s);
+  assert.match(source, /visible=\{cartOpen\}/);
+  assert.match(source, /paymentOpen&&<Modal visible/);
+  assert.doesNotMatch(source, /1 Produk/);
   assert.match(source, /effectivePayments=payments\.map\(payment=>!split/);
   assert.match(source, /KeyboardAvoidingView/);
   assert.match(source, /automaticallyAdjustKeyboardInsets/);
   assert.match(source, /transferMethod\(accounts,p\.account_id\)/);
   assert.match(source, /const id=row\.id\?\?row\.unit_id/);
   assert.match(source, /unit\.nama_unit\|\|unit\.unit_name\|\|unit\.name/);
+  assert.match(source, /title="Lanjut Transaksi"/);
+  assert.match(source, /title="Lanjut Pembayaran"/);
+  assert.match(source, /Kembali ke Atur Transaksi/);
+  assert.doesNotMatch(source.slice(source.indexOf("function Cashier("),source.indexOf("function Transactions(")), /Transaksi masih kosong/);
 });

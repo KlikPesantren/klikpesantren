@@ -58,6 +58,7 @@ test("acceptance makeApi rejects before fetch even if fixture adapter is not sel
   const source = fs
     .readFileSync(require.resolve("../src/api.js"), "utf8")
     .replace('import Constants from "expo-constants";', "")
+    .replace('import * as FileSystem from "expo-file-system/legacy";', "const FileSystem={};")
     .replace("export function makeApi", "function makeApi");
   let calls = 0;
   const makeApi = new Function(

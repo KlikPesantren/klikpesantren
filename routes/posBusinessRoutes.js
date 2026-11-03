@@ -73,6 +73,7 @@ function createPosBusinessRouter({ db, service = createPosBusinessService({ db }
   router.get('/:businessId/parties', handle('directory'));
   router.post('/:businessId/parties/:partyId', handle('updateParty'));
   router.get('/:businessId/inventory', handle('inventory'));
+  router.post('/:businessId/stock-opnames', handle('stockOpname'));
   router.get('/:businessId/activity', handle('activity'));
   router.get('/:businessId/sales', handle('sales'));
   router.get('/:businessId/purchases', handle('purchases'));

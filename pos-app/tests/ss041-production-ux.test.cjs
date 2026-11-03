@@ -42,6 +42,7 @@ test("NFC failures distinguish hardware, disabled radio, cancellation, read and 
   assert.equal(nfcFailureCode(new UserCancel()), "NFC_CANCELLED");
   assert.equal(nfcFailureCode(new TagConnectionLost()), "NFC_READ_FAILED");
   assert.equal(nfcFailureCode(Error("WALLET_PREVIEW_FAILED"), "PREVIEW"), "WALLET_PREVIEW_FAILED");
+  assert.equal(nfcFailureCode({ code: "UNKNOWN_CREDENTIAL" }, "PREVIEW"), "UNKNOWN_CREDENTIAL");
   assert.match(nfcFailureMessage(Error("NFC_DISABLED")).message, /Aktifkan NFC/);
 });
 

@@ -1,3 +1,4 @@
+const productPermissions = require('./posBusinessPermissions');
 const XLSX = require('xlsx');
 
 const HEADERS = [
@@ -124,7 +125,8 @@ function analyzeRows(rows, existing) {
     if (target) claimedTargets.add(target.id);
     let status = errors.length ? (errors.some(error => error.includes('DUPLICATE_')) ? 'DUPLICATE' : 'INVALID') : target ? 'UPDATE' : 'CREATE';
     if (!errors.length && target && JSON.stringify(comparable(row)) === JSON.stringify(comparable(target))) status = 'UNCHANGED';
-    return { ...row, status, product_id: target?.id || null };
+    const identity_changes=target?['sku','barcode'].filter(key=>(target[key]||null)!==(row[key]||null)).map(key=>({field:key,before:target[key]||null,after:row[key]||null})):[];
+    return { ...row, status, product_id: target?.id || null, identity_changes };
   });
   const count = status => analyzed.filter(row => row.status === status).length;
   return {
@@ -210,12 +212,14 @@ function createPosProductWorkbookService({ run, bad, makeId }) {
   }
   async function productWorkbookPreview(req) {
     return run(req, 'products.manage', async (c, a) => {
+      if(!productPermissions.has(a.member,'PRODUCT_PRICE_MANAGE') || !productPermissions.has(a.member,'PRODUCT_COST_VIEW'))fail(bad,'MERCHANT_PERMISSION_DENIED',403);
       if (!req.file?.buffer) fail(bad, 'PRODUCT_WORKBOOK_REQUIRED', 400);
       return analyzeRows(readRows(req.file.buffer), await existingProducts(c, a.business));
     });
   }
   async function productWorkbookCommit(req) {
     return run(req, 'products.manage', async (c, a) => {
+      if(!productPermissions.has(a.member,'PRODUCT_PRICE_MANAGE') || !productPermissions.has(a.member,'PRODUCT_COST_VIEW'))fail(bad,'MERCHANT_PERMISSION_DENIED',403);
       if (!req.file?.buffer) fail(bad, 'PRODUCT_WORKBOOK_REQUIRED', 400);
       await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`pos-product-import:${a.business}`]);
       const analysis = analyzeRows(readRows(req.file.buffer), await existingProducts(c, a.business, true));
@@ -241,12 +245,19 @@ function createPosProductWorkbookService({ run, bad, makeId }) {
       if (!['ALL', 'ACTIVE', 'INACTIVE'].includes(status)) fail(bad, 'INVALID_PRODUCT_EXPORT_FILTER', 400);
       if (category && category.length > 120) fail(bad, 'INVALID_PRODUCT_EXPORT_FILTER', 400);
       const hasReservations = (await c.query("SELECT to_regclass('public.pos_online_reservations') present")).rows[0].present;
+      const search=String(req.query?.q||'').trim(),stock=String(req.query?.stock||'');
+      if(search.length>160||!['','AVAILABLE','LOW','OUT'].includes(stock))fail(bad,'INVALID_PRODUCT_EXPORT_FILTER',400);
       const values = [a.business], filters = [];
+      if(search){values.push(search);filters.push(`strpos(lower(concat_ws(' ',p.name,p.sku,p.barcode)),lower($${values.length}))>0`);}
+      const available="(coalesce(s.on_hand,0)-"+(hasReservations?'coalesce(r.reserved,0)':'0')+")";
+      if(stock==='AVAILABLE')filters.push(available+'>0');
+      if(stock==='OUT')filters.push(available+'<=0');
+      if(stock==='LOW')filters.push(available+'>0 AND '+available+'<=p.minimum_stock');
       if (category) { values.push(category); filters.push(`p.category=$${values.length}`); }
       if (status !== 'ALL') { values.push(status === 'ACTIVE'); filters.push(`p.active=$${values.length}`); }
       const reservations = hasReservations ? `LEFT JOIN (SELECT product_id,sum(quantity) reserved FROM pos_online_reservations
         WHERE business_id=$1 AND state='RESERVED' GROUP BY product_id) r ON r.product_id=p.id` : '';
-      const products = (await c.query(`SELECT p.sku,p.barcode,p.name,p.category,p.uom,p.selling_price,p.reference_purchase_price,p.active,
+      const products = (await c.query(`SELECT p.sku,p.barcode,p.name,p.category,p.uom,p.selling_price,${productPermissions.has(a.member,'PRODUCT_COST_VIEW') ? 'p.reference_purchase_price,' : ''}p.active,
         (coalesce(s.on_hand,0)-${hasReservations ? 'coalesce(r.reserved,0)' : '0'})::text available
         FROM pos_business_products p
         LEFT JOIN (SELECT product_id,sum(quantity) on_hand FROM pos_inventory_movements WHERE business_id=$1 GROUP BY product_id) s ON s.product_id=p.id

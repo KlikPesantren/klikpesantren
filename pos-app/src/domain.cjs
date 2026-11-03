@@ -1,7 +1,5 @@
 const MAX = 9223372036854775807n;
-function rupiah(value) {
-  return `Rp${BigInt(value || 0).toLocaleString("id-ID")}`;
-}
+const { rupiah } = require('./moneyFormat.cjs');
 function money(value) {
   if (!/^(0|[1-9]\d*)$/.test(String(value))) throw Error("INVALID_MONEY");
   const n = BigInt(value);
@@ -55,6 +53,10 @@ class TestCredentialReader extends CredentialReader {
   }
 }
 const messages = {
+  STOCK_SNAPSHOT_STALE: "Stok berubah sejak daftar dimuat. Muat ulang stok dan hitung ulang sebelum mengirim dengan permintaan baru.",
+  STOCK_COUNT_UNCHANGED: "Hasil hitung sama dengan stok tercatat; tidak ada penyesuaian.",
+  OPNAME_CLIENT_UPDATE_REQUIRED: "Perbarui aplikasi untuk stok opname yang aman.",
+  PRODUCT_IDENTIFIER_POLICY_REQUIRED: "Perubahan SKU/barcode produk existing memerlukan kebijakan Owner; perubahan lain tidak disimpan.",
   UNKNOWN_CREDENTIAL: "Kartu tidak terdaftar.",
   AMBIGUOUS_CREDENTIAL: "Kartu memiliki konflik identitas. Hubungi admin.",
   MEMBERSHIP_INACTIVE: "Santri tidak aktif pada unit ini.",
@@ -65,7 +67,9 @@ const messages = {
   INSUFFICIENT_BALANCE: "Saldo tidak cukup.",
   INSUFFICIENT_TENDER: "Uang diterima kurang.",
   SHIFT_NOT_OPEN: "Shift sudah ditutup.",
-  SHIFT_ALREADY_OPEN: "Shift sudah terbuka. Muat ulang konteks.",
+  SHIFT_ALREADY_OPEN: "Shift Anda sudah terbuka. Muat ulang halaman Kasir.",
+  SHIFT_RESOURCE_IN_USE:
+    "Terminal atau laci kas sedang dipakai shift pengguna lain. Tutup shift tersebut atau pilih terminal/laci lain.",
   SHIFT_UNPAID_SALES:
     "Konfirmasikan atau batalkan transaksi tertunda sebelum tutup shift.",
   TERMINAL_DENIED: "Perangkat tidak diizinkan.",

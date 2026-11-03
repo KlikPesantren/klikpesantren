@@ -36,13 +36,13 @@ test("one terminal and drawer select automatically while multiple resources requ
   assert.deepEqual(shiftResourceChoice("foreign", [{ id: "a" }, { id: "b" }]), { selected: "", automatic: false, needsChoice: true });
 });
 
-test("readiness links are permission-derived and home shows only actionable incomplete steps", () => {
+test("readiness remains available for setup while home has no onboarding checklist", () => {
   const terminal = READINESS_ITEMS.find(([key]) => key === "terminal");
   const drawer = READINESS_ITEMS.find(([key]) => key === "cash_drawer");
   assert.deepEqual(terminal.slice(2), ["PENGATURAN", "BUSINESS_SETTINGS_MANAGE"]);
   assert.deepEqual(drawer.slice(2), ["PENGATURAN", "BUSINESS_SETTINGS_MANAGE"]);
-  assert.match(appSource, /!w\.readiness\[key\]&&can\(permission\)/);
-  assert.match(appSource, /value="BELUM"/);
+  assert.doesNotMatch(appSource, /Pengaturan yang perlu dilengkapi/);
+  assert.match(appSource, /cashierSetupState\(context\.terminals/);
   assert.deepEqual(READINESS_ITEMS.find(([key]) => key === "initialization").slice(1), ["Posisi awal usaha", "PENGATURAN", "BUSINESS_SETTINGS_MANAGE"]);
 });
 
